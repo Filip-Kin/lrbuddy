@@ -229,10 +229,20 @@ def dynamic_checks() -> None:
                             if burger.count() == 0 or not burger.is_visible():
                                 fail(f"{tag}: no hamburger button with aria-expanded at 390px")
                                 continue
+                            bb = burger.bounding_box() or {"x": 9999, "width": 0}
+                            if bb["x"] + bb["width"] / 2 > w / 2:
+                                fail(f"{tag}: hamburger is on the right (x={bb['x']:.0f}); it belongs on the left")
                             burger.click()
                             page.wait_for_timeout(250)
                             if burger.get_attribute("aria-expanded") != "true":
                                 fail(f"{tag}: hamburger click did not set aria-expanded=true")
+                            menu = page.locator("[data-menu]").first
+                            if menu.count() == 0:
+                                fail(f"{tag}: open menu has no [data-menu] panel")
+                            else:
+                                mb = menu.bounding_box() or {"x": 9999}
+                                if mb["x"] > 1:
+                                    fail(f"{tag}: menu panel opens from the right (x={mb['x']:.0f}); it slides in from the left")
                             page.keyboard.press("Escape")
                             page.wait_for_timeout(250)
                             if burger.get_attribute("aria-expanded") != "false":

@@ -1,7 +1,7 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { existsSync } from "node:fs";
 import { join, normalize } from "node:path";
-import { allowLogin, clearCookie, deleteSession, joinWithToken, loginWithCode, sessionCookie, sessionIdFrom } from "./auth.ts";
+import { allowLogin, clearCookie, deleteSession, joinWithToken, loginWithCode, sessionCookie, sessionIdFrom, setSessionName } from "./auth.ts";
 import { config } from "./config.ts";
 import { sqlite } from "./db/index.ts";
 import { appRouter } from "./routers/index.ts";
@@ -38,15 +38,22 @@ const serveStatic = async (pathname: string): Promise<Response> => {
 // #endregion
 
 // #region auth routes
-const readCode = async (req: Request): Promise<string> => {
+/** JSON body (or a form post) as string fields. */
+const readBody = async (req: Request): Promise<Record<string, string>> => {
+  const out: Record<string, string> = {};
   const type = req.headers.get("content-type") ?? "";
   if (type.includes("application/json")) {
     const body: unknown = await req.json().catch(() => null);
-    return typeof body === "object" && body !== null && typeof (body as { code?: unknown }).code === "string" ? (body as { code: string }).code : "";
+    if (typeof body === "object" && body !== null) {
+      for (const [k, v] of Object.entries(body)) if (typeof v === "string") out[k] = v;
+    }
+    return out;
   }
   const form = await req.formData().catch(() => null);
-  const v = form?.get("code");
-  return typeof v === "string" ? v : "";
+  form?.forEach((v, k) => {
+    if (typeof v === "string") out[k] = v;
+  });
+  return out;
 };
 // #endregion
 
@@ -69,11 +76,18 @@ const server = Bun.serve({
 
     if (path === "/auth/login" && req.method === "POST") {
       if (!allowLogin(clientIp(req, srv))) return json({ ok: false, error: "Too many tries" }, { status: 429 });
-      const code = await readCode(req);
-      const session = loginWithCode(code, req.headers.get("user-agent"));
+      const body = await readBody(req);
+      const session = loginWithCode(body.code ?? "", req.headers.get("user-agent"), body.displayName);
       if (!session) return json({ ok: false, error: "Unknown code" }, { status: 401 });
       deleteSession(sessionIdFrom(req));
       return json({ ok: true, role: session.role }, { headers: { "set-cookie": sessionCookie(session.id) } });
+    }
+
+    if (path === "/auth/name" && req.method === "POST") {
+      const body = await readBody(req);
+      const name = setSessionName(sessionIdFrom(req), body.displayName);
+      if (!name) return json({ ok: false, error: "Name required" }, { status: sessionIdFrom(req) ? 400 : 401 });
+      return json({ ok: true, displayName: name });
     }
 
     if (path === "/auth/logout" && req.method === "POST") {

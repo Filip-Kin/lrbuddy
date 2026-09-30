@@ -46,7 +46,19 @@ const eventOrActive = (eventId: number | null | undefined): number => eventId ??
 
 const toCsv = (rows: ReadonlyArray<Record<string, string | number | boolean | null>>): string => Papa.unparse(rows as object[]);
 
-const iso = (ms: number | null): string => (ms === null ? "" : new Date(ms).toISOString());
+const DETROIT = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "America/Detroit",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
+/** Detroit local time, "2026-09-28 14:05:09", for exports. */
+const iso = (ms: number | null): string => (ms === null ? "" : DETROIT.format(new Date(ms)));
 // #endregion
 
 // #region events and days

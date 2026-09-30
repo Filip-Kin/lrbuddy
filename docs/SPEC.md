@@ -97,20 +97,21 @@ days              id, event_id, date (YYYY-MM-DD), label ("Day 1"), sort
 command_centers   id, day_id, name, lat, lng, address, notes
 green_shirts      id, cc_id, name, phone, role_label ("Site lead")
 companies         id, event_id, name
-crews             id, day_id, cc_id, company_id, lead_name, lead_phone, token (unique, 20 chars url-safe),
-                  headcount, notes, last_seen_at
+crews             id, day_id, cc_id, company_id, number (per day, shown as "Crew 7"), lead_name, lead_phone,
+                  token (unique, 20 chars url-safe), headcount, notes, last_seen_at
 trucks            id, day_id, cc_id, name, driver_name, driver_phone, code (unique 6 chars, uppercase),
                   status ('idle'|'delivering'|'returning'|'offline'), last_seen_at
 green_codes       id, cc_id, code (unique 6 chars)          -- one code per CC, shown on the QR sheet
 sessions          id (text uuid PK), role ('admin'|'green'|'driver'|'crew'), crew_id, truck_id, cc_id,
                   display_name, created_at, last_used_at, user_agent
 request_types     id, event_id, key, label, unit ('case'|'box'|'can'|'each'|'roll'), priority (1 low, 2 normal, 3 urgent),
-                  tracks_stock (bool), sort, active
+                  tracks_stock (bool), default_capacity (stock a new truck gets), sort, active
 requests          id, crew_id (nullable), cc_id, day_id, type_id, qty, note,
                   created_by ('crew'|'green'), label (nullable, green-entered stop name such as "Corner of Harding and Warren"),
                   status ('open'|'assigned'|'en_route'|'delivered'|'cancelled'),
                   truck_id, created_at, assigned_at, en_route_at, delivered_at, cancelled_at,
-                  cancelled_by ('crew'|'green'|'driver'), lat, lng (crew position at creation; required when crew_id is null)
+                  cancelled_by ('crew'|'green'|'driver'), cancel_note (driver's reason),
+                  lat, lng (crew position at creation; required when crew_id is null)
 truck_stock       truck_id, type_id, qty, capacity        PK (truck_id, type_id)
 stock_moves       id, truck_id, type_id, delta, reason ('delivery'|'restock'|'adjust'), request_id, at
 positions         id, kind ('crew'|'truck'), ref_id, lat, lng, accuracy, heading, speed, at
@@ -122,7 +123,9 @@ lots              id, event_id, parcel_id, address, lat, lng, source ('dlba'|'cs
 push_subscriptions id, session_id, endpoint (unique), p256dh, auth, created_at
 broadcasts        id, cc_id, day_id, body, sent_by (session display_name), at
 routes            truck_id PK, computed_at, stop_order (json array of request ids), geometry (json [[lat,lng]...]),
-                  distance_m, duration_s, ends_at_cc (bool), engine ('osrm'|'fallback')
+                  legs (json [{key, crewId, requestIds, lat, lng, etaS, distanceM}] in visit order, cumulative;
+                  key is 'crew:<id>', 'req:<id>' or 'cc'), distance_m, duration_s, ends_at_cc (bool),
+                  engine ('osrm'|'fallback'), origin_lat, origin_lng (truck position used, for the 250 m check)
 ```
 
 Default request types seeded for every new event, in this order:
@@ -169,7 +172,8 @@ No accounts, no Firebase. A session cookie names a role and a scope.
 ## 5. Screens
 
 Every role gets the same shell: a top bar with the app name and the role's scope ("Crew 7, Ford, CC East"),
-a hamburger below 860 px with `aria-expanded`, closes on route change, Escape and scrim tap.
+a hamburger at the left end of the bar below 860 px with `aria-expanded`, panel sliding in from the left,
+closes on route change, Escape and scrim tap.
 Above 860 px the links sit in the bar. Light and dark follow `prefers-color-scheme`. All copy follows
 the `ui-copy` skill: labels, not sentences. No "you", no "we", no explaining paragraphs.
 
@@ -221,7 +225,9 @@ all its requests and decrements stock by each qty (floor at 0).
 | `/admin/print` | Print sheet: one page per crew with a QR to `/j/<token>`, crew, company, CC, day, the CC's green shirts and phones, plus one page per CC with the green code and each truck code. `@media print` styles. |
 | `/admin/export` | CSV downloads: requests, lots, positions, stock moves for the active event. |
 
-Admin can open any green view by picking a CC (`/green?cc=<id>` allowed for admin only).
+Admin can open any green view by picking a CC at `/admin/green`, which links to `/green?cc=<id>`
+(admin only). The client sends the CC as header `x-lrb-cc` and as SSE connection param `cc`; the
+server honours it for admin sessions only.
 
 ## 6. Realtime
 
@@ -239,10 +245,10 @@ broadcast         { broadcast }
 
 Subscriptions (all scoped by the session):
 
-- `shared.onCc` — everything for the session's CC; greens, drivers and crews all use this one feed and
+- `shared.onCc`: everything for the session's CC; greens, drivers and crews all use this one feed and
   filter client side. Yields `{ type, payload }`.
-- `driver.onRoute` — route changes for my truck.
-- `crew.onMine` — my requests, my lots.
+- `driver.onRoute`: route changes for my truck.
+- `crew.onMine`: my requests, my lots.
 
 Clients treat the subscription as a cache invalidation signal plus payload; on reconnect they refetch.
 Positions are throttled server side to one broadcast per entity per 5 s.
@@ -396,9 +402,10 @@ Each of these has been called out on an earlier app. The gate checks them mechan
 says why.
 
 Phone
-- Below 860 px the nav is a hamburger: `button[aria-expanded]`, opens a panel, closes on Escape, on
-  route change, and on tapping a `[data-scrim]` element. Above 860 px the links are inline and the
-  button is hidden. The bar keeps only the brand, the scope chip and the button.
+- Below 860 px the nav is a hamburger: `button[aria-expanded]` at the LEFT end of the bar, opening a
+  `[data-menu]` panel that slides in from the left edge, closes on Escape, on route change, and on
+  tapping a `[data-scrim]` element. Above 860 px the links are inline and the button is hidden. The
+  bar order on a phone is: hamburger, brand, scope chip. Never put the hamburger on the right.
 - `scrollWidth == clientWidth` at 390 px on every route. Long addresses wrap or truncate, tables
   scroll inside their own container, maps are `width: 100%`.
 - Tap targets: primary buttons at least 44 px tall, nothing tappable under 40 px. Inputs at 16 px

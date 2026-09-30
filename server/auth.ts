@@ -88,29 +88,46 @@ const safeEqual = (a: string, b: string): boolean => {
   return ab.length === bb.length && timingSafeEqual(ab, bb);
 };
 
-/** Tries the admin password, then a truck code, then a green code. */
-export const loginWithCode = (raw: string, userAgent: string | null): Session | null => {
+const cleanName = (n: string | null | undefined): string | null => {
+  const v = n?.trim().slice(0, 60);
+  return v ? v : null;
+};
+
+/**
+ * Tries the admin password, then a truck code, then a green code, then a crew
+ * token. `displayName` names the session when given.
+ */
+export const loginWithCode = (raw: string, userAgent: string | null, displayName?: string | null): Session | null => {
   const code = raw.trim();
   if (!code) return null;
+  const name = cleanName(displayName);
   if (safeEqual(code, config.adminPassword)) {
-    return createSession({ role: "admin", displayName: "Admin", userAgent });
+    return createSession({ role: "admin", displayName: name ?? "Admin", userAgent });
   }
   const upper = code.toUpperCase();
   const truck = db.select().from(trucks).where(eq(trucks.code, upper)).get();
   if (truck) {
-    return createSession({ role: "driver", truckId: truck.id, ccId: truck.ccId, displayName: truck.driverName, userAgent });
+    return createSession({ role: "driver", truckId: truck.id, ccId: truck.ccId, displayName: name ?? truck.driverName, userAgent });
   }
   const green = db.select().from(greenCodes).where(eq(greenCodes.code, upper)).get();
   if (green) {
-    return createSession({ role: "green", ccId: green.ccId, displayName: "Green shirt", userAgent });
+    return createSession({ role: "green", ccId: green.ccId, displayName: name ?? "Green shirt", userAgent });
   }
-  return null;
+  return joinWithToken(code, userAgent, name);
 };
 
-export const joinWithToken = (token: string, userAgent: string | null): Session | null => {
+export const joinWithToken = (token: string, userAgent: string | null, displayName?: string | null): Session | null => {
   const crew = db.select().from(crews).where(eq(crews.token, token)).get();
   if (!crew) return null;
-  return createSession({ role: "crew", crewId: crew.id, ccId: crew.ccId, userAgent });
+  return createSession({ role: "crew", crewId: crew.id, ccId: crew.ccId, displayName: cleanName(displayName), userAgent });
+};
+
+/** Renames the session. Returns the stored name, or null when the session is gone or the name is empty. */
+export const setSessionName = (sessionId: string | null, displayName: string | null | undefined): string | null => {
+  const name = cleanName(displayName);
+  if (!sessionId || !name) return null;
+  const row = db.update(sessions).set({ displayName: name }).where(eq(sessions.id, sessionId)).returning({ id: sessions.id }).get();
+  return row ? name : null;
 };
 // #endregion
 

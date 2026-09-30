@@ -1,0 +1,157 @@
+import { useEffect, useSyncExternalStore } from "react";
+import { api } from "./trpc.ts";
+
+export type LocationStatus = "off" | "waiting" | "on" | "denied" | "unavailable";
+
+const MIN_MOVE_M = 15;
+const MAX_GAP_MS = 30_000;
+
+// #region store
+let status: LocationStatus = "off";
+let last: { lat: number; lng: number; accuracy: number | null; at: number } | null = null;
+const listeners = new Set<() => void>();
+const emit = (): void => listeners.forEach((l) => l());
+const setStatus = (s: LocationStatus): void => {
+  if (s !== status) {
+    status = s;
+    emit();
+  }
+};
+const snapshot = { get: (): LocationStatus => status };
+
+export const useLocationStatus = (): LocationStatus =>
+  useSyncExternalStore(
+    (cb) => {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    snapshot.get,
+    snapshot.get,
+  );
+
+let lastFix: { lat: number; lng: number; accuracy: number | null } | null = null;
+/** Latest fix from this device, for drawing the blue dot without a round trip. */
+export const useMyFix = () =>
+  useSyncExternalStore(
+    (cb) => {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    () => lastFix,
+    () => lastFix,
+  );
+// #endregion
+
+const distM = (a: { lat: number; lng: number }, b: { lat: number; lng: number }): number => {
+  const r = (d: number) => (d * Math.PI) / 180;
+  const dLat = r(b.lat - a.lat);
+  const dLng = r(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371008.8 * Math.asin(Math.min(1, Math.sqrt(h)));
+};
+
+/**
+ * Watches the device position while the page is visible and posts it to
+ * `shared.position` after 15 m of movement or 30 s, whichever comes first.
+ * Crew and driver only; pass `enabled=false` for other roles.
+ */
+export const usePositionReporter = (enabled: boolean): void => {
+  useEffect(() => {
+    if (!enabled) return;
+    if (!("geolocation" in navigator)) {
+      setStatus("unavailable");
+      return;
+    }
+    let watchId: number | null = null;
+    let pending: GeolocationPosition | null = null;
+    let sending = false;
+
+    const send = async (pos: GeolocationPosition): Promise<void> => {
+      if (sending) {
+        pending = pos;
+        return;
+      }
+      sending = true;
+      const c = pos.coords;
+      try {
+        await api.shared.position.mutate({
+          lat: c.latitude,
+          lng: c.longitude,
+          accuracy: Number.isFinite(c.accuracy) ? c.accuracy : null,
+          heading: c.heading !== null && Number.isFinite(c.heading) ? c.heading : null,
+          speed: c.speed !== null && Number.isFinite(c.speed) ? c.speed : null,
+        });
+        last = { lat: c.latitude, lng: c.longitude, accuracy: c.accuracy, at: Date.now() };
+      } catch {
+        // Next fix tries again.
+      } finally {
+        sending = false;
+        const next = pending;
+        pending = null;
+        if (next) void send(next);
+      }
+    };
+
+    const onFix = (pos: GeolocationPosition): void => {
+      setStatus("on");
+      lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+      emit();
+      const here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      if (!last || distM(last, here) >= MIN_MOVE_M || Date.now() - last.at >= MAX_GAP_MS) void send(pos);
+    };
+
+    const onError = (err: GeolocationPositionError): void => {
+      setStatus(err.code === err.PERMISSION_DENIED ? "denied" : "unavailable");
+    };
+
+    const start = (): void => {
+      if (watchId !== null) return;
+      setStatus(status === "on" ? "on" : "waiting");
+      watchId = navigator.geolocation.watchPosition(onFix, onError, { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 });
+    };
+    const stop = (): void => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    };
+
+    // watchPosition only fires on movement; a stationary crew still posts every 30 s.
+    const heartbeat = window.setInterval(() => {
+      if (document.visibilityState !== "visible" || watchId === null) return;
+      navigator.geolocation.getCurrentPosition(onFix, () => undefined, { maximumAge: 20_000, timeout: 20_000 });
+    }, MAX_GAP_MS);
+
+    const onVisibility = (): void => {
+      if (document.visibilityState === "visible") start();
+      else stop();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    if (document.visibilityState === "visible") start();
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.clearInterval(heartbeat);
+      stop();
+    };
+  }, [enabled]);
+};
+
+export type LocationPermission = "granted" | "prompt" | "denied" | "unknown";
+
+/** Browser permission for geolocation, for the settings Location row. iOS re-asks often. */
+export const locationPermission = async (): Promise<LocationPermission> => {
+  try {
+    const p = await navigator.permissions.query({ name: "geolocation" });
+    return p.state;
+  } catch {
+    return "unknown";
+  }
+};
+
+/** Location row labels. Web apps only get GPS while open. */
+export const LOCATION_LABELS: Record<LocationStatus, string> = {
+  on: "On while open",
+  waiting: "Waiting for GPS",
+  off: "Off",
+  denied: "Blocked in browser settings",
+  unavailable: "Not available",
+};

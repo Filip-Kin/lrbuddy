@@ -11,7 +11,6 @@ import {
   days,
   events,
   positions,
-  sessions,
   trucks,
   type CommandCenter,
   type Company,
@@ -118,11 +117,6 @@ export const sharedRouter = router({
       return { role: "green", displayName: s.displayName, scope: parts.join(", "), crew: null, truck: null, ...scope };
     }
     return { role: "anon" };
-  }),
-
-  setDisplayName: authedProcedure.input(z.object({ name: z.string().trim().min(1).max(60) })).mutation(({ ctx, input }) => {
-    db.update(sessions).set({ displayName: input.name }).where(eq(sessions.id, ctx.session.id)).run();
-    return { displayName: input.name };
   }),
 
   position: authedProcedure

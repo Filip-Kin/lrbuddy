@@ -77,8 +77,17 @@ const RectSheet = ({
   const inside = useMemo(() => (bbox ? lots.filter((l) => inBBox(l, bbox)) : []), [lots, bbox]);
   const [ccId, setCcId] = useState<number | "none">("none");
   useEffect(() => {
-    if (open) setCcId(ccs[0]?.id ?? "none");
-  }, [open, ccs]);
+    if (open) setCcId(action === "assign" ? (ccs[0]?.id ?? "none") : "none");
+  }, [open, action, ccs]);
+  const ccName = ccId === "none" ? null : (ccs.find((c) => c.id === ccId)?.name ?? null);
+  const assignedText = (n: number): string => (ccName && n > 0 ? `, ${plural(n, "lot")} to CC ${ccName}` : "");
+  const ccSelect = (label: string) => (
+    <Select label={label} value={ccId} onChange={(e) => setCcId(e.target.value === "none" ? "none" : Number(e.target.value))}>
+      <option value="none">No CC</option>
+      <CcOptions ccs={ccs} />
+    </Select>
+  );
+  const importCc = ccId === "none" ? null : ccId;
 
   const refresh = (): void => {
     void utils.admin.lots.invalidate();
@@ -97,13 +106,13 @@ const RectSheet = ({
       finish(
         r.fetched === 0
           ? "No Land Bank lots in that area"
-          : `${plural(r.added, "lot")} added, ${r.updated.toLocaleString("en-US")} updated, ${r.outlines.toLocaleString("en-US")} outlines`,
+          : `${plural(r.added, "lot")} added, ${r.updated.toLocaleString("en-US")} updated, ${r.outlines.toLocaleString("en-US")} outlines${assignedText(r.assigned)}`,
       ),
     onError: fail,
   });
   const vacantCount = trpc.admin.lots.countVacant.useQuery({ bbox: bbox ?? [0, 0, 0, 0] }, { enabled: open && action === "vacant" && !tooBig, retry: false, staleTime: 60_000 });
   const vacant = trpc.admin.lots.importVacant.useMutation({
-    onSuccess: (r) => finish(`${plural(r.added, "lot")} added, ${r.updated.toLocaleString("en-US")} updated`),
+    onSuccess: (r) => finish(`${plural(r.added, "lot")} added, ${r.updated.toLocaleString("en-US")} updated${assignedText(r.assigned)}`),
     onError: fail,
   });
   const assign = trpc.admin.lots.assignCc.useMutation({
@@ -130,9 +139,14 @@ const RectSheet = ({
       </Button>
     );
   } else if (action === "dlba") {
-    body = <Stat value={plural(inside.length, "lot")} label="Already in this area" />;
+    body = (
+      <div className="space-y-4">
+        <Stat value={plural(inside.length, "lot")} label="Already in this area" />
+        {ccSelect("Command center")}
+      </div>
+    );
     footer = (
-      <Button block size="lg" busy={dlba.isPending} onClick={() => dlba.mutate({ bbox })}>
+      <Button block size="lg" busy={dlba.isPending} onClick={() => dlba.mutate({ bbox, ccId: importCc })}>
         Import Land Bank lots
       </Button>
     );
@@ -143,13 +157,16 @@ const RectSheet = ({
     ) : vacantCount.error ? (
       <p className="font-semibold">Parcel layer not answering. Try again in a minute.</p>
     ) : (
-      <div className="grid grid-cols-2 gap-2">
-        <Stat value={n ?? 0} label="Residential vacant" />
-        <Stat value={inside.length} label="Lots already here" />
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-2">
+          <Stat value={n ?? 0} label="Residential vacant" />
+          <Stat value={inside.length} label="Lots already here" />
+        </div>
+        {ccSelect("Command center")}
       </div>
     );
     footer = (
-      <Button block size="lg" busy={vacant.isPending} disabled={!n} onClick={() => vacant.mutate({ bbox })}>
+      <Button block size="lg" busy={vacant.isPending} disabled={!n} onClick={() => vacant.mutate({ bbox, ccId: importCc })}>
         {n ? `Import ${plural(n, "parcel")}` : "Nothing to import"}
       </Button>
     );
@@ -157,10 +174,7 @@ const RectSheet = ({
     body = (
       <div className="space-y-4">
         <Stat value={plural(inside.length, "lot")} label="In this area" />
-        <Select label="Command center" value={ccId} onChange={(e) => setCcId(e.target.value === "none" ? "none" : Number(e.target.value))}>
-          <option value="none">No CC</option>
-          <CcOptions ccs={ccs} />
-        </Select>
+        {ccSelect("Command center")}
       </div>
     );
     footer = (

@@ -597,15 +597,25 @@ const lotsRouter = router({
     const unassigned = db.select({ n: sql<number>`count(*)` }).from(lots).where(and(eq(lots.eventId, eventId), sql`${lots.ccId} is null`)).get();
     return { bySource, byStatus, unassigned: unassigned?.n ?? 0 };
   }),
-  importDlba: adminProcedure.input(z.object({ bbox: bboxInput, eventId: id.nullish(), limit: z.number().int().min(1).max(20000).optional() })).mutation(async ({ input }) => {
-    const [w, s, e, n] = normalizeBBox(input.bbox);
-    if (e - w > 0.3 || n - s > 0.3) throw new TRPCError({ code: "BAD_REQUEST", message: "Area too large" });
-    try {
-      return await importDlba(eventOrActive(input.eventId), [w, s, e, n], { limit: input.limit });
-    } catch (err) {
-      throw new TRPCError({ code: "BAD_GATEWAY", message: "Land Bank unavailable", cause: err });
-    }
-  }),
+  /** Land Bank lots in the rectangle; with `ccId`, lots in it that have no CC go to that CC. */
+  importDlba: adminProcedure
+    .input(z.object({ bbox: bboxInput, ccId: id.nullish(), eventId: id.nullish(), limit: z.number().int().min(1).max(20000).optional() }))
+    .mutation(async ({ input }) => {
+      const [w, s, e, n] = normalizeBBox(input.bbox);
+      if (e - w > 0.3 || n - s > 0.3) throw new TRPCError({ code: "BAD_REQUEST", message: "Area too large" });
+      const eventId = eventOrActive(input.eventId);
+      if (input.ccId != null && eventOfCc(getCcOrThrow(input.ccId)) !== eventId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Command center is in another event" });
+      }
+      let res: Awaited<ReturnType<typeof importDlba>>;
+      try {
+        res = await importDlba(eventId, [w, s, e, n], { limit: input.limit });
+      } catch (err) {
+        throw new TRPCError({ code: "BAD_GATEWAY", message: "Land Bank unavailable", cause: err });
+      }
+      const assigned = input.ccId != null ? assignLotsToCcByBBox(eventId, [w, s, e, n], input.ccId, true) : 0;
+      return { ...res, assigned };
+    }),
   /** Residential vacant parcels in the rectangle, counted before an import. */
   countVacant: adminProcedure.input(z.object({ bbox: bboxInput })).query(async ({ input }) => {
     try {
@@ -615,15 +625,22 @@ const lotsRouter = router({
     }
   }),
   importVacant: adminProcedure
-    .input(z.object({ bbox: bboxInput, eventId: id.nullish(), limit: z.number().int().min(1).max(20000).optional() }))
+    .input(z.object({ bbox: bboxInput, ccId: id.nullish(), eventId: id.nullish(), limit: z.number().int().min(1).max(20000).optional() }))
     .mutation(async ({ input }) => {
       const [w, s, e, n] = normalizeBBox(input.bbox);
       if (e - w > 0.3 || n - s > 0.3) throw new TRPCError({ code: "BAD_REQUEST", message: "Area too large" });
+      const eventId = eventOrActive(input.eventId);
+      if (input.ccId != null && eventOfCc(getCcOrThrow(input.ccId)) !== eventId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Command center is in another event" });
+      }
+      let res: Awaited<ReturnType<typeof importVacantParcels>>;
       try {
-        return await importVacantParcels(eventOrActive(input.eventId), [w, s, e, n], { limit: input.limit });
+        res = await importVacantParcels(eventId, [w, s, e, n], { limit: input.limit });
       } catch (err) {
         throw new TRPCError({ code: "BAD_GATEWAY", message: "Parcel layer unavailable", cause: err });
       }
+      const assigned = input.ccId != null ? assignLotsToCcByBBox(eventId, [w, s, e, n], input.ccId, true) : 0;
+      return { ...res, assigned };
     }),
   importCsv: adminProcedure.input(z.object({ csv: z.string().max(5_000_000), eventId: id.nullish() })).mutation(async ({ input }) => {
     const res = await importLotsCsv(eventOrActive(input.eventId), input.csv);

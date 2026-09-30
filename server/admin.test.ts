@@ -182,6 +182,18 @@ describe("lots", () => {
     expect(await admin.lots.deleteInBBox({ bbox: box })).toEqual({ deleted: 2 });
     expect((await admin.lots.list()).map((l) => l.parcelId)).toEqual(["OUT."]);
   });
+
+  test("an import's CC only takes lots in the area that have no CC", async () => {
+    const { assignLotsToCcByBBox } = await import("./lots-import.ts");
+    addLot(42.378, -82.99, "FREE.");
+    const taken = addLot(42.379, -82.991, "WEST.");
+    db.update(s.lots).set({ ccId: w.west }).where(eq(s.lots.id, taken.id)).run();
+    const box: [number, number, number, number] = [-82.995, 42.375, -82.985, 42.382];
+    expect(assignLotsToCcByBBox(w.eventId, box, w.east, true)).toBe(1);
+    const byParcel = new Map((await admin.lots.list()).map((l) => [l.parcelId, l.ccId]));
+    expect(byParcel.get("FREE.")).toBe(w.east);
+    expect(byParcel.get("WEST.")).toBe(w.west);
+  });
 });
 
 describe("catalog", () => {

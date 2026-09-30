@@ -448,21 +448,33 @@ export const addManualLot = async (
   return lot;
 };
 
-/** Sets the CC of every lot of the event inside the bbox. Clears the crew when the CC changes. */
-export const assignLotsToCcByBBox = (eventId: number, bbox: BBox, ccId: number | null): number => {
+/**
+ * Sets the CC of every lot of the event inside the bbox (only lots with no CC
+ * when `onlyUnassigned`). Clears the crew when the CC changes. Emits one
+ * lot.changed per CC that gained or lost lots, which is enough for every
+ * screen at that CC to refetch.
+ */
+export const assignLotsToCcByBBox = (eventId: number, bbox: BBox, ccId: number | null, onlyUnassigned = false): number => {
   const [w, s, e, n] = normalizeBBox(bbox);
+  const where = and(
+    eq(lots.eventId, eventId),
+    sql`${lots.lng} between ${w} and ${e}`,
+    sql`${lots.lat} between ${s} and ${n}`,
+    onlyUnassigned ? isNull(lots.ccId) : undefined,
+  );
+  const before = db.selectDistinct({ ccId: lots.ccId }).from(lots).where(where).all();
   const res = db
     .update(lots)
     .set({ ccId, crewId: sql`case when ${lots.ccId} is ${ccId} then ${lots.crewId} else null end` })
-    .where(
-      and(
-        eq(lots.eventId, eventId),
-        sql`${lots.lng} between ${w} and ${e}`,
-        sql`${lots.lat} between ${s} and ${n}`,
-      ),
-    )
-    .returning({ id: lots.id })
+    .where(where)
+    .returning()
     .all();
+  const first = res[0];
+  if (first) {
+    const touched = new Set<number>(before.map((b) => b.ccId).filter((c): c is number => c !== null && c !== ccId));
+    for (const cc of touched) emitLot({ ...first, ccId: cc });
+    emitLot(first);
+  }
   return res.length;
 };
 // #endregion

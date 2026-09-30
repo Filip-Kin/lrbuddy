@@ -141,11 +141,8 @@
   box-shadow: 0 0 0 2px rgb(47 128 237 / 0.35), 0 1px 4px rgb(0 0 0 / 0.4);
 }
 
-.lrb-crew,
-.lrb-truck,
-.lrb-cc {
-  position: relative;
-}
+/* Marker icons are already position: absolute (.leaflet-marker-icon), which anchors the name tag.
+   Never set position on them here: this file loads after leaflet.css and would win. */
 .lrb-crew .lrb-crew-dot {
   display: block;
   width: 18px;

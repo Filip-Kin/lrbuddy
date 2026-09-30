@@ -4,11 +4,12 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field } from "../../components/Field.tsx";
 import { Page } from "../../components/Page.tsx";
 import { Sheet } from "../../components/Sheet.tsx";
-import { Confirm } from "../../components/admin/Confirm.tsx";
+import { ConfirmSheet } from "../../components/ConfirmSheet.tsx";
 import { plural } from "../../components/admin/format.ts";
 import { EditIcon, PlusIcon } from "../../components/admin/icons.tsx";
 import { errorText, Notice, type NoticeValue } from "../../components/admin/Notice.tsx";
-import { Panel, Skeleton } from "../../components/admin/Panel.tsx";
+import { Panel } from "../../components/Panel.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
 type Company = RouterOutputs["admin"]["companies"]["list"][number];
@@ -68,7 +69,7 @@ const RenameSheet = ({ company, onClose, notify }: { company: Company | null; on
           {rename.error && <p role="alert" className="text-sm font-semibold">{errorText(rename.error)}</p>}
         </form>
       </Sheet>
-      <Confirm
+      <ConfirmSheet
         open={company !== null && confirmDelete}
         title={`Remove ${company?.name ?? "company"}`}
         body={company && company.crewCount > 0 ? `${plural(company.crewCount, "crew")} left with no company` : undefined}
@@ -125,7 +126,7 @@ export const CompaniesPage = () => {
         <Notice value={notice} onClear={clear} />
         <Panel flush title={rows.length > 0 ? plural(rows.length, "company", "companies") : undefined}>
           {list.isLoading ? (
-            <Skeleton rows={4} className="p-4" />
+            <div className="p-4"><SkeletonList rows={4} className="h-14" /></div>
           ) : noEvent ? (
             <EmptyState title="No active event" />
           ) : rows.length === 0 ? (

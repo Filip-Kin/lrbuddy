@@ -4,7 +4,7 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { lotTitle, type CrewLot } from "../../components/crew/format.ts";
 import { DirectionsIcon } from "../../components/crew/Icons.tsx";
 import { LotStatusControl, useLotStatus, type LotStatus } from "../../components/crew/LotStatusControl.tsx";
-import { SkeletonList } from "../../components/crew/Skeleton.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
 import { Page } from "../../components/Page.tsx";
 import { lotPill, StatusPill } from "../../components/StatusPill.tsx";
 import { distance, mapsDirections } from "../../lib/format.ts";

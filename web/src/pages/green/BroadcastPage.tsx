@@ -3,7 +3,8 @@ import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { TextArea } from "../../components/Field.tsx";
 import { errorText, useGreenInvalidate, useNow } from "../../components/green/hooks.ts";
-import { SendIcon, SkeletonList, useFlash } from "../../components/green/ui.tsx";
+import { SendIcon, useFlash } from "../../components/green/ui.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
 import { ago, clock } from "../../lib/format.ts";
 import { trpc } from "../../lib/trpc.ts";
 

@@ -26,15 +26,6 @@ export const Panel = ({
   </section>
 );
 
-/** Quiet loading block: grey bars in the shape of the content. */
-export const Skeleton = ({ rows = 3, className = "" }: { rows?: number; className?: string }) => (
-  <div className={`space-y-3 ${className}`} aria-busy="true" aria-label="Loading">
-    {Array.from({ length: rows }, (_, i) => (
-      <div key={i} className="h-14 animate-pulse rounded-2xl bg-surface-2" />
-    ))}
-  </div>
-);
-
 /** A number over a label, for count strips. */
 export const Stat = ({ value, label, tone }: { value: number | string; label: string; tone?: "brand" | "green" | "warn" | "crew" | "muted" }) => {
   const dot =

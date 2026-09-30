@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
-import { Card, Skeleton } from "../../components/green/ui.tsx";
+import { Card } from "../../components/green/ui.tsx";
+import { Skeleton } from "../../components/Skeleton.tsx";
 import { duration } from "../../lib/format.ts";
 import { trpc } from "../../lib/trpc.ts";
 

@@ -5,14 +5,15 @@ import { Field, Select, TextArea } from "../../components/Field.tsx";
 import { Page } from "../../components/Page.tsx";
 import { Sheet } from "../../components/Sheet.tsx";
 import { lotPill, StatusPill } from "../../components/StatusPill.tsx";
-import { Chips } from "../../components/admin/Chips.tsx";
+import { Chips } from "../../components/Segmented.tsx";
 import { plural, SOURCE_LABEL } from "../../components/admin/format.ts";
 import { PinIcon, RectIcon, TrashIcon, UploadIcon } from "../../components/admin/icons.tsx";
 import { MapMode } from "../../components/admin/MapMode.tsx";
 import { errorText, Notice, type NoticeValue } from "../../components/admin/Notice.tsx";
-import { Panel, Skeleton, Stat } from "../../components/admin/Panel.tsx";
+import { Panel, Stat } from "../../components/Panel.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
 import { bboxText, inBBox, useRectDraw, type BBox } from "../../components/admin/rect.ts";
-import { Segmented } from "../../components/admin/Segmented.tsx";
+import { Segmented } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
@@ -518,7 +519,7 @@ export const LotsPage = () => {
           <div className="space-y-4">
             <Panel title={counts.data ? plural(lots.length, "lot") : "Lots"}>
               {counts.isLoading ? (
-                <Skeleton rows={2} />
+                <SkeletonList rows={2} className="h-14" />
               ) : (
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-2">

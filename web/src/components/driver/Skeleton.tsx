@@ -1,4 +1,4 @@
-const Block = ({ className }: { className: string }) => <div className={`animate-pulse rounded-2xl bg-surface-2 ${className}`} />;
+import { Skeleton as Block } from "../Skeleton.tsx";
 
 /** Quiet placeholder while the queue loads: the shape of a stop card and two rows. */
 export const QueueSkeleton = () => (

@@ -43,6 +43,7 @@ const invalidate = (utils: Utils, kind: Kind): void => {
       void utils.crew.map.invalidate();
       void utils.green.lots.invalidate();
       void utils.green.overview.invalidate();
+      void utils.green.stats.invalidate();
       break;
     case "stock":
       void utils.driver.stock.invalidate();

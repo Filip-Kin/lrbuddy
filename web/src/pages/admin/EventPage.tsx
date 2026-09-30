@@ -10,8 +10,9 @@ import { StatusPill } from "../../components/StatusPill.tsx";
 import { dateRange, dayDate, plural } from "../../components/admin/format.ts";
 import { ChevronIcon, PlusIcon } from "../../components/admin/icons.tsx";
 import { errorText, Notice, type NoticeValue } from "../../components/admin/Notice.tsx";
-import { Panel, Skeleton, Stat } from "../../components/admin/Panel.tsx";
-import { Toggle } from "../../components/admin/Toggle.tsx";
+import { Panel, Stat } from "../../components/Panel.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
+import { Switch } from "../../components/Switch.tsx";
 import { trpc } from "../../lib/trpc.ts";
 
 const todayYmd = (): string => new Date().toLocaleDateString("sv-SE", { timeZone: "America/Detroit" });
@@ -62,7 +63,7 @@ const NewEventSheet = ({ open, onClose, hasActive, onDone }: { open: boolean; on
           <span className="block text-sm font-semibold">Days</span>
           <QtyStepper value={count} onChange={setCount} min={1} max={14} label="Days" size="md" />
         </div>
-        {hasActive && <Toggle label="Make active" checked={active} onChange={setActive} />}
+        {hasActive && <Switch label="Make active" checked={active} onChange={setActive} />}
         {create.error && <p role="alert" className="text-sm font-semibold">{errorText(create.error)}</p>}
       </form>
     </Sheet>
@@ -95,7 +96,7 @@ export const EventPage = () => {
   if (overview.isLoading || events.isLoading) {
     return (
       <Page title="Event">
-        <Skeleton rows={4} />
+        <SkeletonList rows={4} className="h-14" />
       </Page>
     );
   }

@@ -2,10 +2,11 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Page } from "../../components/Page.tsx";
-import { Chips } from "../../components/admin/Chips.tsx";
+import { Chips } from "../../components/Segmented.tsx";
 import { dayDate, phoneText, plural } from "../../components/admin/format.ts";
 import { PrintIcon } from "../../components/admin/icons.tsx";
-import { Panel, Skeleton } from "../../components/admin/Panel.tsx";
+import { Panel } from "../../components/Panel.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
 import { useMe } from "../../lib/session.ts";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 import { useDayParam } from "./useDayParam.ts";
@@ -161,7 +162,7 @@ export const PrintPage = () => {
   if (loading) {
     return (
       <Page title="Print" wide>
-        <Skeleton rows={3} />
+        <SkeletonList rows={3} className="h-14" />
       </Page>
     );
   }

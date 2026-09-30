@@ -8,9 +8,10 @@ import { StatusPill } from "../../components/StatusPill.tsx";
 import { plural, PRIORITY_LABEL, UNIT_LABEL } from "../../components/admin/format.ts";
 import { DownIcon, PlusIcon, UpIcon } from "../../components/admin/icons.tsx";
 import { errorText, Notice, type NoticeValue } from "../../components/admin/Notice.tsx";
-import { Panel, Skeleton } from "../../components/admin/Panel.tsx";
-import { Segmented } from "../../components/admin/Segmented.tsx";
-import { Toggle } from "../../components/admin/Toggle.tsx";
+import { Panel } from "../../components/Panel.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
+import { Segmented } from "../../components/Segmented.tsx";
+import { Switch } from "../../components/Switch.tsx";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
 type Item = RouterOutputs["admin"]["catalog"]["list"][number];
@@ -88,7 +89,7 @@ const ItemSheet = ({ item, open, onClose, notify }: { item: Item | null; open: b
           <span className="block text-sm font-semibold">Priority</span>
           <Segmented label="Priority" value={priority} options={PRIORITIES} onChange={(v) => setPriority(v)} />
         </div>
-        <Toggle label="Tracks stock" checked={tracks} onChange={setTracks} />
+        <Switch label="Tracks stock" checked={tracks} onChange={setTracks} />
         {tracks && (
           <Field
             label="Capacity per truck"
@@ -101,7 +102,7 @@ const ItemSheet = ({ item, open, onClose, notify }: { item: Item | null; open: b
             error={capOk ? null : "Whole number, 0 to 1000"}
           />
         )}
-        {item && <Toggle label="Active" checked={active} onChange={setActive} />}
+        {item && <Switch label="Active" checked={active} onChange={setActive} />}
         {err && <p role="alert" className="text-sm font-semibold">{errorText(err)}</p>}
       </form>
     </Sheet>
@@ -152,7 +153,7 @@ export const CatalogPage = () => {
         <Notice value={notice} onClear={clear} />
         <Panel flush title={rows.length ? `${plural(rows.filter((r) => r.active).length, "active item")}` : undefined}>
           {list.isLoading ? (
-            <Skeleton rows={6} className="p-4" />
+            <div className="p-4"><SkeletonList rows={6} className="h-14" /></div>
           ) : noEvent ? (
             <EmptyState title="No active event" />
           ) : rows.length === 0 ? (

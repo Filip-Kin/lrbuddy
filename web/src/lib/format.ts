@@ -9,7 +9,7 @@ export const duration = (ms: number): string => {
 };
 
 export const ago = (at: number | null | undefined, now = Date.now()): string =>
-  at == null ? "never" : duration(now - at) === "now" ? "now" : `${duration(now - at)} ago`;
+  at == null ? "Never" : duration(now - at) === "now" ? "now" : `${duration(now - at)} ago`;
 
 export const distance = (m: number): string => (m < 950 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
 

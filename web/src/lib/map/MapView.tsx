@@ -12,7 +12,7 @@ import {
   TILE_ATTRIB,
 } from "./basemap.ts";
 import type { LotGeometry } from "../../../../server/db/schema.ts";
-import { ccIcon, crewIcon, lotIcon, lotShape, meIcon, requestIcon, routeLine, stopIcon, truckIcon, type LotStatus } from "./markers.ts";
+import { ccIcon, crewIcon, lotIcon, lotShape, meIcon, requestIcon, routeLine, selectLine, stopIcon, truckIcon, type LotStatus } from "./markers.ts";
 
 // #region types
 interface Base {
@@ -31,15 +31,18 @@ export type MapMarker =
   | (Base & { kind: "me"; accuracy?: number | null })
   | (Base & { kind: "crew"; label: string; muted?: boolean })
   | (Base & { kind: "truck"; name: string; highlight?: boolean })
-  | (Base & { kind: "cc"; name: string })
-  /** Drawn as its parcel outline when `geometry` is set, else a small square. */
-  | (Base & { kind: "lot"; status: LotStatus; mine?: boolean; geometry?: LotGeometry | null })
+  /** `onDragEnd` makes the flag draggable (admin day map). */
+  | (Base & { kind: "cc"; name: string; onDragEnd?: (lat: number, lng: number) => void })
+  /** Drawn as its parcel outline when `geometry` is set, else a small square. `selected` adds a heavy ink outline. */
+  | (Base & { kind: "lot"; status: LotStatus; mine?: boolean; selected?: boolean; geometry?: LotGeometry | null })
   | (Base & { kind: "request"; urgent?: boolean })
   | (Base & { kind: "stop"; n: number; active?: boolean });
 
 export interface MapLine {
   id: string;
   points: Array<[number, number]>;
+  /** `route` is the thick driving line; `select` is a thin dashed outline for a drawn rectangle. */
+  style?: "route" | "select";
 }
 
 export interface MapViewProps {
@@ -86,13 +89,22 @@ const layerFor = (m: MapMarker): L.Layer => {
     case "truck":
       layer = L.marker(at, { icon: truckIcon(m.name, m.highlight), zIndexOffset: 600, title: m.title ?? m.name, alt: m.name });
       break;
-    case "cc":
-      layer = L.marker(at, { icon: ccIcon(m.name), zIndexOffset: 400, title: m.title ?? m.name, alt: m.name });
+    case "cc": {
+      const drag = m.onDragEnd;
+      const marker = L.marker(at, { icon: ccIcon(m.name), zIndexOffset: 400, title: m.title ?? m.name, alt: m.name, draggable: !!drag, autoPan: !!drag });
+      if (drag) {
+        marker.on("dragend", () => {
+          const p = marker.getLatLng();
+          drag(p.lat, p.lng);
+        });
+      }
+      layer = marker;
       break;
+    }
     case "lot":
       layer = m.geometry
-        ? lotShape(m.geometry, m.status, m.mine ?? true)
-        : L.marker(at, { icon: lotIcon(m.status, m.mine ?? true), zIndexOffset: -200, title: m.title, alt: m.title });
+        ? lotShape(m.geometry, m.status, m.mine ?? true, m.selected ?? false)
+        : L.marker(at, { icon: lotIcon(m.status, m.mine ?? true, m.selected ?? false), zIndexOffset: -200, title: m.title, alt: m.title });
       break;
     case "request":
       layer = L.marker(at, { icon: requestIcon(m.urgent ?? false), zIndexOffset: 150, interactive: !!m.onClick, keyboard: false });
@@ -171,7 +183,7 @@ export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, la
     const group = lineLayer.current;
     if (!group) return;
     group.clearLayers();
-    for (const l of lines) if (l.points.length > 1) group.addLayer(routeLine(l.points));
+    for (const l of lines) if (l.points.length > 1) group.addLayer(l.style === "select" ? selectLine(l.points) : routeLine(l.points));
   }, [lines]);
 
   useEffect(() => {

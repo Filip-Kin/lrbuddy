@@ -63,19 +63,19 @@ export const stopIcon = (n: number, active = false): L.DivIcon =>
   });
 
 /** Small square in the status colour inside a 28 px tap target. */
-export const lotIcon = (status: LotStatus, mine = true): L.DivIcon =>
+export const lotIcon = (status: LotStatus, mine = true, selected = false): L.DivIcon =>
   L.divIcon({
-    className: `lrb-lot lrb-lot-${status}${mine ? "" : " lrb-lot-other"}`,
+    className: `lrb-lot lrb-lot-${status}${mine ? "" : " lrb-lot-other"}${selected ? " lrb-lot-selected" : ""}`,
     html: "<span></span>",
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   });
 
 /** Parcel outline: 2 px stroke in the status colour, filled at 30 %. Colours come from CSS. */
-export const lotShape = (geometry: LotGeometry, status: LotStatus, mine = true): L.GeoJSON =>
+export const lotShape = (geometry: LotGeometry, status: LotStatus, mine = true, selected = false): L.GeoJSON =>
   L.geoJSON(geometry, {
     style: () => ({
-      className: `lrb-lot-shape lrb-lot-shape-${status}${mine ? "" : " lrb-lot-shape-other"}`,
+      className: `lrb-lot-shape lrb-lot-shape-${status}${mine ? "" : " lrb-lot-shape-other"}${selected ? " lrb-lot-shape-selected" : ""}`,
       weight: 2,
       fillOpacity: 0.3,
     }),
@@ -84,3 +84,7 @@ export const lotShape = (geometry: LotGeometry, status: LotStatus, mine = true):
 /** Route polyline in the ink colour (set by the `lrb-route` class so it follows the scheme). */
 export const routeLine = (points: Array<[number, number]>): L.Polyline =>
   L.polyline(points, { className: "lrb-route", weight: 5, opacity: 0.85, lineJoin: "round", interactive: false });
+
+/** Thin dashed ink outline for a rectangle drawn on the map. */
+export const selectLine = (points: Array<[number, number]>): L.Polyline =>
+  L.polyline(points, { className: "lrb-select", weight: 2, dashArray: "6 5", interactive: false });

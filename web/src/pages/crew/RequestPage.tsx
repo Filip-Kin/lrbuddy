@@ -5,7 +5,7 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { TextArea } from "../../components/Field.tsx";
 import { isActive, qtyText, unitLabel, type CrewRequest } from "../../components/crew/format.ts";
 import { TypeIcon } from "../../components/crew/Icons.tsx";
-import { Skeleton } from "../../components/crew/Skeleton.tsx";
+import { Skeleton } from "../../components/Skeleton.tsx";
 import { Page } from "../../components/Page.tsx";
 import { QtyStepper } from "../../components/QtyStepper.tsx";
 import { Sheet } from "../../components/Sheet.tsx";

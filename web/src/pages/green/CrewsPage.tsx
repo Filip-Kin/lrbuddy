@@ -4,7 +4,8 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { ContactButtons } from "../../components/green/Contact.tsx";
 import { useNow, type GreenCrew } from "../../components/green/hooks.ts";
 import { ACTIVE_MS } from "../../components/green/MapSheets.tsx";
-import { Card, Fact, FilterSelect, SkeletonList } from "../../components/green/ui.tsx";
+import { Card, Fact, FilterSelect } from "../../components/green/ui.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
 import { ago } from "../../lib/format.ts";
 import { trpc } from "../../lib/trpc.ts";
 

@@ -33,7 +33,8 @@ export type Me =
       displayName: string | null;
       /** Short scope line for the top bar, e.g. "Crew 7, Ford, CC East". */
       scope: string;
-      crew: (Crew & { company: Company | null }) | null;
+      /** The crew row without its join token; the token is the crew's password and nothing on screen needs it. */
+      crew: (Omit<Crew, "token"> & { company: Company | null }) | null;
       truck: Truck | null;
       cc: CommandCenter | null;
       day: Day | null;
@@ -101,7 +102,8 @@ export const sharedRouter = router({
       if (!row) return { role: "anon" };
       const scope = ccScope(row.crew.ccId);
       const parts = [crewLabel(row.crew), row.company?.name, scope.cc ? `CC ${scope.cc.name}` : null].filter(Boolean);
-      return { role: "crew", displayName: s.displayName, scope: parts.join(", "), crew: { ...row.crew, company: row.company }, truck: null, ...scope };
+      const { token: _token, ...crew } = row.crew;
+      return { role: "crew", displayName: s.displayName, scope: parts.join(", "), crew: { ...crew, company: row.company }, truck: null, ...scope };
     }
     if (s.role === "driver" && s.truckId !== null) {
       const truck = db.select().from(trucks).where(eq(trucks.id, s.truckId)).get();

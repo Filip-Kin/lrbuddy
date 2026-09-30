@@ -6,13 +6,14 @@ import { Field, Select, TextArea } from "../../components/Field.tsx";
 import { Page } from "../../components/Page.tsx";
 import { Sheet } from "../../components/Sheet.tsx";
 import { StatusPill } from "../../components/StatusPill.tsx";
-import { Chips } from "../../components/admin/Chips.tsx";
-import { Confirm } from "../../components/admin/Confirm.tsx";
+import { Chips } from "../../components/Segmented.tsx";
+import { ConfirmSheet } from "../../components/ConfirmSheet.tsx";
 import { dayDate, phoneText, plural } from "../../components/admin/format.ts";
 import { EditIcon, PhoneIcon, PinIcon, PlusIcon } from "../../components/admin/icons.tsx";
 import { MapMode } from "../../components/admin/MapMode.tsx";
 import { errorText, Notice, type NoticeValue } from "../../components/admin/Notice.tsx";
-import { Panel, Skeleton } from "../../components/admin/Panel.tsx";
+import { Panel } from "../../components/Panel.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
 import { ago, telHref } from "../../lib/format.ts";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
@@ -162,7 +163,7 @@ const CcSheet = ({
           {err && <p role="alert" className="text-sm font-semibold">{errorText(err)}</p>}
         </form>
       </Sheet>
-      <Confirm
+      <ConfirmSheet
         open={open && confirmDelete}
         title={`Remove CC ${cc?.name ?? ""}`}
         body={cc ? `Also removes ${plural(cc.crewCount, "crew")} and ${plural(cc.trucks.length, "truck")}` : undefined}
@@ -316,7 +317,7 @@ const TruckSheet = ({
           {err && <p role="alert" className="text-sm font-semibold">{errorText(err)}</p>}
         </form>
       </Sheet>
-      <Confirm
+      <ConfirmSheet
         open={open && confirmDelete}
         title={`Remove ${truck?.name ?? "truck"}`}
         body="Its stops go back to Open"
@@ -596,7 +597,7 @@ const CcCard = ({
         onNewCode={(t) => setCodeFor({ kind: "truck", truck: t })}
       />
       <CapacitySheet truck={capacity} open={capacity !== null} onClose={() => setCapacity(null)} />
-      <Confirm
+      <ConfirmSheet
         open={codeFor !== null}
         title={codeFor?.kind === "truck" ? `New code for ${codeFor.truck.name}` : `New green code for CC ${cc.name}`}
         body="Old code stops working"
@@ -663,6 +664,7 @@ export const DayPage = ({ id }: { id: number }) => {
           setSelected(c.id);
           document.getElementById(`cc-card-${c.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
         } : undefined,
+        onDragEnd: mode.kind === "idle" ? (lat: number, lng: number) => move.mutate({ id: c.id, lat, lng }) : undefined,
       })),
     [ccs, mode.kind],
   );
@@ -681,7 +683,7 @@ export const DayPage = ({ id }: { id: number }) => {
   if (q.isLoading) {
     return (
       <Page title="Day" wide>
-        <Skeleton rows={4} />
+        <SkeletonList rows={4} className="h-14" />
       </Page>
     );
   }

@@ -3,7 +3,9 @@ import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { useNewRequestChime, useNow, useSoundSetting, type GreenRequest } from "../../components/green/hooks.ts";
 import { RequestCard } from "../../components/green/RequestCard.tsx";
-import { FilterSelect, Segmented, SkeletonList, SoundIcon, ToggleChip, useFlash } from "../../components/green/ui.tsx";
+import { FilterSelect, SoundIcon, useFlash } from "../../components/green/ui.tsx";
+import { Segmented, ToggleChip } from "../../components/Segmented.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
 import { trpc } from "../../lib/trpc.ts";
 
 type Column = "open" | "assigned" | "en_route" | "closed";
@@ -104,7 +106,7 @@ export const RequestsPage = () => {
         <EmptyState title="Requests not loaded" description="Check the connection" action={<Button onClick={() => void list.refetch()}>Retry</Button>} />
       ) : (
         <>
-          <Segmented
+          <Segmented tabs
             label="Status"
             value={tab}
             onChange={setTab}

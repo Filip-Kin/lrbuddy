@@ -59,7 +59,7 @@ export const useRectDraw = () => {
   const lines = useMemo<MapLine[]>(() => {
     if (!bbox) return [];
     const [w, s, e, n] = bbox;
-    return [{ id: "rect", points: [[s, w], [n, w], [n, e], [s, e], [s, w]] }];
+    return [{ id: "rect", points: [[s, w], [n, w], [n, e], [s, e], [s, w]], style: "select" }];
   }, [bbox]);
 
   const markers = useMemo<MapMarker[]>(() => (a && !b ? [{ id: "rect-a", kind: "stop", n: 1, active: true, lat: a.lat, lng: a.lng, noFit: true }] : []), [a, b]);

@@ -53,85 +53,6 @@ export const SendIcon = () => (
 );
 // #endregion
 
-/** Segmented control. Each option is a 44 px tall tab. */
-export const Segmented = <T extends string>({
-  value,
-  onChange,
-  options,
-  label,
-  className = "",
-  stacked,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: ReadonlyArray<{ value: T; label: string; count?: number }>;
-  label: string;
-  className?: string;
-  /** Count above label in equal columns, for four or more tabs on a phone. */
-  stacked?: boolean;
-}) =>
-  stacked ? (
-    <div role="tablist" aria-label={label} className={`grid auto-cols-fr grid-flow-col gap-1 rounded-2xl bg-surface-2 p-1 ring-1 ring-inset ring-line ${className}`}>
-      {options.map((o) => {
-        const active = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onChange(o.value)}
-            className={`flex min-h-14 min-w-0 flex-col items-center justify-center rounded-xl px-1 py-1.5 transition-colors ${
-              active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"
-            }`}
-          >
-            <span className="text-xl leading-none font-extrabold tabular-nums">{o.count ?? ""}</span>
-            <span className="mt-1 truncate text-xs font-semibold">{o.label}</span>
-            {active && <span aria-hidden="true" className="mt-1 h-1 w-6 rounded-full bg-brand" />}
-          </button>
-        );
-      })}
-    </div>
-  ) : (
-  <div role="tablist" aria-label={label} className={`flex gap-1 overflow-x-auto rounded-2xl bg-surface-2 p-1 ring-1 ring-inset ring-line ${className}`}>
-    {options.map((o) => {
-      const active = o.value === value;
-      return (
-        <button
-          key={o.value}
-          type="button"
-          role="tab"
-          aria-selected={active}
-          onClick={() => onChange(o.value)}
-          className={`inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-sm font-semibold transition-colors ${
-            active ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"
-          }`}
-        >
-          {o.label}
-          {o.count !== undefined && (
-            <span className={`min-w-6 rounded-full px-1.5 text-xs tabular-nums ${active ? "bg-brand text-on-brand" : "bg-surface text-ink"}`}>{o.count}</span>
-          )}
-        </button>
-      );
-    })}
-  </div>
-  );
-
-/** On/off chip for map layers and the sound switch. */
-export const ToggleChip = ({ on, onChange, children, label }: { on: boolean; onChange: (v: boolean) => void; children: ReactNode; label?: string }) => (
-  <button
-    type="button"
-    aria-pressed={on}
-    aria-label={label}
-    onClick={() => onChange(!on)}
-    className={`inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-sm font-semibold ring-1 ring-inset transition-colors ${
-      on ? "bg-ink text-surface ring-ink" : "bg-surface text-muted ring-line hover:text-ink"
-    }`}
-  >
-    {children}
-  </button>
-);
-
 /** Compact labelled select for filter rows. 16 px text so iOS does not zoom. */
 export const FilterSelect = ({ label, children, className = "", ...rest }: { label: string } & SelectHTMLAttributes<HTMLSelectElement>) => (
   <div className={`relative inline-flex min-w-0 items-center ${className}`}>
@@ -145,17 +66,6 @@ export const FilterSelect = ({ label, children, className = "", ...rest }: { lab
     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" className="pointer-events-none absolute right-3 text-muted">
       <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
     </svg>
-  </div>
-);
-
-export const Skeleton = ({ className = "" }: { className?: string }) => <div aria-hidden="true" className={`animate-pulse rounded-2xl bg-surface-2 ${className}`} />;
-
-/** Quiet loading block: a few card-shaped skeletons. */
-export const SkeletonList = ({ rows = 3, className = "h-28" }: { rows?: number; className?: string }) => (
-  <div className="space-y-3" aria-busy="true">
-    {Array.from({ length: rows }, (_, i) => (
-      <Skeleton key={i} className={className} />
-    ))}
   </div>
 );
 

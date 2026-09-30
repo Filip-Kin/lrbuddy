@@ -4,7 +4,8 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { AddStopSheet } from "../../components/green/AddStopSheet.tsx";
 import { isUrgent, useNow, type GreenRequest } from "../../components/green/hooks.ts";
 import { CrewSheet, LotSheet, StopSheet, TruckSheet } from "../../components/green/MapSheets.tsx";
-import { FilterSelect, PinIcon, ToggleChip, useFlash } from "../../components/green/ui.tsx";
+import { FilterSelect, PinIcon, useFlash } from "../../components/green/ui.tsx";
+import { ToggleChip } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { trpc } from "../../lib/trpc.ts";
 

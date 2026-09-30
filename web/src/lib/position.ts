@@ -127,7 +127,26 @@ export const usePositionReporter = (enabled: boolean): void => {
     document.addEventListener("visibilitychange", onVisibility);
     if (document.visibilityState === "visible") start();
 
+    // A watch that failed with PERMISSION_DENIED never fires again; restart it when the permission is granted.
+    let perm: PermissionStatus | null = null;
+    const onPermChange = (): void => {
+      if (perm?.state !== "granted" || document.visibilityState !== "visible") return;
+      stop();
+      start();
+    };
+    let disposed = false;
+    navigator.permissions
+      ?.query({ name: "geolocation" })
+      .then((p) => {
+        if (disposed) return;
+        perm = p;
+        p.addEventListener("change", onPermChange);
+      })
+      .catch(() => undefined);
+
     return () => {
+      disposed = true;
+      perm?.removeEventListener("change", onPermChange);
       document.removeEventListener("visibilitychange", onVisibility);
       window.clearInterval(heartbeat);
       stop();

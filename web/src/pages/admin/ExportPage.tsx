@@ -6,7 +6,8 @@ import { downloadText, slug } from "../../components/admin/download.ts";
 import { plural } from "../../components/admin/format.ts";
 import { DownloadIcon } from "../../components/admin/icons.tsx";
 import { errorText, Notice, type NoticeValue } from "../../components/admin/Notice.tsx";
-import { Panel, Skeleton } from "../../components/admin/Panel.tsx";
+import { Panel } from "../../components/Panel.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
 import { useMe } from "../../lib/session.ts";
 import { trpc } from "../../lib/trpc.ts";
 
@@ -48,7 +49,7 @@ export const ExportPage = () => {
         <Notice value={notice} onClear={clear} />
         <Panel flush title={eventName || undefined}>
           {counts.isLoading ? (
-            <Skeleton rows={4} className="p-4" />
+            <div className="p-4"><SkeletonList rows={4} className="h-14" /></div>
           ) : noEvent ? (
             <EmptyState title="No active event" />
           ) : (

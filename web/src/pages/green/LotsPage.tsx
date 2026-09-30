@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { errorText, useGreenInvalidate, type GreenLot } from "../../components/green/hooks.ts";
-import { FilterSelect, RectIcon, Segmented, Skeleton, useFlash } from "../../components/green/ui.tsx";
+import { FilterSelect, RectIcon, useFlash } from "../../components/green/ui.tsx";
+import { Segmented } from "../../components/Segmented.tsx";
+import { Skeleton } from "../../components/Skeleton.tsx";
 import { lotPill, StatusPill } from "../../components/StatusPill.tsx";
 import { MapView, type MapLine, type MapMarker } from "../../lib/map/MapView.tsx";
 import { trpc } from "../../lib/trpc.ts";
@@ -18,18 +20,6 @@ const STATUS_OPTIONS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
   { value: "done", label: "Done" },
   { value: "skipped", label: "Skipped" },
 ];
-
-/** Outer rings of a parcel as [lat, lng] lines; a point lot gets a small square. */
-const outline = (l: GreenLot): Array<Array<[number, number]>> => {
-  const g = l.geometry;
-  if (!g) {
-    const dLat = 8 / 111_320;
-    const dLng = 8 / 82_000;
-    return [[[l.lat - dLat, l.lng - dLng], [l.lat - dLat, l.lng + dLng], [l.lat + dLat, l.lng + dLng], [l.lat + dLat, l.lng - dLng], [l.lat - dLat, l.lng - dLng]]];
-  }
-  const rings = g.type === "Polygon" ? [g.coordinates[0] ?? []] : g.coordinates.map((p) => p[0] ?? []);
-  return rings.map((ring) => ring.map((pt): [number, number] => [pt[1] ?? 0, pt[0] ?? 0]));
-};
 
 const rectLine = (a: Corner, b: Corner): Array<[number, number]> => [
   [a.lat, a.lng],
@@ -101,6 +91,7 @@ export const LotsPage = () => {
       status: l.status,
       geometry: l.geometry,
       mine: selected.size === 0 || selected.has(l.id),
+      selected: selected.has(l.id),
       title: l.address ?? undefined,
       onClick: drawing ? undefined : () => toggle(l.id),
     }));
@@ -108,15 +99,7 @@ export const LotsPage = () => {
     return out;
   }, [lots, selected, corner, drawing]);
 
-  const lines = useMemo<MapLine[]>(() => {
-    const out: MapLine[] = [];
-    for (const l of lots) {
-      if (!selected.has(l.id)) continue;
-      outline(l).forEach((points, i) => out.push({ id: `sel-${l.id}-${i}`, points }));
-    }
-    if (rect) out.push({ id: "rect", points: rectLine(rect[0], rect[1]) });
-    return out;
-  }, [lots, selected, rect]);
+  const lines = useMemo<MapLine[]>(() => (rect ? [{ id: "rect", points: rectLine(rect[0], rect[1]), style: "select" }] : []), [rect]);
 
   const clear = (): void => {
     setSelected(new Set());
@@ -281,7 +264,7 @@ export const LotsPage = () => {
               </Button>
             </div>
             <div className="mb-3 space-y-2">
-              <Segmented stacked label="Status" value={status} onChange={setStatus} options={STATUS_OPTIONS.map((o) => ({ ...o, count: o.value === "all" ? lots.length : lots.filter((l) => l.status === o.value).length }))} />
+              <Segmented tabs stacked label="Status" value={status} onChange={setStatus} options={STATUS_OPTIONS.map((o) => ({ ...o, count: o.value === "all" ? lots.length : lots.filter((l) => l.status === o.value).length }))} />
               <FilterSelect label="Crew filter" value={crewFilter} onChange={(e) => setCrewFilter(e.target.value)} className="w-full">
                 <option value="">All crews</option>
                 {crews.map((c) => (

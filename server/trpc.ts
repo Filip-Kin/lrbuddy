@@ -41,6 +41,8 @@ export const createContextFor =
 
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
+  // Stack traces stay on the server; error responses carry the message and code only.
+  isDev: false,
   // Keeps SSE streams alive through proxies; the client reconnects if pings stop.
   sse: {
     ping: { enabled: true, intervalMs: 15_000 },

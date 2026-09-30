@@ -2,7 +2,7 @@ import { Button, ButtonLink } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { phoneText, since } from "../../components/crew/format.ts";
 import { DirectionsIcon, MegaphoneIcon, PhoneIcon, PinIcon, TextIcon } from "../../components/crew/Icons.tsx";
-import { Skeleton } from "../../components/crew/Skeleton.tsx";
+import { Skeleton } from "../../components/Skeleton.tsx";
 import { useNow } from "../../components/crew/useNow.ts";
 import { Page } from "../../components/Page.tsx";
 import { clock, mapsDirections, smsHref, telHref } from "../../lib/format.ts";

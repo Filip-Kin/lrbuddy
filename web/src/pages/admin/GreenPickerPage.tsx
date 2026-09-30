@@ -3,7 +3,8 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { Page } from "../../components/Page.tsx";
 import { dayDate } from "../../components/admin/format.ts";
 import { ChevronIcon } from "../../components/admin/icons.tsx";
-import { Panel, Skeleton } from "../../components/admin/Panel.tsx";
+import { Panel } from "../../components/Panel.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
 type Cc = RouterOutputs["admin"]["ccs"]["list"][number];
@@ -17,7 +18,7 @@ export const GreenPickerPage = () => {
   return (
     <Page title="Green view">
       {ccs.isLoading ? (
-        <Skeleton rows={4} />
+        <SkeletonList rows={4} className="h-14" />
       ) : rows.length === 0 ? (
         <Panel>
           <EmptyState title="No command centers" />

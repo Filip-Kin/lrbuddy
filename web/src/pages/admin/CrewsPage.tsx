@@ -4,12 +4,13 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field, Select, TextArea } from "../../components/Field.tsx";
 import { Page } from "../../components/Page.tsx";
 import { Sheet } from "../../components/Sheet.tsx";
-import { Chips } from "../../components/admin/Chips.tsx";
-import { Confirm } from "../../components/admin/Confirm.tsx";
+import { Chips } from "../../components/Segmented.tsx";
+import { ConfirmSheet } from "../../components/ConfirmSheet.tsx";
 import { dayDate, phoneText, plural } from "../../components/admin/format.ts";
 import { CopyIcon, EditIcon, PhoneIcon, PlusIcon, UploadIcon } from "../../components/admin/icons.tsx";
 import { errorText, Notice, type NoticeValue } from "../../components/admin/Notice.tsx";
-import { Panel, Skeleton } from "../../components/admin/Panel.tsx";
+import { Panel } from "../../components/Panel.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
 import { ago, dateTime, smsHref, telHref } from "../../lib/format.ts";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 import { useDayParam } from "./useDayParam.ts";
@@ -201,7 +202,7 @@ const CrewSheet = ({
           {err && <p role="alert" className="text-sm font-semibold">{errorText(err)}</p>}
         </form>
       </Sheet>
-      <Confirm
+      <ConfirmSheet
         open={open && confirm === "delete"}
         title={`Remove ${crew?.name ?? "crew"}`}
         body="Also removes its requests"
@@ -210,7 +211,7 @@ const CrewSheet = ({
         onConfirm={() => crew && del.mutate({ id: crew.id })}
         onClose={() => setConfirm(null)}
       />
-      <Confirm
+      <ConfirmSheet
         open={open && confirm === "token"}
         title={`New join link for ${crew?.name ?? "crew"}`}
         body="Printed QR stops working. Reprint this crew's sheet."
@@ -345,7 +346,7 @@ export const CrewsPage = () => {
   if (loading) {
     return (
       <Page title="Crews" wide>
-        <Skeleton rows={5} />
+        <SkeletonList rows={5} className="h-14" />
       </Page>
     );
   }
@@ -385,7 +386,7 @@ export const CrewsPage = () => {
           title={`${day.label}, ${dayDate(day.date)}${all.length > 0 ? `: ${plural(shown.length, "crew")}${people > 0 ? `, ${plural(people, "person", "people")}` : ""}` : ""}`}
         >
           {crews.isLoading ? (
-            <Skeleton rows={5} className="p-4" />
+            <div className="p-4"><SkeletonList rows={5} className="h-14" /></div>
           ) : all.length === 0 ? (
             <EmptyState
               title={dayCcs.length === 0 ? "No command centers on this day" : "No crews on this day"}

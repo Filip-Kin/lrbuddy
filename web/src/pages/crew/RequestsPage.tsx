@@ -4,7 +4,7 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { crewCanCancel, isActive, qtyText, type CrewRequest } from "../../components/crew/format.ts";
 import { PlusIcon } from "../../components/crew/Icons.tsx";
 import { RequestCard, TypeBadge } from "../../components/crew/RequestCard.tsx";
-import { SkeletonList } from "../../components/crew/Skeleton.tsx";
+import { SkeletonList } from "../../components/Skeleton.tsx";
 import { useNow } from "../../components/crew/useNow.ts";
 import { Page } from "../../components/Page.tsx";
 import { Sheet } from "../../components/Sheet.tsx";

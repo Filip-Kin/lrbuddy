@@ -1,8 +1,8 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import Papa from "papaparse";
 import { bus } from "./bus.ts";
 import { db } from "./db/index.ts";
-import { commandCenters, lots, type Lot, type LotSource } from "./db/schema.ts";
+import { commandCenters, lots, type Lot, type LotGeometry, type LotSource } from "./db/schema.ts";
 import { normalizeBBox, type BBox } from "./geo.ts";
 
 export const DLBA_URL =
@@ -15,6 +15,7 @@ export interface LotInput {
   address: string | null;
   lat: number;
   lng: number;
+  geometry?: LotGeometry | null;
 }
 
 export interface ImportResult {
@@ -42,12 +43,15 @@ export const upsertLots = (eventId: number, rows: readonly LotInput[], source: L
           .where(and(eq(lots.eventId, eventId), eq(lots.parcelId, parcelId)))
           .get();
         if (existing) {
-          tx.update(lots).set({ address, lat: r.lat, lng: r.lng }).where(eq(lots.id, existing.id)).run();
+          const set = r.geometry ? { address, lat: r.lat, lng: r.lng, geometry: r.geometry } : { address, lat: r.lat, lng: r.lng };
+          tx.update(lots).set(set).where(eq(lots.id, existing.id)).run();
           res.updated++;
           continue;
         }
       }
-      tx.insert(lots).values({ eventId, parcelId, address, lat: r.lat, lng: r.lng, source, status: "open" }).run();
+      tx.insert(lots)
+        .values({ eventId, parcelId, address, lat: r.lat, lng: r.lng, source, status: "open", geometry: r.geometry ?? null })
+        .run();
       res.added++;
     }
   });
@@ -121,9 +125,244 @@ export const fetchDlba = async (bbox: BBox, opts: DlbaOptions = {}): Promise<Lot
   }
 };
 
-export const importDlba = async (eventId: number, bbox: BBox, opts: DlbaOptions = {}): Promise<ImportResult & { fetched: number }> => {
+/** DLBA lots in the bbox, then their parcel outlines. An outline failure keeps the lots. */
+export const importDlba = async (
+  eventId: number,
+  bbox: BBox,
+  opts: DlbaOptions = {},
+): Promise<ImportResult & { fetched: number; outlines: number }> => {
   const rows = await fetchDlba(bbox, opts);
-  return { ...upsertLots(eventId, rows, "dlba"), fetched: rows.length };
+  const res = upsertLots(eventId, rows, "dlba");
+  const outlines = await attachOutlines(eventId, { fetchImpl: opts.fetchImpl }).catch(() => 0);
+  return { ...res, fetched: rows.length, outlines };
+};
+// #endregion
+
+// #region parcels
+export const PARCEL_URL =
+  "https://services2.arcgis.com/qvkbeam7Wirps6zC/arcgis/rest/services/parcel_file_current/FeatureServer/0/query";
+const PARCEL_BATCH = 100;
+/** The layer's maxRecordCount. */
+const PARCEL_PAGE = 1000;
+export const VACANT_WHERE = "property_class_description='RESIDENTIAL-VACANT'";
+
+interface ParcelFeature {
+  geometry?: { type?: unknown; coordinates?: unknown } | null;
+  properties?: { parcel_id?: unknown; address?: unknown } | null;
+}
+interface ParcelCollection {
+  features?: ParcelFeature[];
+  properties?: { exceededTransferLimit?: boolean };
+  exceededTransferLimit?: boolean;
+  error?: { message?: string };
+}
+
+export interface Parcel {
+  parcelId: string;
+  address: string | null;
+  geometry: LotGeometry;
+}
+
+const asGeometry = (g: ParcelFeature["geometry"]): LotGeometry | null => {
+  if (!g || !Array.isArray(g.coordinates)) return null;
+  if (g.type === "Polygon") return { type: "Polygon", coordinates: g.coordinates as number[][][] };
+  if (g.type === "MultiPolygon") return { type: "MultiPolygon", coordinates: g.coordinates as number[][][][] };
+  return null;
+};
+
+const toParcel = (f: ParcelFeature): Parcel | null => {
+  const id = str(f.properties?.parcel_id);
+  const geometry = asGeometry(f.geometry);
+  if (!id || !geometry) return null;
+  return { parcelId: id, address: str(f.properties?.address), geometry };
+};
+
+/** Centre of the outer ring's bounding box; good enough to place a pin on a city lot. */
+export const geometryCenter = (g: LotGeometry): { lat: number; lng: number } => {
+  const ring = g.type === "Polygon" ? g.coordinates[0] : g.coordinates[0]?.[0];
+  let w = Infinity;
+  let e = -Infinity;
+  let s = Infinity;
+  let n = -Infinity;
+  for (const pt of ring ?? []) {
+    const [x, y] = pt as [number, number];
+    w = Math.min(w, x);
+    e = Math.max(e, x);
+    s = Math.min(s, y);
+    n = Math.max(n, y);
+  }
+  return { lat: (s + n) / 2, lng: (w + e) / 2 };
+};
+
+const parcelQuery = async (params: Record<string, string>, opts: DlbaOptions): Promise<ParcelCollection> => {
+  const qs = new URLSearchParams({ outSR: "4326", f: "geojson", outFields: "parcel_id,address", ...params });
+  const res = await (opts.fetchImpl ?? fetch)(`${PARCEL_URL}?${qs.toString()}`, {
+    headers: { "user-agent": USER_AGENT },
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 30_000),
+  });
+  if (!res.ok) throw new Error(`Parcel query returned ${res.status}`);
+  const body = (await res.json()) as ParcelCollection;
+  if (body.error) throw new Error(`Parcel query error: ${body.error.message ?? "unknown"}`);
+  return body;
+};
+
+const quote = (id: string): string => `'${id.replace(/'/g, "''")}'`;
+
+/** Outlines for the given parcel ids, 100 per request. */
+export const fetchParcelOutlines = async (parcelIds: readonly string[], opts: DlbaOptions = {}): Promise<Map<string, Parcel>> => {
+  const out = new Map<string, Parcel>();
+  const ids = [...new Set(parcelIds)];
+  for (let i = 0; i < ids.length; i += PARCEL_BATCH) {
+    const batch = ids.slice(i, i + PARCEL_BATCH);
+    const body = await parcelQuery({ where: `parcel_id IN (${batch.map(quote).join(",")})` }, opts);
+    for (const f of body.features ?? []) {
+      const p = toParcel(f);
+      if (p) out.set(p.parcelId, p);
+    }
+  }
+  return out;
+};
+
+/** Stores outlines on every lot of the event that has a parcel id and no geometry yet. */
+export const attachOutlines = async (eventId: number, opts: DlbaOptions = {}): Promise<number> => {
+  const missing = db
+    .select({ id: lots.id, parcelId: lots.parcelId })
+    .from(lots)
+    .where(and(eq(lots.eventId, eventId), isNotNull(lots.parcelId), isNull(lots.geometry)))
+    .all();
+  if (missing.length === 0) return 0;
+  const found = await fetchParcelOutlines(
+    missing.map((m) => m.parcelId).filter((x): x is string => x !== null),
+    opts,
+  );
+  let n = 0;
+  db.transaction((tx) => {
+    for (const m of missing) {
+      const p = m.parcelId ? found.get(m.parcelId) : undefined;
+      if (!p) continue;
+      tx.update(lots).set({ geometry: p.geometry }).where(eq(lots.id, m.id)).run();
+      n++;
+    }
+  });
+  return n;
+};
+
+/** The parcel under a point, or null. */
+export const parcelAtPoint = async (lat: number, lng: number, opts: DlbaOptions = {}): Promise<Parcel | null> => {
+  const body = await parcelQuery(
+    {
+      geometry: `${lng},${lat}`,
+      geometryType: "esriGeometryPoint",
+      inSR: "4326",
+      spatialRel: "esriSpatialRelIntersects",
+    },
+    opts,
+  );
+  for (const f of body.features ?? []) {
+    const p = toParcel(f);
+    if (p) return p;
+  }
+  return null;
+};
+
+const envelope = (bbox: BBox): Record<string, string> => {
+  const [xmin, ymin, xmax, ymax] = normalizeBBox(bbox);
+  return {
+    geometry: `${xmin},${ymin},${xmax},${ymax}`,
+    geometryType: "esriGeometryEnvelope",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+  };
+};
+
+/** How many residential vacant parcels sit in the bbox; shown before an import. */
+export const countVacantParcels = async (bbox: BBox, opts: DlbaOptions = {}): Promise<number> => {
+  const qs = new URLSearchParams({ ...envelope(bbox), where: VACANT_WHERE, returnCountOnly: "true", f: "json" });
+  const res = await (opts.fetchImpl ?? fetch)(`${PARCEL_URL}?${qs.toString()}`, {
+    headers: { "user-agent": USER_AGENT },
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 30_000),
+  });
+  if (!res.ok) throw new Error(`Parcel count returned ${res.status}`);
+  const body = (await res.json()) as { count?: unknown; error?: { message?: string } };
+  if (body.error || typeof body.count !== "number") throw new Error(`Parcel count error: ${body.error?.message ?? "no count"}`);
+  return body.count;
+};
+
+/** Residential vacant parcels in the bbox, with outlines, paged 1000 at a time. */
+export const fetchVacantParcels = async (bbox: BBox, opts: DlbaOptions = {}): Promise<LotInput[]> => {
+  const out: LotInput[] = [];
+  const limit = opts.limit ?? Infinity;
+  let offset = 0;
+  for (;;) {
+    const body = await parcelQuery(
+      {
+        ...envelope(bbox),
+        where: VACANT_WHERE,
+        resultOffset: String(offset),
+        resultRecordCount: String(Math.min(PARCEL_PAGE, limit - out.length)),
+        orderByFields: "parcel_id",
+      },
+      opts,
+    );
+    const feats = body.features ?? [];
+    for (const f of feats) {
+      const p = toParcel(f);
+      if (!p) continue;
+      out.push({ parcelId: p.parcelId, address: p.address, geometry: p.geometry, ...geometryCenter(p.geometry) });
+      if (out.length >= limit) return out;
+    }
+    const more = body.exceededTransferLimit ?? body.properties?.exceededTransferLimit ?? false;
+    if (!more || feats.length === 0) return out;
+    offset += feats.length;
+  }
+};
+
+export const importVacantParcels = async (eventId: number, bbox: BBox, opts: DlbaOptions = {}): Promise<ImportResult & { fetched: number }> => {
+  const rows = await fetchVacantParcels(bbox, opts);
+  return { ...upsertLots(eventId, rows, "parcel"), fetched: rows.length };
+};
+
+/**
+ * Fills parcel id, blank address and outline for lots placed by hand or CSV.
+ * Rows with a parcel id get their outline by id; the rest by a point query,
+ * six at a time. A point on no parcel stays a point lot. Never throws.
+ */
+export const resolveParcels = async (rows: readonly LotInput[], opts: DlbaOptions = {}): Promise<LotInput[]> => {
+  const out = rows.map((r) => ({ ...r }));
+  try {
+    const byId = await fetchParcelOutlines(
+      out.map((r) => r.parcelId).filter((x): x is string => !!x),
+      opts,
+    );
+    for (const r of out) {
+      const p = r.parcelId ? byId.get(r.parcelId) : undefined;
+      if (p) {
+        r.geometry = p.geometry;
+        r.address = r.address ?? p.address;
+      }
+    }
+  } catch {
+    // Outlines are a nicety; the lots import without them.
+  }
+  const todo = out.filter((r) => !r.parcelId);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < todo.length) {
+      const r = todo[next++]!;
+      try {
+        const p = await parcelAtPoint(r.lat, r.lng, { ...opts, timeoutMs: opts.timeoutMs ?? 10_000 });
+        if (p) {
+          r.parcelId = p.parcelId;
+          r.geometry = p.geometry;
+          r.address = r.address ?? p.address;
+        }
+      } catch {
+        // Leave it a point lot.
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, todo.length) }, worker));
+  return out;
 };
 // #endregion
 
@@ -157,9 +396,10 @@ export const parseLotsCsv = (csv: string): { rows: LotInput[]; errors: string[] 
   return { rows, errors };
 };
 
-export const importLotsCsv = (eventId: number, csv: string): ImportResult & { errors: string[] } => {
+export const importLotsCsv = async (eventId: number, csv: string, opts: DlbaOptions = {}): Promise<ImportResult & { errors: string[] }> => {
   const { rows, errors } = parseLotsCsv(csv);
-  return { ...upsertLots(eventId, rows, "csv"), errors };
+  const resolved = await resolveParcels(rows, opts);
+  return { ...upsertLots(eventId, resolved, "csv"), errors };
 };
 // #endregion
 
@@ -174,14 +414,30 @@ export const emitLot = (lot: Lot): void => {
   bus.emit("lot.changed", { ccId: lot.ccId, dayId: cc?.dayId ?? null }, { lot });
 };
 
-export const addManualLot = (eventId: number, input: { lat: number; lng: number; address?: string | null; ccId?: number | null }): Lot => {
+/** Tap-to-add lot. Takes the parcel under the tap when there is one; a parcel already imported is returned as is. */
+export const addManualLot = async (
+  eventId: number,
+  input: { lat: number; lng: number; address?: string | null; ccId?: number | null },
+  opts: DlbaOptions = {},
+): Promise<Lot> => {
+  const [r] = await resolveParcels([{ parcelId: null, address: input.address?.trim() || null, lat: input.lat, lng: input.lng }], opts);
+  if (r?.parcelId) {
+    const existing = db
+      .select()
+      .from(lots)
+      .where(and(eq(lots.eventId, eventId), eq(lots.parcelId, r.parcelId)))
+      .get();
+    if (existing) return existing;
+  }
   const lot = db
     .insert(lots)
     .values({
       eventId,
       lat: input.lat,
       lng: input.lng,
-      address: input.address?.trim() || null,
+      address: r?.address ?? null,
+      parcelId: r?.parcelId ?? null,
+      geometry: r?.geometry ?? null,
       ccId: input.ccId ?? null,
       source: "manual",
       status: "open",

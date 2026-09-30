@@ -36,3 +36,9 @@ One line per call made without anyone to ask. Newest at the bottom.
 - 2026-09-30 foundation: removed a committed `scripts/__pycache__` and ignored it.
 - 2026-09-30 foundation: gates ran on PORT=3020 because zwavejs2mqtt holds 3000 on the NAS; the default stays 3000.
 - 2026-09-30 foundation: typescript resolved to 7.0.2 and vite to 8.3.1 at install; both typecheck and build cleanly, kept.
+- 2026-09-30 foundation: hamburger sits at the left of the bar and the `[data-menu]` panel slides in from the left (160 ms). The `[data-scrim]` covers only the screen to the right of the panel, so a tap on it never lands on the panel.
+- 2026-09-30 foundation: `lots.geometry` came in as migration 0001 (a plain ADD COLUMN), not a regenerated 0000, so databases other agents already created keep working.
+- 2026-09-30 foundation: parcel outlines are fetched after every DLBA import and in the seed (300 of 300 matched); CSV and manual lots resolve by parcel id first, then by point query six at a time. A failed outline fetch never fails the import.
+- 2026-09-30 foundation: a tap-to-add on a parcel that is already a lot returns the existing lot instead of adding a duplicate.
+- 2026-09-30 foundation: open lot outlines use `--muted` for stroke and a 12 % fill. SPEC 13 names `--line`, which disappears on the light basemap.
+- 2026-09-30 foundation: admin lots API has `countVacant` (query) and `importVacant` (mutation) for the Vacant parcels import; the page is for the admin agent.

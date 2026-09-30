@@ -32,7 +32,7 @@ export const MapPage = () => {
     if (!d) return [];
     const out: MapMarker[] = [];
     for (const l of d.lots) {
-      out.push({ id: `lot-${l.id}`, kind: "lot", lat: l.lat, lng: l.lng, status: l.status, mine: l.mine, onClick: () => setLotId(l.id) });
+      out.push({ id: `lot-${l.id}`, kind: "lot", lat: l.lat, lng: l.lng, status: l.status, mine: l.mine, geometry: l.geometry, onClick: () => setLotId(l.id) });
     }
     for (const c of d.companyCrews) {
       if (c.position) out.push({ id: `crew-${c.id}`, kind: "crew", lat: c.position.lat, lng: c.position.lng, label: String(c.number), muted: true, noFit: true, title: `Crew ${c.number}` });

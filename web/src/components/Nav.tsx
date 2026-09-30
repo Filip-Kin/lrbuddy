@@ -23,9 +23,10 @@ const MenuIcon = ({ open }: { open: boolean }) => (
 );
 
 /**
- * Top bar: brand, scope chip, links. Below 860 px the links move into a
- * drawer behind a hamburger that closes on route change, Escape and a tap on
- * the scrim (`data-scrim`).
+ * Top bar: brand, scope chip, links. Below 860 px the bar is hamburger,
+ * brand, scope chip, and the links move into a `data-menu` panel that slides
+ * in from the left. It closes on route change, Escape and a tap on the scrim
+ * (`data-scrim`), which covers the rest of the screen to the panel's right.
  */
 export const Nav = ({
   scope,
@@ -62,7 +63,17 @@ export const Nav = ({
 
   return (
     <header className="no-print sticky top-0 z-[1500] bg-bar text-bar-text shadow-sm pt-[env(safe-area-inset-top)] dark:ring-1 dark:ring-line">
-      <div className="flex h-14 items-center gap-3 px-3 nav:px-5">
+      <div className="flex h-14 items-center gap-2 px-2 nav:gap-3 nav:px-5">
+        <button
+          type="button"
+          className="-mr-1 grid h-11 w-11 shrink-0 place-items-center rounded-xl hover:bg-white/10 nav:hidden"
+          aria-label="Menu"
+          aria-expanded={open}
+          aria-controls={menuId}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <MenuIcon open={open} />
+        </button>
         <Link href={links[0]?.href ?? "/"} className="flex shrink-0 items-center gap-2 text-lg font-extrabold tracking-tight">
           <span aria-hidden="true" className="h-3 w-3 rounded-sm bg-brand" />
           LR Buddy
@@ -90,31 +101,27 @@ export const Nav = ({
             </button>
           )}
         </nav>
-        <button
-          type="button"
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-xl hover:bg-white/10 nav:hidden"
-          aria-label="Menu"
-          aria-expanded={open}
-          aria-controls={menuId}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <MenuIcon open={open} />
-        </button>
       </div>
       {open &&
         createPortal(
           <div className="nav:hidden">
-            <div data-scrim className="fixed inset-0 z-[1600] bg-black/50" onClick={() => setOpen(false)} aria-hidden="true" />
+            <div
+              data-scrim
+              className="fixed inset-y-0 right-0 left-[min(20rem,82vw)] z-[1600] bg-black/50"
+              onClick={() => setOpen(false)}
+              aria-hidden="true"
+            />
             <div
               ref={drawer}
               id={menuId}
-              className="fixed inset-y-0 right-0 z-[1700] flex w-[min(20rem,82vw)] flex-col bg-bar text-bar-text shadow-2xl pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+              data-menu
+              className="lrb-drawer fixed inset-y-0 left-0 z-[1700] flex w-[min(20rem,82vw)] flex-col bg-bar text-bar-text shadow-2xl pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
             >
-              <div className="flex h-14 items-center justify-between px-4">
-                <span className="text-lg font-extrabold tracking-tight">LR Buddy</span>
+              <div className="flex h-14 items-center gap-2 px-2">
                 <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="grid h-11 w-11 place-items-center rounded-xl hover:bg-white/10">
                   <MenuIcon open />
                 </button>
+                <span className="text-lg font-extrabold tracking-tight">LR Buddy</span>
               </div>
               <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 pb-3">
                 <ul className="flex flex-col gap-1">

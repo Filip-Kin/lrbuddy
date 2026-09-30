@@ -11,7 +11,8 @@ import {
   MAX_ZOOM,
   TILE_ATTRIB,
 } from "./basemap.ts";
-import { ccIcon, crewIcon, lotIcon, meIcon, requestIcon, routeLine, stopIcon, truckIcon, type LotStatus } from "./markers.ts";
+import type { LotGeometry } from "../../../../server/db/schema.ts";
+import { ccIcon, crewIcon, lotIcon, lotShape, meIcon, requestIcon, routeLine, stopIcon, truckIcon, type LotStatus } from "./markers.ts";
 
 // #region types
 interface Base {
@@ -31,7 +32,8 @@ export type MapMarker =
   | (Base & { kind: "crew"; label: string; muted?: boolean })
   | (Base & { kind: "truck"; name: string; highlight?: boolean })
   | (Base & { kind: "cc"; name: string })
-  | (Base & { kind: "lot"; status: LotStatus; mine?: boolean })
+  /** Drawn as its parcel outline when `geometry` is set, else a small square. */
+  | (Base & { kind: "lot"; status: LotStatus; mine?: boolean; geometry?: LotGeometry | null })
   | (Base & { kind: "request"; urgent?: boolean })
   | (Base & { kind: "stop"; n: number; active?: boolean });
 
@@ -88,7 +90,9 @@ const layerFor = (m: MapMarker): L.Layer => {
       layer = L.marker(at, { icon: ccIcon(m.name), zIndexOffset: 400, title: m.title ?? m.name, alt: m.name });
       break;
     case "lot":
-      layer = L.marker(at, { icon: lotIcon(m.status, m.mine ?? true), zIndexOffset: -200, title: m.title, alt: m.title });
+      layer = m.geometry
+        ? lotShape(m.geometry, m.status, m.mine ?? true)
+        : L.marker(at, { icon: lotIcon(m.status, m.mine ?? true), zIndexOffset: -200, title: m.title, alt: m.title });
       break;
     case "request":
       layer = L.marker(at, { icon: requestIcon(m.urgent ?? false), zIndexOffset: 150, interactive: !!m.onClick, keyboard: false });

@@ -26,7 +26,7 @@ import {
 } from "../db/schema.ts";
 import { crewLabel, scheduleRoute, stockFor } from "../dispatch.ts";
 import { normalizeBBox } from "../geo.ts";
-import { addManualLot, assignLotsToCcByBBox, importDlba, importLotsCsv } from "../lots-import.ts";
+import { addManualLot, assignLotsToCcByBBox, countVacantParcels, importDlba, importLotsCsv, importVacantParcels } from "../lots-import.ts";
 import { activeEvent, catalogFor, requestViews } from "../queries.ts";
 import { copySetupFromPreviousDay, createCc, createCrew, createEvent, createTruck, setActiveEvent } from "../setup.ts";
 import { adminProcedure, router } from "../trpc.ts";
@@ -406,6 +406,25 @@ const lotsRouter = router({
       throw new TRPCError({ code: "BAD_GATEWAY", message: "Land Bank unavailable", cause: err });
     }
   }),
+  /** Residential vacant parcels in the rectangle, counted before an import. */
+  countVacant: adminProcedure.input(z.object({ bbox: bboxInput })).query(async ({ input }) => {
+    try {
+      return { count: await countVacantParcels(input.bbox) };
+    } catch (err) {
+      throw new TRPCError({ code: "BAD_GATEWAY", message: "Parcel layer unavailable", cause: err });
+    }
+  }),
+  importVacant: adminProcedure
+    .input(z.object({ bbox: bboxInput, eventId: id.nullish(), limit: z.number().int().min(1).max(20000).optional() }))
+    .mutation(async ({ input }) => {
+      const [w, s, e, n] = normalizeBBox(input.bbox);
+      if (e - w > 0.3 || n - s > 0.3) throw new TRPCError({ code: "BAD_REQUEST", message: "Area too large" });
+      try {
+        return await importVacantParcels(eventOrActive(input.eventId), [w, s, e, n], { limit: input.limit });
+      } catch (err) {
+        throw new TRPCError({ code: "BAD_GATEWAY", message: "Parcel layer unavailable", cause: err });
+      }
+    }),
   importCsv: adminProcedure.input(z.object({ csv: z.string().max(5_000_000), eventId: id.nullish() })).mutation(({ input }) =>
     importLotsCsv(eventOrActive(input.eventId), input.csv),
   ),

@@ -32,7 +32,7 @@ export type StockReason = (typeof STOCK_REASONS)[number];
 export const POSITION_KINDS = ["crew", "truck"] as const;
 export type PositionKind = (typeof POSITION_KINDS)[number];
 
-export const LOT_SOURCES = ["dlba", "csv", "manual"] as const;
+export const LOT_SOURCES = ["dlba", "parcel", "csv", "manual"] as const;
 export type LotSource = (typeof LOT_SOURCES)[number];
 
 export const LOT_STATUSES = ["open", "in_progress", "done", "skipped"] as const;
@@ -56,6 +56,11 @@ export interface RouteLeg {
   /** Metres from the origin to this stop, cumulative. */
   distanceM: number;
 }
+
+/** Parcel outline in WGS84, as the city parcel layer returns it. */
+export type LotGeometry =
+  | { type: "Polygon"; coordinates: number[][][] }
+  | { type: "MultiPolygon"; coordinates: number[][][][] };
 // #endregion
 
 export const events = sqliteTable("events", {
@@ -305,6 +310,8 @@ export const lots = sqliteTable(
     lat: real("lat").notNull(),
     lng: real("lng").notNull(),
     source: text("source", { enum: LOT_SOURCES }).notNull(),
+    /** Parcel outline; null when the lot has no parcel match. */
+    geometry: text("geometry", { mode: "json" }).$type<LotGeometry>(),
     ccId: integer("cc_id").references(() => commandCenters.id, { onDelete: "set null" }),
     crewId: integer("crew_id").references(() => crews.id, { onDelete: "set null" }),
     status: text("status", { enum: LOT_STATUSES }).notNull().default("open"),

@@ -1,0 +1,1 @@
+ALTER TABLE `lots` ADD `geometry` text;

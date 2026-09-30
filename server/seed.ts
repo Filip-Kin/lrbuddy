@@ -25,7 +25,7 @@ import {
 } from "./db/schema.ts";
 import { cancelScheduledRoutes, computeRouteNow } from "./dispatch.ts";
 import { haversine, type LatLng } from "./geo.ts";
-import { fetchDlba, upsertLots, type LotInput } from "./lots-import.ts";
+import { attachOutlines, fetchDlba, upsertLots, type LotInput } from "./lots-import.ts";
 import { createCc, createCrew, createEvent, createTruck } from "./setup.ts";
 
 const EVENT_NAME = "Demo 2026";
@@ -85,6 +85,11 @@ const loadLots = async (eventId: number): Promise<"dlba" | "synthetic"> => {
     const rows = await fetchDlba(BBOX, { limit: 300, timeoutMs: 20_000 });
     if (rows.length > 0) {
       upsertLots(eventId, rows, "dlba");
+      const outlines = await attachOutlines(eventId, { timeoutMs: 20_000 }).catch((err: unknown) => {
+        console.warn("[seed] parcel outlines failed:", err instanceof Error ? err.message : String(err));
+        return 0;
+      });
+      console.log(`[seed] ${outlines} of ${rows.length} lots have parcel outlines`);
       return "dlba";
     }
   } catch (err) {

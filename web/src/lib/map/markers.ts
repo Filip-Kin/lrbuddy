@@ -1,4 +1,5 @@
 import L from "leaflet";
+import type { LotGeometry } from "../../../../server/db/schema.ts";
 
 export type LotStatus = "open" | "in_progress" | "done" | "skipped";
 
@@ -68,6 +69,16 @@ export const lotIcon = (status: LotStatus, mine = true): L.DivIcon =>
     html: "<span></span>",
     iconSize: [28, 28],
     iconAnchor: [14, 14],
+  });
+
+/** Parcel outline: 2 px stroke in the status colour, filled at 30 %. Colours come from CSS. */
+export const lotShape = (geometry: LotGeometry, status: LotStatus, mine = true): L.GeoJSON =>
+  L.geoJSON(geometry, {
+    style: () => ({
+      className: `lrb-lot-shape lrb-lot-shape-${status}${mine ? "" : " lrb-lot-shape-other"}`,
+      weight: 2,
+      fillOpacity: 0.3,
+    }),
   });
 
 /** Route polyline in the ink colour (set by the `lrb-route` class so it follows the scheme). */

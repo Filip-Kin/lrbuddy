@@ -1,7 +1,9 @@
 node_modules/
 dist/
 web/dist/
+web/dist-*/
 data/
+data-*/
 .env
 *.db
 *.db-wal

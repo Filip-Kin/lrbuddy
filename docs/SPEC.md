@@ -362,3 +362,27 @@ has content. Idempotent: wipes and recreates the event named "Demo 2026".
 - No user-visible string breaks the `ui-copy` rules.
 - No `any`, no `console.log` noise in the client, no TODO left for a required feature.
 - Docker image builds locally with `docker build .` and answers `/health`.
+
+## 13. Palette
+
+Life Remodeled's brand: yellow, green, dark teal. Define these as CSS variables in `styles.css`
+(`@theme` in Tailwind v4) and use them everywhere; no other accent colours.
+
+| Token | Light | Dark | Use |
+|---|---|---|---|
+| `--brand` | `#fddd08` | `#fddd08` | Primary buttons, the Request button, active nav, truck markers. Text on it is always `--ink`. |
+| `--brand-green` | `#00a14b` | `#2ec27e` | Success, Delivered, lot Done, green shirt markers, online pills. |
+| `--ink` | `#0e3038` | `#e8eef0` | Body text, icons, text on yellow. |
+| `--surface` | `#ffffff` | `#0e3038` | Page and cards. Dark surfaces are the teal, not black. |
+| `--surface-2` | `#f2f3f5` | `#163f49` | Sheets, table stripes, inputs. |
+| `--line` | `#d1d3d4` | `#25505b` | Borders, dividers. |
+| `--muted` | `#5b6b70` | `#9fb3b8` | Secondary text, timestamps. |
+| `--crew` | `#e5484d` | `#ff6b6b` | Crew (red shirt) markers and the crew scope chip. |
+| `--warn` | `#e55b00` | `#ff8a3d` | Low stock, urgent request age, skipped lots. |
+
+Status pills: open `--crew`, assigned `--ink` on `--surface-2`, en route `--brand`, delivered `--brand-green`,
+cancelled `--muted`. Lot status: open `--line` outline, in progress `--brand`, done `--brand-green`, skipped `--warn`.
+Map markers: me = blue dot (`#2f80ed`, the one exception, so it reads as "you" like every other map),
+CC = `--ink` flag with a yellow fill, truck = yellow rounded square with the truck name, crew = red dot,
+lots = small squares in their status colour, open requests = pulsing ring in `--crew` around the crew.
+Contrast: every text/background pair at least 4.5:1; yellow never carries white text.

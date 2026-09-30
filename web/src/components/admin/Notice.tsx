@@ -35,11 +35,4 @@ export const Notice = ({ value, onClear }: { value: NoticeValue; onClear: () => 
   );
 };
 
-/** The message of a failed tRPC call in words a reader can act on. */
-export const errorText = (err: unknown, fallback = "Not saved. Try again."): string => {
-  if (typeof err === "object" && err !== null && "message" in err) {
-    const m = (err as { message: unknown }).message;
-    if (typeof m === "string" && m.length > 0 && m.length < 120 && !m.includes("fetch") && !m.startsWith("[")) return m;
-  }
-  return fallback;
-};
+export { errorText } from "../../lib/errors.ts";

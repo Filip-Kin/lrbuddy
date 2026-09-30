@@ -159,10 +159,12 @@ export const RequestCard = ({
       <p className="mt-1 text-xl font-extrabold tracking-tight">{itemLine(r)}</p>
       {r.note && <p className="mt-1 text-sm break-words text-ink/80">{r.note}</p>}
       <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        <div className="flex gap-1">
-          <dt className="text-muted">Truck</dt>
-          <dd className="font-semibold">{r.truckName ?? "None"}</dd>
-        </div>
+        {(r.truckName !== null || live) && (
+          <div className="flex gap-1">
+            <dt className="text-muted">Truck</dt>
+            <dd className="font-semibold">{r.truckName ?? "None"}</dd>
+          </div>
+        )}
         {live && r.etaAt !== null && (
           <div className="flex gap-1">
             <dt className="text-muted">ETA</dt>

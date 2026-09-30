@@ -1,3 +1,4 @@
+import { errorText } from "../../lib/errors.ts";
 import { useEffect, useRef, useState } from "react";
 import { useMyFix } from "../../lib/position.ts";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
@@ -114,10 +115,7 @@ export const useNewStopBuzz = (stops: readonly QueueStop[] | undefined): void =>
 // #endregion
 
 // #region actions
-const messageOf = (err: unknown): string => {
-  if (err && typeof err === "object" && "message" in err && typeof err.message === "string" && err.message.length < 80) return err.message;
-  return "Not saved. Try again";
-};
+const messageOf = (err: unknown): string => errorText(err, "Not saved. Try again.");
 
 /** Driver mutations. Each returns the fresh queue, which replaces the cached one at once. */
 export const useDriverActions = () => {

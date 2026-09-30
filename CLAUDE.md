@@ -25,7 +25,12 @@ bun run dev                  # server on :3000 + vite on :5173
 bun run typecheck && bun test && bun run build
 bun run shots                # screenshots into /home/filip/preview-shots/lrbuddy
 /home/filip/pit-podcast-automation/.venv/bin/python scripts/gate.py http://127.0.0.1:3000 <admin pw>   # release gate, must exit 0
+/home/filip/pit-podcast-automation/.venv/bin/python scripts/story.py http://127.0.0.1:3000 <admin pw>  # end-to-end flow, all roles; reseed after
 ```
+
+On the NAS, port 3000 belongs to zwavejs2mqtt: run test servers with `PORT=3020`.
+Shared controls (Button, Sheet, ConfirmSheet, Segmented, Chips, Switch, Skeleton, Panel, Settings rows,
+StatusPill) live in `web/src/components`. Use them; do not add per-role copies.
 
 Screenshot harness needs Playwright: use `/home/filip/pit-podcast-automation/.venv/bin/python scripts/shots.py`.
 Chromium is at `/usr/bin/chromium`.

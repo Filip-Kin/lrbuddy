@@ -123,6 +123,11 @@ const layerFor = (m: MapMarker): L.Layer => {
   return layer;
 };
 
+const applyFit = (m: L.Map, pts: L.LatLngExpression[]): void => {
+  if (pts.length === 1) m.setView(pts[0]!, 16);
+  else m.fitBounds(L.latLngBounds(pts), { padding: [36, 36], maxZoom: 17 });
+};
+
 /**
  * Leaflet map with the Esri canvas basemap, light or dark to match the
  * system. Markers and lines are redrawn when their arrays change; the view is
@@ -135,22 +140,36 @@ export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, la
   const markerLayer = useRef<L.LayerGroup | null>(null);
   const lineLayer = useRef<L.LayerGroup | null>(null);
   const fitted = useRef<string | number | undefined | null>(null);
+  const lastFit = useRef<L.LatLngExpression[] | null>(null);
+  const userMoved = useRef(false);
   const clickRef = useRef(onMapClick);
   clickRef.current = onMapClick;
   const dark = usePrefersDark();
 
   useEffect(() => {
     if (!holder.current || map.current) return;
-    const m = L.map(holder.current, { zoomControl: true, maxZoom: MAX_ZOOM, attributionControl: true }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+    const m = L.map(holder.current, { zoomControl: true, maxZoom: MAX_ZOOM, attributionControl: true, zoomSnap: 0.5, zoomDelta: 1 }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
     m.attributionControl.setPrefix(false);
     lineLayer.current = L.layerGroup().addTo(m);
     markerLayer.current = L.layerGroup().addTo(m);
     m.on("click", (e: L.LeafletMouseEvent) => clickRef.current?.(e.latlng.lat, e.latlng.lng));
     map.current = m;
-    // A map mounted inside a sheet or a flex child can measure 0 at first.
-    const ro = new ResizeObserver(() => m.invalidateSize());
-    ro.observe(holder.current);
+    // Any touch, click, wheel or drag means the view is the user's now; a resize no longer refits it.
+    const el = holder.current;
+    const touched = (): void => {
+      userMoved.current = true;
+    };
+    for (const ev of ["pointerdown", "wheel", "keydown"] as const) el.addEventListener(ev, touched, { passive: true });
+    // A map mounted inside a sheet or a flex child can measure 0 at first, or change size once the
+    // page around it lays out. Refit then, so the first view is not fitted to a sliver.
+    const ro = new ResizeObserver(() => {
+      m.invalidateSize();
+      const view = lastFit.current;
+      if (view && !userMoved.current) applyFit(m, view);
+    });
+    ro.observe(el);
     return () => {
+      for (const ev of ["pointerdown", "wheel", "keydown"] as const) el.removeEventListener(ev, touched);
       ro.disconnect();
       m.remove();
       map.current = null;
@@ -195,8 +214,9 @@ export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, la
     const pts: L.LatLngExpression[] = markers.filter((mk) => !mk.noFit).map((mk) => [mk.lat, mk.lng]);
     for (const l of lines) for (const p of l.points) pts.push(p);
     if (pts.length === 0) return;
-    if (pts.length === 1) m.setView(pts[0]!, 16);
-    else m.fitBounds(L.latLngBounds(pts), { padding: [36, 36], maxZoom: 17 });
+    lastFit.current = pts;
+    userMoved.current = false;
+    applyFit(m, pts);
   }, [markers, lines, fitKey]);
 
   return <div ref={holder} role="region" aria-label={label} className={className ?? "h-full w-full"} />;

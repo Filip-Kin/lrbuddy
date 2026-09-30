@@ -80,7 +80,7 @@ One line per call made without anyone to ask. Newest at the bottom.
 - 2026-09-30 green: rectangle select on Lots is two taps (corner 1, corner 2) rather than a drag, so it works on a phone without fighting map panning. Selected lots get an ink outline drawn through MapView `lines`; taps on lots toggle selection; table rows toggle too. Bulk assign offers every crew plus "No crew".
 - 2026-09-30 green: Crews shows Active (seen in the last 30 min, the Stats window), Away or Not joined. Trucks shows "No signal" instead of the status when a truck is unseen for 15 min, because dispatch skips it.
 - 2026-09-30 green: Broadcast shows the audience ("6 crews, 2 trucks") next to Send and a character count; history lists sender, clock time and age.
-- 2026-09-30 admin: CCs move by Move, then a tap on the map, not by dragging. MapView has no draggable markers; a tap also works better than a drag on a phone. Request for drag in INTEGRATION-NOTES.
+- 2026-09-30 admin: CCs move by Move, then a tap on the map, not by dragging. MapView has no draggable markers; a tap also works better than a drag on a phone. Drag was added in integration; Move then tap stays for phones.
 - 2026-09-30 admin: rectangles (Import DLBA, Vacant parcels, Assign CC, Remove area) are two taps, corner then opposite corner, drawn with MapView `lines`. A drag-to-draw fights the map's own pan on touch.
 - 2026-09-30 admin: added `admin.onEvent`, a subscription to every bus message; admin screens invalidate their queries from it (positions coalesced to 10 s). Admin has no CC, so `shared.onCc` does not fit.
 - 2026-09-30 admin: `trucks.create` and `crews.create` take a CC and derive the day from it; the client never sends a day that can disagree with the CC.
@@ -95,3 +95,11 @@ One line per call made without anyone to ask. Newest at the bottom.
 - 2026-09-30 admin: new CCs prefill their address from the parcel under the tap (`ccs.addressAt`, 6 s timeout, null on failure).
 - 2026-09-30 admin: print sheets are white paper with fixed colours in both schemes; the print CSS lives in PrintPage (a `<style>` element) because styles.css is shared. One sheet per page via `break-after: page`; verified 14 sheets make a 14-page Letter PDF.
 - 2026-09-30 admin: regenerating a truck code moved into the truck's edit sheet, behind a confirm. A code that looked like a button and replaced itself on a tap was a trap.
+- 2026-09-30 integration: one set of shared controls in `web/src/components` (Skeleton, Segmented with Chips and ToggleChip, Switch, ConfirmSheet, Panel, Settings rows). The picked state of every chip, segment and tab is yellow (`--brand`), the same as the active nav link.
+- 2026-09-30 integration: crew and driver Settings share the same rows. A dismissed location prompt shows "Not allowed yet" with Allow, not "Blocked", because it can still be asked.
+- 2026-09-30 integration: Import DLBA and Vacant parcels take an optional CC (default No CC). Lots in the rectangle without a CC go to it, so one rectangle puts new lots in front of the green shirts; lots already at another CC keep it.
+- 2026-09-30 integration: assigning lots by rectangle emits one `lot.changed` per CC that gained or lost lots. The client invalidates by kind, so one event per CC is enough; one per lot would flood the stream on a 2,000-lot import.
+- 2026-09-30 integration: maps fit with `zoomSnap: 0.5`, and refit on a container resize until the user touches the map. At whole zoom steps the admin lots map on a phone fitted one step too far out.
+- 2026-09-30 integration: one `errorText` in `web/src/lib/errors.ts`; browser network messages ("Failed to fetch") never reach the screen.
+- 2026-09-30 integration: the end-to-end run lives in `scripts/story.py` (four browser contexts, one per role) so the whole flow can be rerun after any change.
+- 2026-09-30 integration: verification ran on PORT=3020; zwavejs2mqtt holds 3000 on the NAS.

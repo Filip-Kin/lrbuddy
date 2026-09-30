@@ -1,3 +1,4 @@
+import { errorText as baseErrorText } from "../../lib/errors.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
@@ -17,12 +18,7 @@ export const useNow = (ms = 30_000): number => {
 };
 
 /** Short message from a tRPC error, in the server's words. */
-export const errorText = (err: unknown): string => {
-  if (err && typeof err === "object" && "message" in err && typeof err.message === "string" && err.message.length < 80) {
-    return err.message;
-  }
-  return "Not saved. Check the connection and try again.";
-};
+export const errorText = (err: unknown): string => baseErrorText(err, "Not saved. Check the connection and try again.");
 
 /** Everything a green screen shows is one family of queries; any change refetches it. */
 export const useGreenInvalidate = (): (() => void) => {

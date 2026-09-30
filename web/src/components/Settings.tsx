@@ -126,7 +126,8 @@ export const LocationRow = () => {
       window.clearInterval(t);
     };
   }, []);
-  const denied = perm === "denied" || status === "denied";
+  // A prompt the user dismissed fails the watch with PERMISSION_DENIED but can still be asked again.
+  const denied = perm === "denied" || (status === "denied" && perm !== "prompt");
   const sub = denied ? LOCATION_LABELS.denied : perm === "prompt" ? "Not allowed yet" : LOCATION_LABELS[status];
   const tone: Tone = denied ? "warn" : status === "on" ? "green" : "muted";
   const ask = (): void => {

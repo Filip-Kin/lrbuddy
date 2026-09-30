@@ -106,10 +106,11 @@ sessions          id (text uuid PK), role ('admin'|'green'|'driver'|'crew'), cre
                   display_name, created_at, last_used_at, user_agent
 request_types     id, event_id, key, label, unit ('case'|'box'|'can'|'each'|'roll'), priority (1 low, 2 normal, 3 urgent),
                   tracks_stock (bool), sort, active
-requests          id, crew_id, cc_id, day_id, type_id, qty, note,
+requests          id, crew_id (nullable), cc_id, day_id, type_id, qty, note,
+                  created_by ('crew'|'green'), label (nullable, green-entered stop name such as "Corner of Harding and Warren"),
                   status ('open'|'assigned'|'en_route'|'delivered'|'cancelled'),
                   truck_id, created_at, assigned_at, en_route_at, delivered_at, cancelled_at,
-                  cancelled_by ('crew'|'green'|'driver'), lat, lng (crew position at creation, may be null)
+                  cancelled_by ('crew'|'green'|'driver'), lat, lng (crew position at creation; required when crew_id is null)
 truck_stock       truck_id, type_id, qty, capacity        PK (truck_id, type_id)
 stock_moves       id, truck_id, type_id, delta, reason ('delivery'|'restock'|'adjust'), request_id, at
 positions         id, kind ('crew'|'truck'), ref_id, lat, lng, accuracy, heading, speed, at
@@ -191,14 +192,14 @@ the `ui-copy` skill: labels, not sentences. No "you", no "we", no explaining par
 | `/stock` Stock | Each tracked item: qty / capacity with minus and plus. Low (under 25 %) shows a warning pill. |
 | `/settings` | Driver name, Notifications, Location, Leave truck. |
 
-Stops are requests. Several requests from one crew are one stop. Delivering a stop delivers
+Stops are requests. Several requests from one crew are one stop. A green-entered request with no crew is its own stop, shown with its label or address instead of a crew name. Delivering a stop delivers
 all its requests and decrements stock by each qty (floor at 0).
 
 ### Green (phone or laptop at the CC)
 
 | Route | Contents |
 |---|---|
-| `/` Map | Every crew, truck, lot and open request at this CC. Filters: Company, Crew, Requests, Lots, Trucks. Tap anything for a card. |
+| `/` Map | Every crew, truck, lot and open request at this CC. Filters: Company, Crew, Requests, Lots, Trucks. Tap anything for a card. **Add stop** button: tap the map to drop a pin, then a sheet with request type, quantity, optional crew (defaults to none), optional label and note, **Send**. Creates a request with `created_by: 'green'` at that point; it is dispatched like any other. |
 | `/requests` Requests | Board grouped by status. Each card: crew, company, item, qty, age, truck. Actions: **Assign** (pick truck), **Cancel**, **Delivered**. Filter by company. Sound off by default, **Sound** toggle for new-request chime. |
 | `/lots` Lots | Table of lots at this CC with status and crew. Bulk **Assign** to a crew by drawing a rectangle on the map or selecting rows. Counts by status per crew. |
 | `/crews` Crews | Every crew at this CC: lead, company, headcount, last seen, open requests, lots done. **Call** / **Text** the lead. |
@@ -265,9 +266,10 @@ Route computation per truck, debounced 3 s, triggered by any change to its stops
 or the truck moving more than 250 m since the last computation:
 
 1. Origin: truck's last position, else the CC.
-2. Stops: one per crew with assigned or en_route requests for this truck. Stop position is the crew's
-   latest position within 20 minutes, else the crew's most recent position, else the request's
-   `lat,lng`, else the CC.
+2. Stops: one per crew with assigned or en_route requests for this truck, plus one per crewless
+   request. Stop position for a crew stop is the crew's latest position within 20 minutes, else the
+   crew's most recent position, else the request's `lat,lng`, else the CC. A crewless stop sits at
+   the request's `lat,lng`.
 3. If any stop holds a priority 3 request older than 10 minutes, route those stops first (their own
    OSRM trip from origin), then the rest from the last urgent stop. Otherwise one trip.
 4. OSRM: `GET {OSRM_URL}/trip/v1/driving/{lng,lat;...}?source=first&roundtrip=false[&destination=last]`
@@ -340,9 +342,10 @@ has content. Idempotent: wipes and recreates the event named "Demo 2026".
 - Twelve crews on day 1, six per CC, spread across companies. Tokens are deterministic
   (`demo-crew-01` ... `demo-crew-12`) so the seed output can be pasted into a browser.
 - Trucks: East has `TRUCK1` and `TRUCK2`, West has `TRUCK3`. Full stock.
-- Lots: try the DLBA query for the bbox `-83.03,42.36,-82.98,42.39`; if it fails or returns nothing,
-  generate 150 synthetic lots on a jittered grid. Assign about half to crews.
-- Requests: eight in mixed states with realistic timestamps, positions for every crew and truck near
+- Lots: try the DLBA query for the bbox `-83.03,42.36,-82.98,42.39` and keep the first 300 (the bbox
+  holds more than 2000); if it fails or returns nothing, generate 150 synthetic lots on a jittered
+  grid. Assign about half to crews.
+- Requests: eight in mixed states with realistic timestamps, one of them a green-entered crewless stop, positions for every crew and truck near
   their lots, one broadcast.
 - Prints a table of every code and join URL at the end.
 

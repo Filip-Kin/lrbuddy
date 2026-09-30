@@ -116,7 +116,8 @@ truck_stock       truck_id, type_id, qty, capacity        PK (truck_id, type_id)
 stock_moves       id, truck_id, type_id, delta, reason ('delivery'|'restock'|'adjust'), request_id, at
 positions         id, kind ('crew'|'truck'), ref_id, lat, lng, accuracy, heading, speed, at
                   index (kind, ref_id, at desc)
-lots              id, event_id, parcel_id, address, lat, lng, source ('dlba'|'csv'|'manual'),
+lots              id, event_id, parcel_id, address, lat, lng, source ('dlba'|'parcel'|'csv'|'manual'),
+                  geometry (nullable text, GeoJSON Polygon or MultiPolygon in WGS84, the parcel outline),
                   cc_id (nullable), crew_id (nullable), status ('open'|'in_progress'|'done'|'skipped'),
                   status_by_crew_id, status_at, note
                   unique (event_id, parcel_id) where parcel_id not null
@@ -310,6 +311,21 @@ skipped; urgent stops go first; fallback ordering is nearest neighbour; deliveri
   with `geometry=<xmin>,<ymin>,<xmax>,<ymax>&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=name,parcel_id,inventory_status_socrata,longitude,latitude&outSR=4326&f=json&resultOffset=N&resultRecordCount=2000`.
   Page until `exceededTransferLimit` is false. Field `name` is the address. Upsert on `(event_id, parcel_id)`.
   Contact `User-Agent: lrbuddy/1.0 (me@filipkin.com)`.
+- Parcel outlines: every lot carries its parcel polygon so the map shows the outline of the lot, not a
+  dot. Source is the city assessor's parcel layer
+  `https://services2.arcgis.com/qvkbeam7Wirps6zC/arcgis/rest/services/parcel_file_current/FeatureServer/0/query`
+  (polygon geometry, fields `parcel_id`, `address`, `property_class_description`, `taxpayer_1`).
+  Verified 2026-09-30: `where=parcel_id IN ('21039478.','21039477.')&outSR=4326&f=geojson` returns the two
+  polygons (about 300 bytes each); a point query
+  `geometry=<lng>,<lat>&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects`
+  returns the parcel under the point. DLBA parcel ids match this layer's `parcel_id` exactly, trailing dot included.
+  - After a DLBA import, fetch outlines in batches of 100 ids (`parcel_id IN (...)`, `f=geojson`, `outSR=4326`)
+    and store the geometry on each lot.
+  - Second import option on the admin lots page, **Vacant parcels**: same envelope, this layer, with
+    `where=property_class_description='RESIDENTIAL-VACANT'`, source `parcel`. The seed bbox holds about
+    19k parcels of all kinds, so the import shows a count first and imports only inside the drawn rectangle.
+  - Manual and CSV lots resolve their parcel with the point query: fills `parcel_id`, `address` if blank,
+    and `geometry`. A point that hits no parcel stays a point lot with no outline.
 - CSV source: columns `address, lat, lng` required, `parcel_id` optional.
 - Manual: tap on the admin lots map, address optional.
 - Assignment: a lot has an optional CC and an optional crew. Crews see their assigned lots first.
@@ -393,7 +409,9 @@ Status pills: open `--crew`, assigned `--ink` on `--surface-2`, en route `--bran
 cancelled `--muted`. Lot status: open `--line` outline, in progress `--brand`, done `--brand-green`, skipped `--warn`.
 Map markers: me = blue dot (`#2f80ed`, the one exception, so it reads as "you" like every other map),
 CC = `--ink` flag with a yellow fill, truck = yellow rounded square with the truck name, crew = red dot,
-lots = small squares in their status colour, open requests = pulsing ring in `--crew` around the crew.
+lots = the parcel outline (2 px stroke in the status colour, same colour filled at 30 % opacity; lots
+without geometry fall back to a 10 px square), open requests = pulsing ring in `--crew` around the crew.
+Lot outlines render on every map that shows lots (crew, green, admin) and are tappable.
 Contrast: every text/background pair at least 4.5:1; yellow never carries white text.
 
 ## 14. Mistakes that have shipped before (enforced by `scripts/gate.py`)

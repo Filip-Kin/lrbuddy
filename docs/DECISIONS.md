@@ -42,3 +42,56 @@ One line per call made without anyone to ask. Newest at the bottom.
 - 2026-09-30 foundation: a tap-to-add on a parcel that is already a lot returns the existing lot instead of adding a duplicate.
 - 2026-09-30 foundation: open lot outlines use `--muted` for stroke and a 12 % fill. SPEC 13 names `--line`, which disappears on the light basemap.
 - 2026-09-30 foundation: admin lots API has `countVacant` (query) and `importVacant` (mutation) for the Vacant parcels import; the page is for the admin agent.
+- 2026-09-30 crew: with no assigned lots, the nearby list (and the map) leaves out lots assigned to another crew; they are that crew's work.
+- 2026-09-30 crew: `crew.createRequest` returns the existing request when the same crew sends the same type, qty and note within 15 s and it is still open. A double tap or a retried POST on a weak signal is not a second ask.
+- 2026-09-30 crew: the Other type needs an item name; the note field is labelled "Item" for it and the server refuses an empty one.
+- 2026-09-30 crew: lot status is a Done / In progress / Skip segmented control; tapping the lit segment again puts the lot back to Open, so a wrong tap is undone with one more tap. Updates are optimistic on the list and the map.
+- 2026-09-30 crew: setting a lot to the status it already has is a no-op (no new status_at, no lot.changed).
+- 2026-09-30 crew: crew pages refresh from the shell's `shared.onCc` stream (web/src/lib/live.ts) instead of opening a second `crew.onMine` stream; `crew.onMine` stays on the server for any client that wants only its own events.
+- 2026-09-30 crew: the in-app broadcast banner sits above every crew page (in `CrewRoutes`), shows a broadcast for 2 h, and remembers a close per broadcast id in localStorage. The CC page leads with the latest broadcast and hides the banner.
+- 2026-09-30 crew: the crew map shows active requests in a card over the top of the map (item, truck, ETA, status) and draws the pulsing ring around the crew's own position while any request is active; the ring turns urgent when a priority 3 request not yet en route is older than 10 min.
+- 2026-09-30 crew: Requests splits into Active and Earlier, each newest first. Cancel opens a confirm sheet (Keep / Cancel request) because a cancel cannot be undone.
+- 2026-09-30 crew: request cards use relative times for every state ("Delivered 12 min ago"), per SPEC 14; the CC page broadcast shows clock time and relative time.
+- 2026-09-30 crew: the CC page reads `shared.ccCard` and `shared.latestBroadcast`; no crew-only CC procedure.
+- 2026-09-30 crew: Settings also shows the crew, red shirt and CC as read-only rows. Leave crew asks once, then signs out.
+- 2026-09-30 driver: `driver.queue` returns trimmed truck and CC objects, per-stop items, `waitingSince`, `assignedAt`, `nearAddress`, the low stock list, `atCc`, `ccEtaAt` and route totals; `driver.route` wraps the same queue plus the route geometry so the map and the queue never disagree.
+- 2026-09-30 driver: a crewless stop without a label is named by the nearest lot address within 150 m (else "Pinned stop"); every stop shows "Near <address>" from the same lookup so the driver can find it.
+- 2026-09-30 driver: driver cancel takes a list of request ids and one reason, so a stop with several items cancels in one tap; only en route items, as SPEC 7 says. Reason chips ("Crew not found", "Out of stock", "Road blocked", "Crew declined"; "Nobody there" for pinned stops) fill the reason field.
+- 2026-09-30 driver: the next stop card shows En route (primary) and Delivered (secondary) while assigned, and only Delivered once en route. Delivered is allowed straight from assigned; the server accepts it.
+- 2026-09-30 driver: a freshly shown stop card ignores taps for 800 ms so a double tap on Delivered cannot deliver the next stop too.
+- 2026-09-30 driver: the CC card (Navigate, Restocked, Cancel restock) shows while returning, and also when the truck is within 150 m of the CC with any item below capacity, so a driver parked at the CC can restock without pressing Restock first.
+- 2026-09-30 driver: ETA falls back to straight-line distance at 25 km/h (the server's fallback speed) until the debounced route includes a new stop, so the ETA tile is never blank.
+- 2026-09-30 driver: distances on driver cards use this phone's latest GPS fix when there is one, else the server's figure from the last stored truck position.
+- 2026-09-30 driver: "New" pill on stops assigned in the last 3 minutes; the phone vibrates when a stop appears that was not in the previous queue.
+- 2026-09-30 driver: driver pages hold a screen wake lock while visible (truck-mounted phone); Settings has a "Keep screen on" switch stored in localStorage, on by default.
+- 2026-09-30 driver: the client does not open `driver.onRoute`; the shared `shared.onCc` stream already carries route.changed and stock.changed and `web/src/lib/live.ts` invalidates the driver queries on them. One SSE stream per phone.
+- 2026-09-30 driver: stock plus and minus update the screen at once and apply only the last server answer of a burst of taps.
+- 2026-09-30 driver: Settings Location row shows the browser permission first (Blocked, Not allowed yet with an Allow button) and the watcher state otherwise.
+- 2026-09-30 driver: Leave truck asks once in a sheet ("Truck code needed to rejoin") because the code is needed to get back in.
+- 2026-09-30 green: `green.crews` and `green.overview` drop the crew join token from every row; a green view never needs it and the token is the crew's password.
+- 2026-09-30 green: `green.stats` also returns `cancelled`, `lotsByStatus` and `lotsTotal` for the Lots bar on Stats. `green.broadcasts` orders by time then id so two broadcasts in the same millisecond keep their order.
+- 2026-09-30 green: the Map filter strip sits above the map, not over it: Company and Crew selects plus Requests, Lots and Trucks layer chips. A crew or company filter hides other crews, their lots and their requests, and hides crewless stops. The map fits crews, trucks, CC and request rings; lots are left out of the fit so the view opens on the action.
+- 2026-09-30 green: Add stop is a two step flow: the button arms pin mode ("Drop pin" with Cancel over the map), one tap on the map drops the pin and opens the sheet. Item is a tile grid, first item preselected; crew defaults to "No crew".
+- 2026-09-30 green: tapping a crew or its request ring opens one crew card with its open requests and their Assign, Delivered and Cancel actions. A crewless stop's ring opens that stop. Trucks and lots open their own cards; the lot card assigns a crew straight from a select.
+- 2026-09-30 green: the Requests board is four columns (Open, Assigned, En route, Closed) from 1280 px; below that a four-tab switch with counts shows one column. First load opens the first column that has anything waiting. Waiting columns sort oldest first; Closed sorts by close time, 20 at a time with More.
+- 2026-09-30 green: Cancel asks once in a sheet (Keep / Cancel request); Assign and Delivered are one tap. Assign lists every truck at the CC with status, stops and Low stock; the current truck is marked and disabled.
+- 2026-09-30 green: the new-request chime is two generated WebAudio tones, so there is no sound file to serve. Off by default, stored per device in localStorage, plays once on switching on (which also unlocks audio on iOS).
+- 2026-09-30 green: Urgent on a card uses the dispatch rule (priority 3, still open, older than 10 min) and draws the card with a red ring.
+- 2026-09-30 green: rectangle select on Lots is two taps (corner 1, corner 2) rather than a drag, so it works on a phone without fighting map panning. Selected lots get an ink outline drawn through MapView `lines`; taps on lots toggle selection; table rows toggle too. Bulk assign offers every crew plus "No crew".
+- 2026-09-30 green: Crews shows Active (seen in the last 30 min, the Stats window), Away or Not joined. Trucks shows "No signal" instead of the status when a truck is unseen for 15 min, because dispatch skips it.
+- 2026-09-30 green: Broadcast shows the audience ("6 crews, 2 trucks") next to Send and a character count; history lists sender, clock time and age.
+- 2026-09-30 admin: CCs move by Move, then a tap on the map, not by dragging. MapView has no draggable markers; a tap also works better than a drag on a phone. Request for drag in INTEGRATION-NOTES.
+- 2026-09-30 admin: rectangles (Import DLBA, Vacant parcels, Assign CC, Remove area) are two taps, corner then opposite corner, drawn with MapView `lines`. A drag-to-draw fights the map's own pan on touch.
+- 2026-09-30 admin: added `admin.onEvent`, a subscription to every bus message; admin screens invalidate their queries from it (positions coalesced to 10 s). Admin has no CC, so `shared.onCc` does not fit.
+- 2026-09-30 admin: `trucks.create` and `crews.create` take a CC and derive the day from it; the client never sends a day that can disagree with the CC.
+- 2026-09-30 admin: removing a truck, or moving it to another CC, puts its assigned and en route requests back to open and re-runs assignment at the old CC. Before, they stayed `assigned` with no truck.
+- 2026-09-30 admin: `days.copyFromPrevious` refuses a day that already has CCs, so a second tap never doubles the setup. The button only shows on an empty day.
+- 2026-09-30 admin: moving a crew to another CC clears its lot assignments; lots belong to a CC.
+- 2026-09-30 admin: added `lots.update` (CC, address, note, status) and `lots.deleteInBBox` (Remove area) so imports that pulled too much can be trimmed.
+- 2026-09-30 admin: crew CSV `cc` may be blank when the day has one CC; errors name the row and the value ("Row 5: day "Day 9" not found").
+- 2026-09-30 admin: company names are unique per event, any case (CONFLICT on a duplicate), so CSV imports and hand entry do not split one company in two.
+- 2026-09-30 admin: catalog items get their `key` from the label, made unique within the event; the admin never types a key.
+- 2026-09-30 admin: exports always carry a header row, and name the day, CC, crew and truck instead of ids. Times stay Detroit local.
+- 2026-09-30 admin: new CCs prefill their address from the parcel under the tap (`ccs.addressAt`, 6 s timeout, null on failure).
+- 2026-09-30 admin: print sheets are white paper with fixed colours in both schemes; the print CSS lives in PrintPage (a `<style>` element) because styles.css is shared. One sheet per page via `break-after: page`; verified 14 sheets make a 14-page Letter PDF.
+- 2026-09-30 admin: regenerating a truck code moved into the truck's edit sheet, behind a confirm. A code that looked like a button and replaced itself on a tap was a trap.

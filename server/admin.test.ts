@@ -1,0 +1,227 @@
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// The db module opens $DATA_DIR at import; set the env before anything loads it.
+const dir = mkdtempSync(join(tmpdir(), "lrbuddy-admin-test-"));
+process.env.DATA_DIR = dir;
+process.env.SESSION_SECRET = "test-secret";
+process.env.ADMIN_PASSWORD = "test-admin";
+process.env.OSRM_URL = "off";
+process.env.VAPID_PUBLIC_KEY = "";
+process.env.VAPID_PRIVATE_KEY = "";
+
+const { db } = await import("./db/index.ts");
+const s = await import("./db/schema.ts");
+const setup = await import("./setup.ts");
+const d = await import("./dispatch.ts");
+const { createSession } = await import("./auth.ts");
+const { adminRouter } = await import("./routers/admin.ts");
+const { eq } = await import("drizzle-orm");
+// Config is read once per process; another test file may have loaded it first.
+const { config } = await import("./config.ts");
+
+afterAll(() => {
+  d.cancelScheduledRoutes();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// #region fixture
+const EAST = { lat: 42.3786, lng: -82.9911 };
+const WEST = { lat: 42.3701, lng: -83.0209 };
+
+const callerFor = (role: "admin" | "green") => {
+  const session = createSession({ role });
+  return adminRouter.createCaller({ session, ip: "test", ccOverride: null });
+};
+
+interface World {
+  eventId: number;
+  day1: number;
+  day2: number;
+  east: number;
+  west: number;
+}
+
+const fresh = (): World => {
+  d.cancelScheduledRoutes();
+  db.delete(s.events).run();
+  db.delete(s.positions).run();
+  const ev = setup.createEvent({ name: "Test", year: 2026, startDate: "2026-09-28", dayCount: 2, active: true });
+  const [day1, day2] = db.select().from(s.days).where(eq(s.days.eventId, ev.id)).orderBy(s.days.sort).all();
+  const east = setup.createCc({ dayId: day1!.id, name: "East", ...EAST, address: "Anchor Detroit" });
+  const west = setup.createCc({ dayId: day1!.id, name: "West", ...WEST });
+  return { eventId: ev.id, day1: day1!.id, day2: day2!.id, east: east.id, west: west.id };
+};
+
+let w: World;
+let admin: ReturnType<typeof callerFor>;
+beforeEach(() => {
+  w = fresh();
+  admin = callerFor("admin");
+});
+// #endregion
+
+describe("admin access", () => {
+  test("a green session is refused", async () => {
+    const green = callerFor("green");
+    await expect(green.events.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+describe("crew CSV import", () => {
+  test("matches days by label, date or number, CCs with or without the prefix, and adds companies", async () => {
+    const csv = [
+      "Day, CC, Company, Lead Name, Lead Phone, Headcount",
+      "Day 1,East,Ford,Pat,313-555-0100,10",
+      "2026-09-28,CC West,Rocket,Sam,,8",
+      "1,east,ford,Lee,,",
+      "Day 9,East,Ford,Nope,,1",
+      "Day 1,Nowhere,Ford,Nope,,1",
+    ].join("\n");
+    const r = await admin.crews.importCsv({ csv });
+    expect(r.added).toBe(3);
+    expect(r.errors).toEqual(['Row 5: day "Day 9" not found', 'Row 6: CC "Nowhere" not found on Day 1']);
+    const crews = await admin.crews.list({ dayId: w.day1 });
+    expect(crews.map((c) => [c.name, c.ccName, c.companyName, c.headcount])).toEqual([
+      ["Crew 1", "East", "Ford", 10],
+      ["Crew 2", "West", "Rocket", 8],
+      ["Crew 3", "East", "Ford", null],
+    ]);
+    expect(crews[0]!.joinUrl).toBe(`${config.publicUrl}/j/${crews[0]!.token}`);
+    const companies = await admin.companies.list();
+    expect(companies.map((c) => [c.name, c.crewCount, c.headcount])).toEqual([
+      ["Ford", 2, 10],
+      ["Rocket", 1, 8],
+    ]);
+  });
+
+  test("a blank CC works on a day with one CC", async () => {
+    setup.createCc({ dayId: w.day2, name: "Only", ...EAST });
+    const r = await admin.crews.importCsv({ csv: "day,cc,company\nDay 2,,GM\n" });
+    expect(r).toEqual({ added: 1, errors: [] });
+  });
+});
+
+describe("companies", () => {
+  test("a duplicate name, any case, is refused", async () => {
+    await admin.companies.create({ name: "Ford" });
+    await expect(admin.companies.create({ name: "ford" })).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+});
+
+describe("day setup", () => {
+  test("copy from the previous day brings CCs, green shirts and truck capacities, once", async () => {
+    await admin.greenShirts.create({ ccId: w.east, name: "Dana", phone: "3135550101", roleLabel: "Site lead" });
+    const truck = await admin.trucks.create({ ccId: w.east, name: "Truck 1" });
+    const water = (await admin.catalog.list()).find((t) => t.key === "water")!;
+    await admin.trucks.setCapacity({ truckId: truck.id, typeId: water.id, capacity: 44 });
+
+    expect(await admin.days.copyFromPrevious({ id: w.day2 })).toEqual({ ccs: 2, trucks: 1 });
+    const day2 = await admin.days.get({ id: w.day2 });
+    const east = day2.ccs.find((c) => c.name === "East")!;
+    expect(east.greenShirts.map((g) => g.name)).toEqual(["Dana"]);
+    expect(east.trucks[0]!.stock.find((x) => x.key === "water")).toMatchObject({ capacity: 44, qty: 44 });
+    expect(east.greenCode).not.toBeNull();
+    expect(east.trucks[0]!.code).not.toBe(truck.code);
+    expect(day2.previous).toMatchObject({ id: w.day1, ccCount: 2 });
+
+    await expect(admin.days.copyFromPrevious({ id: w.day2 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  });
+
+  test("a truck cannot move to a CC on another day", async () => {
+    const truck = await admin.trucks.create({ ccId: w.east, name: "Truck 1" });
+    const other = setup.createCc({ dayId: w.day2, name: "Later", ...EAST });
+    await expect(admin.trucks.update({ id: truck.id, ccId: other.id })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  test("removing a truck puts its stops back to open", async () => {
+    const truck = await admin.trucks.create({ ccId: w.east, name: "Truck 1" });
+    db.update(s.trucks).set({ lastSeenAt: Date.now() }).where(eq(s.trucks.id, truck.id)).run();
+    const crew = setup.createCrew({ dayId: w.day1, ccId: w.east, companyId: null });
+    const water = (await admin.catalog.list()).find((t) => t.key === "water")!;
+    const req = d.createRequest({ crewId: crew.id, ccId: w.east, dayId: w.day1, typeId: water.id, qty: 1, createdBy: "crew", lat: EAST.lat, lng: EAST.lng });
+    expect(req).toMatchObject({ status: "assigned", truckId: truck.id });
+
+    const r = await admin.trucks.delete({ id: truck.id });
+    expect(r.reopened).toBe(1);
+    const after = db.select().from(s.requests).where(eq(s.requests.id, req.id)).get()!;
+    expect(after).toMatchObject({ status: "open", truckId: null, assignedAt: null });
+  });
+});
+
+describe("lots", () => {
+  const addLot = (lat: number, lng: number, parcelId: string) =>
+    db.insert(s.lots).values({ eventId: w.eventId, lat, lng, parcelId, address: `${parcelId} St`, source: "csv" }).returning().get();
+
+  test("a new CC clears the crew; a status change stamps the time", async () => {
+    const crew = setup.createCrew({ dayId: w.day1, ccId: w.east, companyId: null });
+    const lot = addLot(42.378, -82.99, "A.");
+    db.update(s.lots).set({ ccId: w.east, crewId: crew.id }).where(eq(s.lots.id, lot.id)).run();
+
+    const moved = await admin.lots.update({ id: lot.id, ccId: w.west });
+    expect(moved).toMatchObject({ ccId: w.west, crewId: null });
+    const done = await admin.lots.update({ id: lot.id, status: "done", note: " cleared " });
+    expect(done.status).toBe("done");
+    expect(done.note).toBe("cleared");
+    expect(done.statusAt).toBeGreaterThan(0);
+
+    const list = await admin.lots.list();
+    expect(list[0]!.crewNumber).toBeNull();
+  });
+
+  test("assign and remove by rectangle only touch lots inside it", async () => {
+    addLot(42.378, -82.99, "IN1.");
+    addLot(42.379, -82.991, "IN2.");
+    addLot(42.36, -83.05, "OUT.");
+    const box: [number, number, number, number] = [-82.995, 42.375, -82.985, 42.382];
+    expect(await admin.lots.assignCc({ bbox: box, ccId: w.east })).toEqual({ updated: 2 });
+    const counts = await admin.lots.counts();
+    expect(counts.unassigned).toBe(1);
+    expect(await admin.lots.deleteInBBox({ bbox: box })).toEqual({ deleted: 2 });
+    expect((await admin.lots.list()).map((l) => l.parcelId)).toEqual(["OUT."]);
+  });
+});
+
+describe("catalog", () => {
+  test("a new item gets a key from its label, unique within the event", async () => {
+    const a = await admin.catalog.create({ label: "Water", unit: "case", priority: 3, tracksStock: true, defaultCapacity: 5 });
+    const b = await admin.catalog.create({ label: "Rakes & hoes", unit: "each", priority: 1, tracksStock: true, defaultCapacity: 4 });
+    expect(a.key).toBe("water_2");
+    expect(b.key).toBe("rakes_hoes");
+    expect(b.sort).toBe(a.sort + 1);
+  });
+});
+
+describe("export", () => {
+  test("empty exports still carry their header", async () => {
+    const csv = await admin.export.requests();
+    expect(csv.split("\n")[0]).toStartWith("id,day,date,cc,crew,company");
+    expect((await admin.export.stockMoves()).trim()).toBe("id,day,cc,truck,item,unit,delta,reason,request_id,at");
+  });
+
+  test("lot rows name the day, CC and crew instead of ids", async () => {
+    const crew = setup.createCrew({ dayId: w.day1, ccId: w.east, companyId: null });
+    db.insert(s.lots).values({ eventId: w.eventId, lat: 42.378, lng: -82.99, parcelId: "P.", address: "1 Main", source: "csv", ccId: w.east, crewId: crew.id }).run();
+    const lines = (await admin.export.lots()).trim().split(/\r?\n/);
+    expect(lines[0]).toBe("id,parcel_id,address,lat,lng,source,day,cc,crew,company,status,status_at,note");
+    expect(lines[1]).toContain(",Day 1,East,Crew 1,,open,,");
+    expect(await admin.export.counts()).toMatchObject({ lots: 1, requests: 0 });
+  });
+});
+
+describe("print sheet", () => {
+  test("one page per crew with a QR of its join link, one per CC with codes", async () => {
+    await admin.trucks.create({ ccId: w.east, name: "Truck 1" });
+    setup.createCrew({ dayId: w.day1, ccId: w.east, companyId: null, token: "tok-crew-one-000000" });
+    const sheet = await admin.print.sheet({ dayId: w.day1 });
+    expect(sheet.crewPages).toHaveLength(1);
+    expect(sheet.crewPages[0]!.url).toBe(`${config.publicUrl}/j/tok-crew-one-000000`);
+    expect(sheet.crewPages[0]!.qrSvg).toStartWith("<svg");
+    expect(sheet.ccPages.map((p) => [p.name, p.trucks.length, !!p.greenCode])).toEqual([
+      ["East", 1, true],
+      ["West", 0, true],
+    ]);
+  });
+});

@@ -1,9 +1,10 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import Papa from "papaparse";
 import QRCode from "qrcode";
 import { z } from "zod";
 import { newCrewToken, uniqueCode } from "../auth.ts";
+import { bus, type BusMessage } from "../bus.ts";
 import { config } from "../config.ts";
 import { db } from "../db/index.ts";
 import {
@@ -21,12 +22,23 @@ import {
   stockMoves,
   trucks,
   truckStock,
+  LOT_STATUSES,
   UNITS,
+  type CommandCenter,
   type Event,
 } from "../db/schema.ts";
-import { crewLabel, scheduleRoute, stockFor } from "../dispatch.ts";
+import { crewLabel, scheduleRoute, stockFor, sweepOpen } from "../dispatch.ts";
 import { normalizeBBox } from "../geo.ts";
-import { addManualLot, assignLotsToCcByBBox, countVacantParcels, importDlba, importLotsCsv, importVacantParcels } from "../lots-import.ts";
+import {
+  addManualLot,
+  assignLotsToCcByBBox,
+  countVacantParcels,
+  emitLot,
+  importDlba,
+  importLotsCsv,
+  importVacantParcels,
+  parcelAtPoint,
+} from "../lots-import.ts";
 import { activeEvent, catalogFor, requestViews } from "../queries.ts";
 import { copySetupFromPreviousDay, createCc, createCrew, createEvent, createTruck, setActiveEvent } from "../setup.ts";
 import { adminProcedure, router } from "../trpc.ts";
@@ -44,7 +56,68 @@ const requireActive = (): Event => {
 
 const eventOrActive = (eventId: number | null | undefined): number => eventId ?? requireActive().id;
 
-const toCsv = (rows: ReadonlyArray<Record<string, string | number | boolean | null>>): string => Papa.unparse(rows as object[]);
+const notFound = (what: string): TRPCError => new TRPCError({ code: "NOT_FOUND", message: `${what} not found` });
+
+const getCcOrThrow = (ccId: number): CommandCenter => {
+  const cc = db.select().from(commandCenters).where(eq(commandCenters.id, ccId)).get();
+  if (!cc) throw notFound("Command center");
+  return cc;
+};
+
+/** Event id of a CC, through its day. */
+const eventOfCc = (cc: CommandCenter): number => {
+  const d = db.select({ eventId: days.eventId }).from(days).where(eq(days.id, cc.dayId)).get();
+  if (!d) throw notFound("Day");
+  return d.eventId;
+};
+
+const countBy = <K extends string | number>(rows: ReadonlyArray<{ k: K | null; n: number }>): Map<K, number> => {
+  const m = new Map<K, number>();
+  for (const r of rows) if (r.k !== null) m.set(r.k, r.n);
+  return m;
+};
+
+/** Per-day counts of CCs, crews and trucks. */
+const dayCounts = (dayIds: readonly number[]) => {
+  if (dayIds.length === 0) return { ccs: new Map<number, number>(), crews: new Map<number, number>(), trucks: new Map<number, number>() };
+  return {
+    ccs: countBy(db.select({ k: commandCenters.dayId, n: sql<number>`count(*)` }).from(commandCenters).where(inArray(commandCenters.dayId, dayIds)).groupBy(commandCenters.dayId).all()),
+    crews: countBy(db.select({ k: crews.dayId, n: sql<number>`count(*)` }).from(crews).where(inArray(crews.dayId, dayIds)).groupBy(crews.dayId).all()),
+    trucks: countBy(db.select({ k: trucks.dayId, n: sql<number>`count(*)` }).from(trucks).where(inArray(trucks.dayId, dayIds)).groupBy(trucks.dayId).all()),
+  };
+};
+
+const withDayCounts = <D extends { id: number }>(rows: readonly D[]) => {
+  const c = dayCounts(rows.map((d) => d.id));
+  return rows.map((d) => ({ ...d, ccCount: c.ccs.get(d.id) ?? 0, crewCount: c.crews.get(d.id) ?? 0, truckCount: c.trucks.get(d.id) ?? 0 }));
+};
+
+/** "water", "gas_mower": lowercase words joined by underscores, unique within the event. */
+const keyFor = (eventId: number, label: string): string => {
+  const base = label.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 32) || "item";
+  const taken = new Set(db.select({ key: requestTypes.key }).from(requestTypes).where(eq(requestTypes.eventId, eventId)).all().map((r) => r.key));
+  if (!taken.has(base)) return base;
+  for (let i = 2; ; i++) if (!taken.has(`${base}_${i}`)) return `${base}_${i}`;
+};
+
+type Cell = string | number | boolean | null;
+
+/** CSV with a fixed header, so an empty export still names its columns. */
+const toCsv = <F extends string>(fields: readonly F[], rows: ReadonlyArray<Record<F, Cell>>): string =>
+  Papa.unparse({ fields: [...fields], data: rows.map((r) => fields.map((f) => r[f])) });
+
+/** Day labels and CC names of an event, for export columns. */
+const eventNames = (eventId: number) => {
+  const dayRows = db.select().from(days).where(eq(days.eventId, eventId)).all();
+  const dayIds = dayRows.map((d) => d.id);
+  const ccRows = dayIds.length ? db.select().from(commandCenters).where(inArray(commandCenters.dayId, dayIds)).all() : [];
+  return {
+    dayIds,
+    day: new Map(dayRows.map((d) => [d.id, d.label])),
+    date: new Map(dayRows.map((d) => [d.id, d.date])),
+    cc: new Map(ccRows.map((c) => [c.id, c.name])),
+  };
+};
 
 const DETROIT = new Intl.DateTimeFormat("sv-SE", {
   timeZone: "America/Detroit",
@@ -63,7 +136,19 @@ const iso = (ms: number | null): string => (ms === null ? "" : DETROIT.format(ne
 
 // #region events and days
 const eventsRouter = router({
-  list: adminProcedure.query(() => db.select().from(events).orderBy(asc(events.year), asc(events.id)).all()),
+  /** Every event, newest first, with its first and last day. */
+  list: adminProcedure.query(() => {
+    const evs = db.select().from(events).orderBy(sql`${events.year} desc`, sql`${events.id} desc`).all();
+    const ranges = db
+      .select({ eventId: days.eventId, first: sql<string>`min(${days.date})`, last: sql<string>`max(${days.date})`, n: sql<number>`count(*)` })
+      .from(days)
+      .groupBy(days.eventId)
+      .all();
+    return evs.map((e) => {
+      const r = ranges.find((x) => x.eventId === e.id);
+      return { ...e, dayCount: r?.n ?? 0, firstDate: r?.first ?? null, lastDate: r?.last ?? null };
+    });
+  }),
   create: adminProcedure
     .input(
       z.object({
@@ -87,22 +172,33 @@ const eventsRouter = router({
 const daysRouter = router({
   list: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
     const eventId = eventOrActive(input?.eventId);
-    return db.select().from(days).where(eq(days.eventId, eventId)).orderBy(days.sort).all();
+    return withDayCounts(db.select().from(days).where(eq(days.eventId, eventId)).orderBy(days.sort).all());
   }),
   /** Everything the Day screen edits. */
   get: adminProcedure.input(z.object({ id })).query(({ input }) => {
     const day = db.select().from(days).where(eq(days.id, input.id)).get();
-    if (!day) throw new TRPCError({ code: "NOT_FOUND", message: "Day not found" });
+    if (!day) throw notFound("Day");
     const ccs = db.select().from(commandCenters).where(eq(commandCenters.dayId, day.id)).orderBy(commandCenters.name).all();
     const ccIds = ccs.map((c) => c.id);
-    const shirts = ccIds.length ? db.select().from(greenShirts).where(inArray(greenShirts.ccId, ccIds)).all() : [];
+    const shirts = ccIds.length ? db.select().from(greenShirts).where(inArray(greenShirts.ccId, ccIds)).orderBy(greenShirts.id).all() : [];
     const codes = ccIds.length ? db.select().from(greenCodes).where(inArray(greenCodes.ccId, ccIds)).all() : [];
     const truckRows = db.select().from(trucks).where(eq(trucks.dayId, day.id)).orderBy(trucks.name).all();
+    const crewCounts = countBy(
+      db.select({ k: crews.ccId, n: sql<number>`count(*)` }).from(crews).where(eq(crews.dayId, day.id)).groupBy(crews.ccId).all(),
+    );
+    const siblings = db.select().from(days).where(eq(days.eventId, day.eventId)).orderBy(days.sort).all();
+    const prev = siblings.filter((d) => d.sort < day.sort).at(-1) ?? null;
+    const prevCcCount = prev
+      ? (db.select({ n: sql<number>`count(*)` }).from(commandCenters).where(eq(commandCenters.dayId, prev.id)).get()?.n ?? 0)
+      : 0;
     return {
       day,
+      days: siblings,
+      previous: prev ? { id: prev.id, label: prev.label, ccCount: prevCcCount } : null,
       catalog: catalogFor(day.eventId, true),
       ccs: ccs.map((cc) => ({
         ...cc,
+        crewCount: crewCounts.get(cc.id) ?? 0,
         greenShirts: shirts.filter((g) => g.ccId === cc.id),
         greenCode: codes.find((g) => g.ccId === cc.id)?.code ?? null,
         trucks: truckRows.filter((t) => t.ccId === cc.id).map((t) => ({ ...t, stock: stockFor(t.id) })),
@@ -115,7 +211,12 @@ const daysRouter = router({
       const { id: dayId, ...set } = input;
       return db.update(days).set(set).where(eq(days.id, dayId)).returning().get();
     }),
-  copyFromPrevious: adminProcedure.input(z.object({ id })).mutation(({ input }) => copySetupFromPreviousDay(input.id)),
+  /** Only into an empty day, so a second tap never doubles the setup. */
+  copyFromPrevious: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
+    const existing = db.select({ n: sql<number>`count(*)` }).from(commandCenters).where(eq(commandCenters.dayId, input.id)).get();
+    if ((existing?.n ?? 0) > 0) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Day already has command centers" });
+    return copySetupFromPreviousDay(input.id);
+  }),
 });
 // #endregion
 
@@ -134,8 +235,29 @@ const ccsRouter = router({
       .map(({ cc, day }) => ({ ...cc, dayLabel: day.label, date: day.date }));
   }),
   create: adminProcedure
-    .input(z.object({ dayId: id, name: z.string().trim().min(1).max(80), lat: z.number(), lng: z.number(), address: z.string().max(200).nullish(), notes: z.string().max(1000).nullish() }))
-    .mutation(({ input }) => createCc(input)),
+    .input(
+      z.object({
+        dayId: id,
+        name: z.string().trim().min(1).max(80),
+        lat: z.number().min(-90).max(90),
+        lng: z.number().min(-180).max(180),
+        address: z.string().trim().max(200).nullish(),
+        notes: z.string().max(1000).nullish(),
+      }),
+    )
+    .mutation(({ input }) => {
+      if (!db.select({ id: days.id }).from(days).where(eq(days.id, input.dayId)).get()) throw notFound("Day");
+      return createCc({ ...input, address: input.address || null });
+    }),
+  /** Street address of the parcel under a point, to prefill a new CC. Null when none or the city layer is down. */
+  addressAt: adminProcedure.input(z.object({ lat: z.number(), lng: z.number() })).query(async ({ input }) => {
+    try {
+      const p = await parcelAtPoint(input.lat, input.lng, { timeoutMs: 6000 });
+      return { address: p?.address ?? null };
+    } catch {
+      return { address: null };
+    }
+  }),
   update: adminProcedure
     .input(
       z.object({
@@ -181,10 +303,27 @@ const greenCodesRouter = router({
   }),
 });
 
+/** Puts a truck's assigned and en route requests back to open. Call `afterReopen` once the truck change is saved. */
+const reopenStops = (truckId: number) =>
+  db
+    .update(requests)
+    .set({ status: "open", truckId: null, assignedAt: null, enRouteAt: null })
+    .where(and(eq(requests.truckId, truckId), inArray(requests.status, ["assigned", "en_route"])))
+    .returning()
+    .all();
+
+const afterReopen = (reopened: ReturnType<typeof reopenStops>, truck: { ccId: number; dayId: number }): void => {
+  for (const request of reopened) bus.emit("request.changed", { ccId: request.ccId, dayId: request.dayId }, { request });
+  if (reopened.length > 0) sweepOpen(truck.ccId, truck.dayId);
+};
+
 const trucksRouter = router({
   create: adminProcedure
-    .input(z.object({ dayId: id, ccId: id, name: z.string().trim().min(1).max(40), driverName: z.string().trim().max(80).nullish(), driverPhone: phone }))
-    .mutation(({ input }) => createTruck(input)),
+    .input(z.object({ ccId: id, name: z.string().trim().min(1).max(40), driverName: z.string().trim().max(80).nullish(), driverPhone: phone }))
+    .mutation(({ input }) => {
+      const cc = getCcOrThrow(input.ccId);
+      return createTruck({ ...input, dayId: cc.dayId, driverName: input.driverName || null, driverPhone: input.driverPhone || null });
+    }),
   update: adminProcedure
     .input(
       z.object({
@@ -198,7 +337,16 @@ const trucksRouter = router({
     )
     .mutation(({ input }) => {
       const { id: tid, ...set } = input;
+      const current = db.select().from(trucks).where(eq(trucks.id, tid)).get();
+      if (!current) throw notFound("Truck");
+      if (set.ccId !== undefined && getCcOrThrow(set.ccId).dayId !== current.dayId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Command center is on another day" });
+      }
+      const moving = set.ccId !== undefined && set.ccId !== current.ccId;
+      // Stops belong to the old CC; they go back to open there.
+      const reopened = moving ? reopenStops(tid) : [];
       const t = db.update(trucks).set(set).where(eq(trucks.id, tid)).returning().get();
+      afterReopen(reopened, current);
       scheduleRoute(tid);
       return t;
     }),
@@ -214,21 +362,48 @@ const trucksRouter = router({
         .run();
       return stockFor(input.truckId);
     }),
+  /** Its assigned and en route requests go back to open first, then to whichever truck is nearest. */
   delete: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
-    db.delete(trucks).where(eq(trucks.id, input.id)).run();
-    return { ok: true };
+    const truck = db.select().from(trucks).where(eq(trucks.id, input.id)).get();
+    if (!truck) throw notFound("Truck");
+    const reopened = reopenStops(truck.id);
+    db.delete(trucks).where(eq(trucks.id, truck.id)).run();
+    afterReopen(reopened, truck);
+    return { ok: true, reopened: reopened.length };
   }),
 });
 // #endregion
 
 // #region companies and crews
 const companiesRouter = router({
-  list: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) =>
-    db.select().from(companies).where(eq(companies.eventId, eventOrActive(input?.eventId))).orderBy(companies.name).all(),
-  ),
-  create: adminProcedure.input(z.object({ name: z.string().trim().min(1).max(100), eventId: id.nullish() })).mutation(({ input }) =>
-    db.insert(companies).values({ eventId: eventOrActive(input.eventId), name: input.name }).returning().get(),
-  ),
+  /** Companies of the event with crew and volunteer totals across its days. */
+  list: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
+    const eventId = eventOrActive(input?.eventId);
+    const rows = db.select().from(companies).where(eq(companies.eventId, eventId)).orderBy(sql`lower(${companies.name})`).all();
+    const ids = rows.map((c) => c.id);
+    const stats = ids.length
+      ? db
+          .select({ companyId: crews.companyId, n: sql<number>`count(*)`, people: sql<number>`coalesce(sum(${crews.headcount}), 0)` })
+          .from(crews)
+          .where(inArray(crews.companyId, ids))
+          .groupBy(crews.companyId)
+          .all()
+      : [];
+    return rows.map((c) => {
+      const st = stats.find((x) => x.companyId === c.id);
+      return { ...c, crewCount: st?.n ?? 0, headcount: st?.people ?? 0 };
+    });
+  }),
+  create: adminProcedure.input(z.object({ name: z.string().trim().min(1).max(100), eventId: id.nullish() })).mutation(({ input }) => {
+    const eventId = eventOrActive(input.eventId);
+    const dup = db
+      .select({ id: companies.id })
+      .from(companies)
+      .where(and(eq(companies.eventId, eventId), sql`lower(${companies.name}) = ${input.name.toLowerCase()}`))
+      .get();
+    if (dup) throw new TRPCError({ code: "CONFLICT", message: "Company already listed" });
+    return db.insert(companies).values({ eventId, name: input.name }).returning().get();
+  }),
   rename: adminProcedure.input(z.object({ id, name: z.string().trim().min(1).max(100) })).mutation(({ input }) =>
     db.update(companies).set({ name: input.name }).where(eq(companies.id, input.id)).returning().get(),
   ),
@@ -239,7 +414,6 @@ const companiesRouter = router({
 });
 
 const crewInput = z.object({
-  dayId: id,
   ccId: id,
   companyId: id.nullable(),
   leadName: z.string().trim().max(80).nullish(),
@@ -266,10 +440,23 @@ const crewsRouter = router({
         joinUrl: `${config.publicUrl}/j/${crew.token}`,
       })),
   ),
-  create: adminProcedure.input(crewInput).mutation(({ input }) => createCrew(input)),
+  create: adminProcedure.input(crewInput).mutation(({ input }) => {
+    const cc = getCcOrThrow(input.ccId);
+    return createCrew({ ...input, dayId: cc.dayId, leadName: input.leadName || null, leadPhone: input.leadPhone || null });
+  }),
+  /** Moving a crew to another CC moves it to that CC's day and clears its lot assignments at the old CC. */
   update: adminProcedure.input(crewInput.partial().extend({ id })).mutation(({ input }) => {
     const { id: cid, ...set } = input;
-    return db.update(crews).set(set).where(eq(crews.id, cid)).returning().get();
+    const current = db.select().from(crews).where(eq(crews.id, cid)).get();
+    if (!current) throw notFound("Crew");
+    const patch: Partial<typeof crews.$inferInsert> = { ...set };
+    if (set.leadName !== undefined) patch.leadName = set.leadName || null;
+    if (set.leadPhone !== undefined) patch.leadPhone = set.leadPhone || null;
+    if (set.ccId !== undefined && set.ccId !== current.ccId) {
+      patch.dayId = getCcOrThrow(set.ccId).dayId;
+      db.update(lots).set({ crewId: null }).where(eq(lots.crewId, cid)).run();
+    }
+    return db.update(crews).set(patch).where(eq(crews.id, cid)).returning().get();
   }),
   delete: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
     db.delete(crews).where(eq(crews.id, input.id)).run();
@@ -300,7 +487,7 @@ const crewsRouter = router({
       const line = i + 2;
       const day = findDay(r.day ?? "");
       if (!day) {
-        errors.push(`Row ${line}: day`);
+        errors.push(`Row ${line}: day "${(r.day ?? "").trim()}" not found`);
         return;
       }
       const ccName = (r.cc ?? "").trim().toLowerCase().replace(/^cc\s+/, "");
@@ -309,8 +496,10 @@ const crewsRouter = router({
         .from(commandCenters)
         .where(and(eq(commandCenters.dayId, day.id), sql`lower(${commandCenters.name}) = ${ccName}`))
         .get();
-      if (!cc) {
-        errors.push(`Row ${line}: cc`);
+      const onlyCc = ccName === "" ? db.select().from(commandCenters).where(eq(commandCenters.dayId, day.id)).all() : [];
+      const target = cc ?? (onlyCc.length === 1 ? onlyCc[0] : undefined);
+      if (!target) {
+        errors.push(`Row ${line}: CC "${(r.cc ?? "").trim()}" not found on ${day.label}`);
         return;
       }
       const companyName = (r.company ?? "").trim();
@@ -325,7 +514,7 @@ const crewsRouter = router({
       const head = Number(r.headcount);
       createCrew({
         dayId: day.id,
-        ccId: cc.id,
+        ccId: target.id,
         companyId,
         leadName: r.lead_name?.trim() || null,
         leadPhone: r.lead_phone?.trim() || null,
@@ -345,7 +534,7 @@ const catalogRouter = router({
     .input(
       z.object({
         eventId: id.nullish(),
-        key: z.string().trim().min(1).max(40).regex(/^[a-z0-9_]+$/),
+        key: z.string().trim().min(1).max(40).regex(/^[a-z0-9_]+$/).optional(),
         label: z.string().trim().min(1).max(60),
         unit: z.enum(UNITS),
         priority: z.number().int().min(1).max(3),
@@ -356,8 +545,12 @@ const catalogRouter = router({
     .mutation(({ input }) => {
       const eventId = eventOrActive(input.eventId);
       const last = db.select({ n: sql<number>`coalesce(max(${requestTypes.sort}), 0)` }).from(requestTypes).where(eq(requestTypes.eventId, eventId)).get();
-      const { eventId: _e, ...rest } = input;
-      return db.insert(requestTypes).values({ ...rest, eventId, sort: (last?.n ?? 0) + 1, active: true }).returning().get();
+      const { eventId: _e, key, ...rest } = input;
+      return db
+        .insert(requestTypes)
+        .values({ ...rest, key: key ?? keyFor(eventId, input.label), eventId, sort: (last?.n ?? 0) + 1, active: true })
+        .returning()
+        .get();
     }),
   update: adminProcedure
     .input(
@@ -387,8 +580,15 @@ const catalogRouter = router({
 
 // #region lots
 const lotsRouter = router({
+  /** Every lot of the event with its crew's number. */
   list: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) =>
-    db.select().from(lots).where(eq(lots.eventId, eventOrActive(input?.eventId))).all(),
+    db
+      .select({ lot: lots, crewNumber: crews.number })
+      .from(lots)
+      .leftJoin(crews, eq(crews.id, lots.crewId))
+      .where(eq(lots.eventId, eventOrActive(input?.eventId)))
+      .all()
+      .map(({ lot, crewNumber }) => ({ ...lot, crewNumber })),
   ),
   counts: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
     const eventId = eventOrActive(input?.eventId);
@@ -425,15 +625,70 @@ const lotsRouter = router({
         throw new TRPCError({ code: "BAD_GATEWAY", message: "Parcel layer unavailable", cause: err });
       }
     }),
-  importCsv: adminProcedure.input(z.object({ csv: z.string().max(5_000_000), eventId: id.nullish() })).mutation(({ input }) =>
-    importLotsCsv(eventOrActive(input.eventId), input.csv),
-  ),
+  importCsv: adminProcedure.input(z.object({ csv: z.string().max(5_000_000), eventId: id.nullish() })).mutation(async ({ input }) => {
+    const res = await importLotsCsv(eventOrActive(input.eventId), input.csv);
+    return { ...res, errors: res.errors.map((e) => e.replace(/: lat and lng$/, ": lat or lng missing")) };
+  }),
   add: adminProcedure
     .input(z.object({ lat: z.number(), lng: z.number(), address: z.string().max(200).nullish(), ccId: id.nullish(), eventId: id.nullish() }))
     .mutation(({ input }) => addManualLot(eventOrActive(input.eventId), input)),
-  assignCc: adminProcedure.input(z.object({ bbox: bboxInput, ccId: id.nullable(), eventId: id.nullish() })).mutation(({ input }) => ({
-    updated: assignLotsToCcByBBox(eventOrActive(input.eventId), input.bbox, input.ccId),
-  })),
+  assignCc: adminProcedure.input(z.object({ bbox: bboxInput, ccId: id.nullable(), eventId: id.nullish() })).mutation(({ input }) => {
+    const eventId = eventOrActive(input.eventId);
+    if (input.ccId !== null && eventOfCc(getCcOrThrow(input.ccId)) !== eventId) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Command center is in another event" });
+    }
+    return { updated: assignLotsToCcByBBox(eventId, input.bbox, input.ccId) };
+  }),
+  /** One lot: CC, address, note, status. A new CC clears the crew. */
+  update: adminProcedure
+    .input(
+      z.object({
+        id,
+        ccId: id.nullable().optional(),
+        address: z.string().trim().max(200).nullish(),
+        note: z.string().trim().max(1000).nullish(),
+        status: z.enum(LOT_STATUSES).optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const lot = db.select().from(lots).where(eq(lots.id, input.id)).get();
+      if (!lot) throw notFound("Lot");
+      const patch: Partial<typeof lots.$inferInsert> = {};
+      if (input.ccId !== undefined && input.ccId !== lot.ccId) {
+        if (input.ccId !== null && eventOfCc(getCcOrThrow(input.ccId)) !== lot.eventId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Command center is in another event" });
+        }
+        patch.ccId = input.ccId;
+        patch.crewId = null;
+      }
+      if (input.address !== undefined) patch.address = input.address || null;
+      if (input.note !== undefined) patch.note = input.note || null;
+      if (input.status !== undefined && input.status !== lot.status) {
+        patch.status = input.status;
+        patch.statusAt = Date.now();
+        patch.statusByCrewId = null;
+      }
+      if (Object.keys(patch).length === 0) return lot;
+      const next = db.update(lots).set(patch).where(eq(lots.id, lot.id)).returning().get();
+      emitLot(next);
+      return next;
+    }),
+  /** Removes every lot of the event inside the rectangle. */
+  deleteInBBox: adminProcedure.input(z.object({ bbox: bboxInput, eventId: id.nullish() })).mutation(({ input }) => {
+    const [w, s, e, n] = normalizeBBox(input.bbox);
+    const r = db
+      .delete(lots)
+      .where(
+        and(
+          eq(lots.eventId, eventOrActive(input.eventId)),
+          sql`${lots.lng} between ${w} and ${e}`,
+          sql`${lots.lat} between ${s} and ${n}`,
+        ),
+      )
+      .returning({ id: lots.id })
+      .all();
+    return { deleted: r.length };
+  }),
   delete: adminProcedure.input(z.object({ ids: z.array(id).min(1).max(5000) })).mutation(({ input }) => {
     const r = db.delete(lots).where(inArray(lots.id, input.ids)).returning({ id: lots.id }).all();
     return { deleted: r.length };
@@ -494,16 +749,40 @@ const printRouter = router({
 });
 
 const exportRouter = router({
-  requests: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
+  /** Row counts for each download, for the active event. */
+  counts: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
     const eventId = eventOrActive(input?.eventId);
     const dayIds = db.select({ id: days.id }).from(days).where(eq(days.eventId, eventId)).all().map((d) => d.id);
-    if (dayIds.length === 0) return toCsv([]);
-    const rows = requestViews(db.select().from(requests).where(inArray(requests.dayId, dayIds)).orderBy(requests.createdAt).all());
+    const n = (q: { n: number } | undefined): number => q?.n ?? 0;
+    if (dayIds.length === 0) {
+      return { requests: 0, lots: n(db.select({ n: sql<number>`count(*)` }).from(lots).where(eq(lots.eventId, eventId)).get()), positions: 0, stockMoves: 0 };
+    }
+    const crewIds = db.select({ id: crews.id }).from(crews).where(inArray(crews.dayId, dayIds)).all().map((c) => c.id);
+    const truckIds = db.select({ id: trucks.id }).from(trucks).where(inArray(trucks.dayId, dayIds)).all().map((t) => t.id);
+    const posCount = (kind: "crew" | "truck", ids: number[]): number =>
+      ids.length ? n(db.select({ n: sql<number>`count(*)` }).from(positions).where(and(eq(positions.kind, kind), inArray(positions.refId, ids))).get()) : 0;
+    return {
+      requests: n(db.select({ n: sql<number>`count(*)` }).from(requests).where(inArray(requests.dayId, dayIds)).get()),
+      lots: n(db.select({ n: sql<number>`count(*)` }).from(lots).where(eq(lots.eventId, eventId)).get()),
+      positions: posCount("crew", crewIds) + posCount("truck", truckIds),
+      stockMoves: truckIds.length ? n(db.select({ n: sql<number>`count(*)` }).from(stockMoves).where(inArray(stockMoves.truckId, truckIds)).get()) : 0,
+    };
+  }),
+  requests: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
+    const names = eventNames(eventOrActive(input?.eventId));
+    const fields = [
+      "id", "day", "date", "cc", "crew", "company", "label", "item", "qty", "note", "created_by", "status", "truck",
+      "created_at", "assigned_at", "en_route_at", "delivered_at", "cancelled_at", "cancelled_by", "cancel_note", "lat", "lng",
+    ] as const;
+    if (names.dayIds.length === 0) return toCsv(fields, []);
+    const rows = requestViews(db.select().from(requests).where(inArray(requests.dayId, names.dayIds)).orderBy(requests.createdAt).all());
     return toCsv(
+      fields,
       rows.map((r) => ({
         id: r.id,
-        day_id: r.dayId,
-        cc_id: r.ccId,
+        day: names.day.get(r.dayId) ?? "",
+        date: names.date.get(r.dayId) ?? "",
+        cc: names.cc.get(r.ccId) ?? "",
         crew: r.crewName,
         company: r.companyName,
         label: r.label,
@@ -526,17 +805,35 @@ const exportRouter = router({
     );
   }),
   lots: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
-    const rows = db.select().from(lots).where(eq(lots.eventId, eventOrActive(input?.eventId))).all();
+    const eventId = eventOrActive(input?.eventId);
+    const names = eventNames(eventId);
+    const rows = db
+      .select({ lot: lots, crewNumber: crews.number, crewCompany: companies.name })
+      .from(lots)
+      .leftJoin(crews, eq(crews.id, lots.crewId))
+      .leftJoin(companies, eq(companies.id, crews.companyId))
+      .where(eq(lots.eventId, eventId))
+      .orderBy(lots.id)
+      .all();
+    const ccDay = new Map(
+      names.dayIds.length
+        ? db.select({ id: commandCenters.id, dayId: commandCenters.dayId }).from(commandCenters).where(inArray(commandCenters.dayId, names.dayIds)).all().map((c) => [c.id, c.dayId])
+        : [],
+    );
+    const fields = ["id", "parcel_id", "address", "lat", "lng", "source", "day", "cc", "crew", "company", "status", "status_at", "note"] as const;
     return toCsv(
-      rows.map((l) => ({
+      fields,
+      rows.map(({ lot: l, crewNumber, crewCompany }) => ({
         id: l.id,
         parcel_id: l.parcelId,
         address: l.address,
         lat: l.lat,
         lng: l.lng,
         source: l.source,
-        cc_id: l.ccId,
-        crew_id: l.crewId,
+        day: l.ccId !== null ? (names.day.get(ccDay.get(l.ccId) ?? -1) ?? "") : "",
+        cc: l.ccId !== null ? (names.cc.get(l.ccId) ?? "") : "",
+        crew: crewNumber !== null ? crewLabel({ number: crewNumber }) : "",
+        company: crewCompany,
         status: l.status,
         status_at: iso(l.statusAt),
         note: l.note,
@@ -544,34 +841,62 @@ const exportRouter = router({
     );
   }),
   positions: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
-    const eventId = eventOrActive(input?.eventId);
-    const dayIds = db.select({ id: days.id }).from(days).where(eq(days.eventId, eventId)).all().map((d) => d.id);
-    if (dayIds.length === 0) return toCsv([]);
-    const crewIds = db.select({ id: crews.id }).from(crews).where(inArray(crews.dayId, dayIds)).all().map((c) => c.id);
-    const truckIds = db.select({ id: trucks.id }).from(trucks).where(inArray(trucks.dayId, dayIds)).all().map((t) => t.id);
+    const names = eventNames(eventOrActive(input?.eventId));
+    const fields = ["day", "cc", "kind", "name", "lat", "lng", "accuracy", "heading", "speed", "at"] as const;
+    if (names.dayIds.length === 0) return toCsv(fields, []);
+    const crewRows = db.select().from(crews).where(inArray(crews.dayId, names.dayIds)).all();
+    const truckRows = db.select().from(trucks).where(inArray(trucks.dayId, names.dayIds)).all();
+    const who = new Map<string, { name: string; dayId: number; ccId: number }>([
+      ...crewRows.map((c) => [`crew:${c.id}`, { name: crewLabel(c), dayId: c.dayId, ccId: c.ccId }] as const),
+      ...truckRows.map((t) => [`truck:${t.id}`, { name: t.name, dayId: t.dayId, ccId: t.ccId }] as const),
+    ]);
+    const crewIds = crewRows.map((c) => c.id);
+    const truckIds = truckRows.map((t) => t.id);
     const rows = [
       ...(crewIds.length ? db.select().from(positions).where(and(eq(positions.kind, "crew"), inArray(positions.refId, crewIds))).all() : []),
       ...(truckIds.length ? db.select().from(positions).where(and(eq(positions.kind, "truck"), inArray(positions.refId, truckIds))).all() : []),
     ].sort((a, b) => a.at - b.at);
-    return toCsv(rows.map((p) => ({ kind: p.kind, ref_id: p.refId, lat: p.lat, lng: p.lng, accuracy: p.accuracy, heading: p.heading, speed: p.speed, at: iso(p.at) })));
+    return toCsv(
+      fields,
+      rows.map((p) => {
+        const w = who.get(`${p.kind}:${p.refId}`);
+        return {
+          day: w ? (names.day.get(w.dayId) ?? "") : "",
+          cc: w ? (names.cc.get(w.ccId) ?? "") : "",
+          kind: p.kind,
+          name: w?.name ?? "",
+          lat: p.lat,
+          lng: p.lng,
+          accuracy: p.accuracy,
+          heading: p.heading,
+          speed: p.speed,
+          at: iso(p.at),
+        };
+      }),
+    );
   }),
   stockMoves: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
     const eventId = eventOrActive(input?.eventId);
     const rows = db
-      .select({ m: stockMoves, truck: trucks, type: requestTypes, day: days })
+      .select({ m: stockMoves, truck: trucks, type: requestTypes, day: days, cc: commandCenters })
       .from(stockMoves)
       .innerJoin(trucks, eq(trucks.id, stockMoves.truckId))
       .innerJoin(requestTypes, eq(requestTypes.id, stockMoves.typeId))
       .innerJoin(days, eq(days.id, trucks.dayId))
+      .innerJoin(commandCenters, eq(commandCenters.id, trucks.ccId))
       .where(eq(days.eventId, eventId))
       .orderBy(stockMoves.at)
       .all();
+    const fields = ["id", "day", "cc", "truck", "item", "unit", "delta", "reason", "request_id", "at"] as const;
     return toCsv(
-      rows.map(({ m, truck, type, day }) => ({
+      fields,
+      rows.map(({ m, truck, type, day, cc }) => ({
         id: m.id,
         day: day.label,
+        cc: cc.name,
         truck: truck.name,
         item: type.label,
+        unit: type.unit,
         delta: m.delta,
         reason: m.reason,
         request_id: m.requestId,
@@ -598,6 +923,15 @@ export const adminRouter = router({
   /** Active event with its days, for the Event screen header. */
   overview: adminProcedure.query(() => {
     const ev = activeEvent() ?? null;
-    return { event: ev, days: ev ? db.select().from(days).where(eq(days.eventId, ev.id)).orderBy(days.sort).all() : [] };
+    const dayRows = ev ? withDayCounts(db.select().from(days).where(eq(days.eventId, ev.id)).orderBy(days.sort).all()) : [];
+    const lotCount = ev ? (db.select({ n: sql<number>`count(*)` }).from(lots).where(eq(lots.eventId, ev.id)).get()?.n ?? 0) : 0;
+    const unplaced = ev
+      ? (db.select({ n: sql<number>`count(*)` }).from(lots).where(and(eq(lots.eventId, ev.id), isNull(lots.ccId))).get()?.n ?? 0)
+      : 0;
+    return { event: ev, days: dayRows, lotCount, unplacedLots: unplaced };
+  }),
+  /** Every bus message, for admin screens to refetch on. Admin sees all CCs and days. */
+  onEvent: adminProcedure.subscription(async function* ({ signal }) {
+    for await (const msg of bus.listen(signal)) yield msg satisfies BusMessage;
   }),
 });

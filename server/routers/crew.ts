@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { bus } from "../bus.ts";
 import { db } from "../db/index.ts";
@@ -11,6 +11,8 @@ import { latestPositions, requestsWhere, requestViews } from "../queries.ts";
 import { crewProcedure, router } from "../trpc.ts";
 
 export const NEARBY_LOT_M = 400;
+/** A second identical request inside this window is a double tap or a retry, not a new ask. */
+export const DUPLICATE_WINDOW_MS = 15_000;
 
 const crewPoint = (crew: Crew, cc: CommandCenter): LatLng => {
   const p = latestPosition("crew", crew.id);
@@ -22,7 +24,10 @@ export interface CrewLot extends Lot {
   mine: boolean;
 }
 
-/** Lots assigned to the crew, else lots at its CC or unassigned within 400 m. Nearest first. */
+/**
+ * Lots assigned to the crew, else lots within 400 m that are at its CC or at no
+ * CC and not assigned to another crew. Nearest first.
+ */
 const lotsForCrew = (crew: Crew, cc: CommandCenter, eventId: number): CrewLot[] => {
   const at = crewPoint(crew, cc);
   const mine = db.select().from(lots).where(and(eq(lots.eventId, eventId), eq(lots.crewId, crew.id))).all();
@@ -38,6 +43,7 @@ const lotsForCrew = (crew: Crew, cc: CommandCenter, eventId: number): CrewLot[] 
         and(
           eq(lots.eventId, eventId),
           or(eq(lots.ccId, cc.id), isNull(lots.ccId)),
+          isNull(lots.crewId),
           sql`${lots.lng} between ${w} and ${e}`,
           sql`${lots.lat} between ${s} and ${n}`,
         ),
@@ -62,18 +68,41 @@ export const crewRouter = router({
     )
     .mutation(({ ctx, input }) => {
       const type = getType(input.typeId);
-      if (type.eventId !== ctx.event.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Item not available" });
-      const r = createRequest({
-        crewId: ctx.crew.id,
-        ccId: ctx.crew.ccId,
-        dayId: ctx.crew.dayId,
-        typeId: input.typeId,
-        qty: input.qty,
-        note: input.note ?? null,
-        createdBy: "crew",
-        lat: input.lat ?? null,
-        lng: input.lng ?? null,
-      });
+      if (type.eventId !== ctx.event.id || !type.active) throw new TRPCError({ code: "BAD_REQUEST", message: "Item not available" });
+      const note = input.note?.trim() || null;
+      if (type.key === "other" && !note) throw new TRPCError({ code: "BAD_REQUEST", message: "Item name required" });
+      const now = Date.now();
+      // A double tap or a retried POST on a weak signal sends the same thing twice.
+      const dup = db
+        .select()
+        .from(requests)
+        .where(
+          and(
+            eq(requests.crewId, ctx.crew.id),
+            eq(requests.typeId, type.id),
+            eq(requests.qty, input.qty),
+            gte(requests.createdAt, now - DUPLICATE_WINDOW_MS),
+            inArray(requests.status, ["open", "assigned", "en_route"]),
+          ),
+        )
+        .orderBy(desc(requests.createdAt))
+        .all()
+        .find((r) => (r.note ?? null) === note);
+      if (dup) return requestViews([dup])[0]!;
+      const r = createRequest(
+        {
+          crewId: ctx.crew.id,
+          ccId: ctx.crew.ccId,
+          dayId: ctx.crew.dayId,
+          typeId: input.typeId,
+          qty: input.qty,
+          note,
+          createdBy: "crew",
+          lat: input.lat ?? null,
+          lng: input.lng ?? null,
+        },
+        now,
+      );
       return requestViews([r])[0]!;
     }),
 
@@ -99,6 +128,7 @@ export const crewRouter = router({
         lot.ccId === ctx.cc.id ||
         (lot.ccId === null && haversine(crewPoint(ctx.crew, ctx.cc), lot) <= NEARBY_LOT_M);
       if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "Lot not at this command center" });
+      if (lot.status === input.status) return lot;
       const updated = db
         .update(lots)
         .set({ status: input.status, statusByCrewId: ctx.crew.id, statusAt: Date.now() })

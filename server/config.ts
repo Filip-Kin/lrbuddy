@@ -28,5 +28,12 @@ export const config = {
   vapidSubject: optional("VAPID_SUBJECT", "mailto:me@filipkin.com"),
   /** `off` disables OSRM and always uses the nearest-neighbour fallback. */
   osrmUrl: optional("OSRM_URL", "https://router.project-osrm.org").replace(/\/+$/, ""),
+  /**
+   * Proxies in front of the app that append to X-Forwarded-For (Coolify's
+   * Traefik is one). 0 keys the login limit on the socket address. With N, the
+   * client is the Nth entry from the right; entries left of it are written by
+   * the caller and never trusted.
+   */
+  trustProxyHops: Math.max(0, Math.floor(Number(optional("TRUST_PROXY_HOPS", "0"))) || 0),
   webDist: optional("WEB_DIST", new URL("../web/dist/", import.meta.url).pathname),
 } as const;

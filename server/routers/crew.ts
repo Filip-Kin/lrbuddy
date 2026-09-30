@@ -7,7 +7,7 @@ import { crews, LOT_STATUSES, lots, requests, trucks, type CommandCenter, type C
 import { cancelRequest, createRequest, getRequest, getType, latestPosition } from "../dispatch.ts";
 import { bboxAround, haversine, type LatLng } from "../geo.ts";
 import { emitLot } from "../lots-import.ts";
-import { latestPositions, requestsWhere, requestViews } from "../queries.ts";
+import { latestPositions, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
 import { crewProcedure, router } from "../trpc.ts";
 
 export const NEARBY_LOT_M = 400;
@@ -42,8 +42,9 @@ const lotsForCrew = (crew: Crew, cc: CommandCenter, eventId: number): CrewLot[] 
       .where(
         and(
           eq(lots.eventId, eventId),
-          or(eq(lots.ccId, cc.id), isNull(lots.ccId)),
-          isNull(lots.crewId),
+          or(inArray(lots.ccId, siteCcIds(cc.id)), isNull(lots.ccId)),
+          // Free, or held by a crew row from another day.
+          sql`(${lots.crewId} is null or ${lots.crewId} not in (select ${crews.id} from ${crews} where ${crews.dayId} = ${crew.dayId}))`,
           sql`${lots.lng} between ${w} and ${e}`,
           sql`${lots.lat} between ${s} and ${n}`,
         ),
@@ -125,7 +126,7 @@ export const crewRouter = router({
       if (!lot || lot.eventId !== ctx.event.id) throw new TRPCError({ code: "NOT_FOUND", message: "Lot not found" });
       const allowed =
         lot.crewId === ctx.crew.id ||
-        lot.ccId === ctx.cc.id ||
+        (lot.ccId !== null && siteCcIds(ctx.cc.id).includes(lot.ccId)) ||
         (lot.ccId === null && haversine(crewPoint(ctx.crew, ctx.cc), lot) <= NEARBY_LOT_M);
       if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "Lot not at this command center" });
       if (lot.status === input.status) return lot;

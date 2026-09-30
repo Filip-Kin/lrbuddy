@@ -118,7 +118,8 @@ positions         id, kind ('crew'|'truck'), ref_id, lat, lng, accuracy, heading
                   index (kind, ref_id, at desc)
 lots              id, event_id, parcel_id, address, lat, lng, source ('dlba'|'parcel'|'csv'|'manual'),
                   geometry (nullable text, GeoJSON Polygon or MultiPolygon in WGS84, the parcel outline),
-                  cc_id (nullable), crew_id (nullable), status ('open'|'in_progress'|'done'|'skipped'),
+                  cc_id (nullable, stands for the CC's site across days, section 8), crew_id (nullable),
+                  status ('open'|'in_progress'|'done'|'skipped'),
                   status_by_crew_id, status_at, note
                   unique (event_id, parcel_id) where parcel_id not null
 push_subscriptions id, session_id, endpoint (unique), p256dh, auth, created_at
@@ -168,7 +169,8 @@ No accounts, no Firebase. A session cookie names a role and a scope.
 - Role procedures throw `UNAUTHORIZED` when the session is missing and `FORBIDDEN` when the role is
   wrong. Green procedures are also allowed for admin. Every procedure scopes its queries by the
   session's CC or crew; never trust a `ccId` from the client unless the role is admin.
-- Rate limit `POST /auth/login` to 20 per minute per IP in memory.
+- Rate limit `POST /auth/login` to 20 per minute per IP in memory. The IP is the socket address, or with
+  `TRUST_PROXY_HOPS=N` the Nth `X-Forwarded-For` entry from the right; the caller's own entries never count.
 
 ## 5. Screens
 
@@ -185,7 +187,7 @@ the `ui-copy` skill: labels, not sentences. No "you", no "we", no explaining par
 | `/` Map | Me (blue dot), my CC (flag), my truck(s) (truck icon with name, moves live), my lots (coloured by status), other crews of my company (small grey dots). A big **Request** button fixed bottom right. Tap a lot for its status sheet. |
 | `/request` Request | Grid of request-type tiles, largest tap targets on the page. Tap a tile opens a sheet: quantity stepper (default 1), optional note, **Send**. After send, go to `/requests`. |
 | `/requests` Requests | My requests newest first, status pill, time since, truck name when assigned, ETA when the route has one. Open ones have **Cancel**. |
-| `/lots` Lots | Lots assigned to my crew, or within 400 m if none assigned, nearest first. Each row: address, status, **Done** / **In progress** / **Skip** in a segmented control. |
+| `/lots` Lots | Lots assigned to my crew, or within 400 m if none assigned, nearest first. Each row: address, status, **Open** / **In progress** / **Done** / **Skip** in a segmented control (Open undoes a wrong tap). |
 | `/cc` Command center | CC name, address, **Directions** (Google Maps link), each green shirt with **Call** and **Text** buttons (`tel:` and `sms:`). Latest broadcast at the top. |
 | `/settings` | Display name, **Notifications** toggle (push subscribe), **Location** status, Leave crew. |
 
@@ -329,6 +331,10 @@ skipped; urgent stops go first; fallback ordering is nearest neighbour; deliveri
 - CSV source: columns `address, lat, lng` required, `parcel_id` optional.
 - Manual: tap on the admin lots map, address optional.
 - Assignment: a lot has an optional CC and an optional crew. Crews see their assigned lots first.
+- A lot's CC stands for the CC's site: every CC row of the event with the same name (any case), on any
+  day. Lots placed at Day 1's CC North show at Day 2's CC North, so Copy setup from previous day brings
+  the lots with it. A lot's crew counts only on that crew's day; on other days the lot reads as no crew.
+  Renaming a CC on one day splits its site.
 - Status changes from a crew are scoped to lots at its CC (or unassigned lots within 400 m).
 
 ## 9. Push
@@ -347,7 +353,7 @@ skipped; urgent stops go first; fallback ordering is nearest neighbour; deliveri
   `EXPOSE 3000`, `VOLUME /data`. Migrations run at boot.
 - Env (`.env.example` lists them): `PORT`, `DATA_DIR` (default `./data`, prod `/data`), `SESSION_SECRET`,
   `ADMIN_PASSWORD`, `PUBLIC_URL`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`
-  (`mailto:me@filipkin.com`), `OSRM_URL`.
+  (`mailto:me@filipkin.com`), `OSRM_URL`, `TRUST_PROXY_HOPS` (default 0, 1 behind Coolify).
 - Scripts: `dev` (server watch plus vite), `build` (vite build), `start`, `typecheck`
   (`tsc --noEmit` for both), `test` (`bun test`), `seed`, `generate` (drizzle-kit), `shots`.
 - Production: Coolify, builds on `nas-builder`, runs on the cloud host, domain `lrbuddy.filipkin.com`,

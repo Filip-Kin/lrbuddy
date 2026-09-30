@@ -73,6 +73,7 @@ const invalidate = (utils: Utils, kind: Kind): void => {
       void utils.crew.myRequests.invalidate();
       void utils.green.trucks.invalidate();
       void utils.green.requests.invalidate();
+      void utils.green.overview.invalidate();
       break;
     case "lots":
       void utils.crew.lots.invalidate();

@@ -30,11 +30,14 @@ const MenuIcon = ({ open }: { open: boolean }) => (
  */
 export const Nav = ({
   scope,
+  scopeShort,
   scopeTone = "plain",
   links,
   onSignOut,
 }: {
   scope?: string;
+  /** Shown below 860 px instead of `scope`. */
+  scopeShort?: string;
   /** Crew scope chips carry the red-shirt colour. */
   scopeTone?: "crew" | "plain";
   links: readonly NavLink[];
@@ -85,7 +88,8 @@ export const Nav = ({
                 scopeTone === "crew" ? "ring-2 ring-crew" : "ring-white/30"
               }`}
             >
-              {scope}
+              <span className="nav:hidden">{scopeShort ?? scope}</span>
+              <span className="hidden nav:inline">{scope}</span>
             </span>
           )}
         </span>

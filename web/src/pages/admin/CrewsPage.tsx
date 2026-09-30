@@ -224,6 +224,9 @@ const CrewSheet = ({
   );
 };
 
+const importSummary = (r: { added: number; updated: number }): string =>
+  r.updated > 0 ? `${plural(r.added, "crew")} added, ${r.updated} updated` : `${plural(r.added, "crew")} added`;
+
 const ImportSheet = ({ open, onClose, notify }: { open: boolean; onClose: () => void; notify: (n: NoticeValue) => void }) => {
   const utils = trpc.useUtils();
   const [csv, setCsv] = useState("");
@@ -235,7 +238,7 @@ const ImportSheet = ({ open, onClose, notify }: { open: boolean; onClose: () => 
       void utils.admin.days.invalidate();
       void utils.admin.overview.invalidate();
       if (r.errors.length === 0) {
-        notify({ tone: "ok", text: `${plural(r.added, "crew")} added` });
+        notify({ tone: "ok", text: importSummary(r) });
         setCsv("");
         setFileName(null);
         onClose();
@@ -248,14 +251,16 @@ const ImportSheet = ({ open, onClose, notify }: { open: boolean; onClose: () => 
   }, [open]);
   const rows = csv.trim() ? csv.trim().split(/\r?\n/).length - 1 : 0;
   const result = importCsv.data;
+  // The same text imported once already; a second tap would only repeat it.
+  const done = importCsv.isSuccess && importCsv.variables?.csv === csv;
   return (
     <Sheet
       open={open}
       onClose={onClose}
       title="Import crews"
       footer={
-        <Button block size="lg" disabled={rows < 1} busy={importCsv.isPending} onClick={() => importCsv.mutate({ csv })}>
-          {rows > 0 ? `Import ${plural(rows, "row")}` : "Import"}
+        <Button block size="lg" disabled={rows < 1 || done} busy={importCsv.isPending} onClick={() => importCsv.mutate({ csv })}>
+          {done ? "Imported" : rows > 0 ? `Import ${plural(rows, "row")}` : "Import"}
         </Button>
       }
     >
@@ -283,7 +288,7 @@ const ImportSheet = ({ open, onClose, notify }: { open: boolean; onClose: () => 
         {result && (
           <div role="status" className="space-y-2 rounded-xl bg-surface-2 px-4 py-3">
             <p className="font-semibold">
-              {plural(result.added, "crew")} added, {plural(result.errors.length, "row")} skipped
+              {importSummary(result)}, {plural(result.errors.length, "row")} skipped
             </p>
             {result.errors.length > 0 && (
               <ul className="max-h-40 list-inside list-disc overflow-y-auto text-sm">

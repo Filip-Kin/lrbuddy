@@ -123,9 +123,21 @@ const layerFor = (m: MapMarker): L.Layer => {
   return layer;
 };
 
+/**
+ * Fits the view to the points at the exact zoom that holds them, not the next
+ * half step down: on a phone a half step leaves a third of the frame empty.
+ * Padding is smaller on a narrow map, where every pixel counts.
+ */
 const applyFit = (m: L.Map, pts: L.LatLngExpression[]): void => {
-  if (pts.length === 1) m.setView(pts[0]!, 16);
-  else m.fitBounds(L.latLngBounds(pts), { padding: [36, 36], maxZoom: 17 });
+  if (pts.length === 1) {
+    m.setView(pts[0]!, 16);
+    return;
+  }
+  const pad = m.getSize().x < 600 ? 14 : 36;
+  const snap = m.options.zoomSnap;
+  m.options.zoomSnap = 0;
+  m.fitBounds(L.latLngBounds(pts), { padding: [pad, pad], maxZoom: 17 });
+  m.options.zoomSnap = snap;
 };
 
 /**

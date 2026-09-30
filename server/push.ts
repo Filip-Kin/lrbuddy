@@ -1,8 +1,8 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import webpush from "web-push";
 import { config } from "./config.ts";
 import { db } from "./db/index.ts";
-import { pushSubscriptions, sessions } from "./db/schema.ts";
+import { crews, pushSubscriptions, sessions, trucks } from "./db/schema.ts";
 
 export interface PushPayload {
   title: string;
@@ -82,7 +82,26 @@ export const pushToTruck = (truckId: number, payload: PushPayload): void => {
   void sendToSessions(sessionIdsWhere(sessions.truckId, truckId), payload);
 };
 
-/** Every session scoped to the CC: its greens, drivers and crews. A CC belongs to one day. */
+/**
+ * Every session scoped to the CC: its greens, and the drivers and crews whose
+ * truck or crew is at the CC now. Drivers and crews go by the truck's and
+ * crew's current CC, not the one stored at login, so a move by an admin
+ * moves who hears the broadcast.
+ */
 export const pushToCc = (ccId: number, payload: PushPayload): void => {
-  void sendToSessions(sessionIdsWhere(sessions.ccId, ccId), payload);
+  const ids = db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .leftJoin(trucks, eq(trucks.id, sessions.truckId))
+    .leftJoin(crews, eq(crews.id, sessions.crewId))
+    .where(
+      or(
+        and(eq(sessions.role, "green"), eq(sessions.ccId, ccId)),
+        and(eq(sessions.role, "driver"), eq(trucks.ccId, ccId)),
+        and(eq(sessions.role, "crew"), eq(crews.ccId, ccId)),
+      ),
+    )
+    .all()
+    .map((r) => r.id);
+  void sendToSessions(ids, payload);
 };

@@ -20,7 +20,7 @@ import {
   type Role,
   type Truck,
 } from "../db/schema.ts";
-import { crewLabel, onCrewMoved, onTruckMoved, SEEN_WINDOW_MS, sweepOpen } from "../dispatch.ts";
+import { crewLabel, markTruckSeen, onCrewMoved, onTruckMoved } from "../dispatch.ts";
 import { subscribe, unsubscribe, vapidPublicKey } from "../push.ts";
 import { activeEvent, catalogFor, ccCard } from "../queries.ts";
 import { authedProcedure, ccProcedure, publicProcedure, router } from "../trpc.ts";
@@ -31,8 +31,10 @@ export type Me =
   | {
       role: Role;
       displayName: string | null;
-      /** Short scope line for the top bar, e.g. "Crew 7, Ford, CC East". */
+      /** Scope line for the top bar, e.g. "Crew 7, Ford, CC East". */
       scope: string;
+      /** The same line for a phone's bar: "Crew 7, CC East". The CC outranks the company. */
+      scopeShort: string;
       /** The crew row without its join token; the token is the crew's password and nothing on screen needs it. */
       crew: (Omit<Crew, "token"> & { company: Company | null }) | null;
       truck: Truck | null;
@@ -87,6 +89,7 @@ export const sharedRouter = router({
         role: "admin",
         displayName: s.displayName,
         scope: override?.cc ? `Admin, CC ${override.cc.name}` : "Admin",
+        scopeShort: override?.cc ? `Admin, CC ${override.cc.name}` : "Admin",
         crew: null,
         truck: null,
         ...(override ?? { cc: null, day: null, event: activeEvent() ?? null }),
@@ -103,20 +106,29 @@ export const sharedRouter = router({
       const scope = ccScope(row.crew.ccId);
       const parts = [crewLabel(row.crew), row.company?.name, scope.cc ? `CC ${scope.cc.name}` : null].filter(Boolean);
       const { token: _token, ...crew } = row.crew;
-      return { role: "crew", displayName: s.displayName, scope: parts.join(", "), crew: { ...crew, company: row.company }, truck: null, ...scope };
+      const short = [crewLabel(row.crew), scope.cc ? `CC ${scope.cc.name}` : null].filter(Boolean);
+      return {
+        role: "crew",
+        displayName: s.displayName,
+        scope: parts.join(", "),
+        scopeShort: short.join(", "),
+        crew: { ...crew, company: row.company },
+        truck: null,
+        ...scope,
+      };
     }
     if (s.role === "driver" && s.truckId !== null) {
       const truck = db.select().from(trucks).where(eq(trucks.id, s.truckId)).get();
       if (!truck) return { role: "anon" };
       const scope = ccScope(truck.ccId);
       const parts = [truck.name, scope.cc ? `CC ${scope.cc.name}` : null].filter(Boolean);
-      return { role: "driver", displayName: s.displayName ?? truck.driverName, scope: parts.join(", "), crew: null, truck, ...scope };
+      return { role: "driver", displayName: s.displayName ?? truck.driverName, scope: parts.join(", "), scopeShort: parts.join(", "), crew: null, truck, ...scope };
     }
     if (s.role === "green") {
       const scope = ccScope(s.ccId);
       if (!scope.cc) return { role: "anon" };
       const parts = [`CC ${scope.cc.name}`, scope.day?.label].filter(Boolean);
-      return { role: "green", displayName: s.displayName, scope: parts.join(", "), crew: null, truck: null, ...scope };
+      return { role: "green", displayName: s.displayName, scope: parts.join(", "), scopeShort: parts.join(", "), crew: null, truck: null, ...scope };
     }
     return { role: "anon" };
   }),
@@ -149,15 +161,13 @@ export const sharedRouter = router({
       if (s.role === "driver" && s.truckId !== null) {
         const truck = db.select().from(trucks).where(eq(trucks.id, s.truckId)).get();
         if (!truck) throw new TRPCError({ code: "UNAUTHORIZED" });
-        const wasStale = truck.lastSeenAt === null || now - truck.lastSeenAt > SEEN_WINDOW_MS;
         db.insert(positions).values({ kind: "truck", refId: truck.id, ...fix }).run();
-        db.update(trucks).set({ lastSeenAt: now }).where(eq(trucks.id, truck.id)).run();
         if (shouldEmit(`truck:${truck.id}`, now)) {
           bus.emit("truck.position", { ccId: truck.ccId, dayId: truck.dayId }, { truckId: truck.id, lat: input.lat, lng: input.lng, at: now });
         }
         onTruckMoved(truck.id, input);
-        // A truck back in range picks up whatever sat open while it was away.
-        if (wasStale && truck.status !== "offline") sweepOpen(truck.ccId, truck.dayId, now);
+        // After the fix is stored, so a truck back in range is costed from where it is now.
+        markTruckSeen(truck, now);
         return { ok: true };
       }
       throw new TRPCError({ code: "FORBIDDEN", message: "Crew and drivers only" });

@@ -100,7 +100,19 @@ describe("crew CSV import", () => {
   test("a blank CC works on a day with one CC", async () => {
     setup.createCc({ dayId: w.day2, name: "Only", ...EAST });
     const r = await admin.crews.importCsv({ csv: "day,cc,company\nDay 2,,GM\n" });
-    expect(r).toEqual({ added: 1, errors: [] });
+    expect(r).toEqual({ added: 1, updated: 0, errors: [] });
+  });
+
+  test("importing the same CSV twice updates the crews instead of doubling them", async () => {
+    const csv = "day,cc,company,lead_name,lead_phone,headcount\nDay 1,East,Ford,Rita Red,313-555-0101,10\nDay 1,West,GM,Ron Red,,8\n";
+    expect(await admin.crews.importCsv({ csv })).toEqual({ added: 2, updated: 0, errors: [] });
+    const fixed = "day,cc,company,lead_name,lead_phone,headcount\nDay 1,East,Ford,Rita R.,(313) 555-0101,12\nDay 1,West,GM,ron red,,9\n";
+    expect(await admin.crews.importCsv({ csv: fixed })).toEqual({ added: 0, updated: 2, errors: [] });
+    const crews = await admin.crews.list({ dayId: w.day1 });
+    expect(crews.map((c) => [c.name, c.leadName, c.headcount])).toEqual([
+      ["Crew 1", "Rita R.", 12],
+      ["Crew 2", "ron red", 9],
+    ]);
   });
 });
 
@@ -171,6 +183,39 @@ describe("lots", () => {
     expect(list[0]!.crewNumber).toBeNull();
   });
 
+  test("lot CSV rows name what is wrong with lat and lng", async () => {
+    const { parseLotsCsv } = await import("./lots-import.ts");
+    const r = parseLotsCsv('address,lat,lng\n"123 Fake St",42.37,-83.00\nBad row,abc,-83\nNo lng,42.3,\nFar,95,-83\n');
+    expect(r.rows).toHaveLength(1);
+    expect(r.errors).toEqual(["Row 3: lat not a number", "Row 4: lng missing", "Row 5: lat out of range"]);
+  });
+
+  test("assessor addresses arrive in title case", async () => {
+    const { titleCase } = await import("./lots-import.ts");
+    expect(titleCase("5125 IROQUOIS")).toBe("5125 Iroquois");
+    expect(titleCase("1200 E GRAND BLVD")).toBe("1200 E Grand Blvd");
+    expect(titleCase("4776 Seminole")).toBe("4776 Seminole");
+  });
+
+  test("CSV lots can go straight to a CC; a lot already at another CC keeps it", async () => {
+    const { upsertLots } = await import("./lots-import.ts");
+    const held = addLot(42.37, -83.0, "HELD.");
+    db.update(s.lots).set({ ccId: w.west }).where(eq(s.lots.id, held.id)).run();
+    const r = upsertLots(
+      w.eventId,
+      [
+        { parcelId: null, address: "New", lat: 42.371, lng: -83.001 },
+        { parcelId: "HELD.", address: "Held", lat: 42.37, lng: -83.0 },
+      ],
+      "csv",
+      w.east,
+    );
+    expect(r).toEqual({ added: 1, updated: 1, skipped: 0 });
+    const byAddress = new Map((await admin.lots.list()).map((l) => [l.address, l.ccId]));
+    expect(byAddress.get("New")).toBe(w.east);
+    expect(byAddress.get("Held")).toBe(w.west);
+  });
+
   test("assign and remove by rectangle only touch lots inside it", async () => {
     addLot(42.378, -82.99, "IN1.");
     addLot(42.379, -82.991, "IN2.");
@@ -203,6 +248,19 @@ describe("catalog", () => {
     expect(a.key).toBe("water_2");
     expect(b.key).toBe("rakes_hoes");
     expect(b.sort).toBe(a.sort + 1);
+  });
+});
+
+describe("catalog stock", () => {
+  test("a tracked item added after the trucks reaches every truck, full at its default", async () => {
+    const t = setup.createTruck({ dayId: w.day1, ccId: w.east, name: "Truck 1" });
+    const ice = await admin.catalog.create({ label: "Ice", unit: "each", priority: 2, tracksStock: false });
+    expect(d.stockFor(t.id).some((r) => r.typeId === ice.id)).toBe(false);
+    await admin.catalog.update({ id: ice.id, tracksStock: true, defaultCapacity: 10 });
+    const row = d.stockFor(t.id).find((r) => r.typeId === ice.id);
+    expect(row).toMatchObject({ qty: 10, capacity: 10 });
+    const bags = await admin.catalog.create({ label: "Gloves", unit: "box", priority: 1, tracksStock: true, defaultCapacity: 4 });
+    expect(d.stockFor(t.id).find((r) => r.typeId === bags.id)).toMatchObject({ qty: 4, capacity: 4 });
   });
 });
 

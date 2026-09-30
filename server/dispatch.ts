@@ -334,6 +334,19 @@ export const sweepOpen = (ccId: number, dayId: number, now = Date.now()): Reques
   return open.map((r) => assignOnCreate(r.id, now)).filter((r) => r.status === "assigned");
 };
 
+/**
+ * Records that the truck's driver app is open. A truck coming back from more
+ * than 15 minutes unseen picks up whatever sat open at its CC while it was
+ * away. Every driver call goes through here, so the first call after a gap
+ * runs the sweep, whether it is a queue load or a GPS fix.
+ */
+export const markTruckSeen = (truck: Truck, now = Date.now()): void => {
+  const wasStale = truck.lastSeenAt === null || now - truck.lastSeenAt > SEEN_WINDOW_MS;
+  db.update(trucks).set({ lastSeenAt: now }).where(eq(trucks.id, truck.id)).run();
+  truck.lastSeenAt = now;
+  if (wasStale && truck.status !== "offline") sweepOpen(truck.ccId, truck.dayId, now);
+};
+
 /** Green Assign: moves a non-terminal request onto a truck at the same CC and day. */
 export const reassign = (requestId: number, truckId: number, now = Date.now()): Request => {
   const req = getRequest(requestId);
@@ -416,7 +429,7 @@ export const stockFor = (truckId: number): StockRow[] =>
 
 export const hasLowStock = (truckId: number): boolean => stockFor(truckId).some((s) => s.low);
 
-const emitStock = (truckId: number): void => {
+export const emitStock = (truckId: number): void => {
   const truck = getTruck(truckId);
   const stock = db.select().from(truckStock).where(eq(truckStock.truckId, truckId)).all();
   bus.emit("stock.changed", { ccId: truck.ccId, dayId: truck.dayId }, { truckId, stock });
@@ -657,6 +670,58 @@ export const computeRouteNow = async (truckId: number, now = Date.now()): Promis
     .get();
   bus.emit("route.changed", { ccId: truck.ccId, dayId: truck.dayId }, { truckId, route });
   return route;
+};
+
+/** How old a live truck's route may get before it is recomputed from where the truck is now. */
+export const ROUTE_REFRESH_MS = 60_000;
+/** Shortest ETA shown for a stop not yet reached. */
+export const MIN_ETA_MS = 60_000;
+
+/**
+ * When the truck reaches a leg's stop. The route's ETA counts from when it was
+ * computed; a live truck's route is recomputed every minute, so the count
+ * stays close. A stop not yet reached never reads as due: the ETA is at least
+ * a minute out. A truck unseen for 15 minutes has no ETA, since nothing says
+ * where it is.
+ */
+export const legEtaAt = (
+  route: Pick<Route, "computedAt">,
+  leg: Pick<RouteLeg, "etaS">,
+  truck: Pick<Truck, "lastSeenAt" | "status">,
+  now: number,
+): number | null => {
+  if (truck.status === "offline" || truck.lastSeenAt === null || now - truck.lastSeenAt > SEEN_WINDOW_MS) return null;
+  return Math.max(route.computedAt + leg.etaS * 1000, now + MIN_ETA_MS);
+};
+
+/** Recomputes the routes of live trucks with stops once they are a minute old. */
+export const refreshLiveRoutes = (now = Date.now()): number => {
+  const rows = db
+    .select({ truckId: routes.truckId, computedAt: routes.computedAt, legs: routes.legs, lastSeenAt: trucks.lastSeenAt, status: trucks.status })
+    .from(routes)
+    .innerJoin(trucks, eq(trucks.id, routes.truckId))
+    .all();
+  let n = 0;
+  for (const r of rows) {
+    if (r.legs.length === 0 || now - r.computedAt < ROUTE_REFRESH_MS) continue;
+    if (r.status === "offline" || r.lastSeenAt === null || now - r.lastSeenAt > SEEN_WINDOW_MS) continue;
+    if (timers.has(r.truckId)) continue;
+    scheduleRoute(r.truckId);
+    n++;
+  }
+  return n;
+};
+
+/** Runs `refreshLiveRoutes` every 20 s. Server only; tests call it directly. */
+export const startRouteRefresh = (): (() => void) => {
+  const t = setInterval(() => {
+    try {
+      refreshLiveRoutes();
+    } catch (err) {
+      console.error("[dispatch] route refresh failed", err instanceof Error ? err.message : String(err));
+    }
+  }, 20_000);
+  return () => clearInterval(t);
 };
 
 const timers = new Map<number, ReturnType<typeof setTimeout>>();

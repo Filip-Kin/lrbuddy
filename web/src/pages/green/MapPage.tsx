@@ -129,7 +129,7 @@ export const MapPage = () => {
         <div className="flex gap-2 overflow-x-auto">
           <ToggleChip on={showRequests} onChange={setShowRequests}>
             Requests
-            {openCount > 0 && <span className="rounded-full bg-crew px-1.5 text-xs text-white tabular-nums">{openCount}</span>}
+            {openCount > 0 && <span className="rounded-full bg-crew/20 px-1.5 text-xs tabular-nums ring-1 ring-inset ring-crew">{openCount}</span>}
           </ToggleChip>
           <ToggleChip on={showLots} onChange={setShowLots}>
             Lots

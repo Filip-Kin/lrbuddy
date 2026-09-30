@@ -56,6 +56,7 @@ broadcast.
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | empty | Web Push keys (`bunx web-push generate-vapid-keys`). Without them the Notifications switch reads "Not set up on this server". |
 | `VAPID_SUBJECT` | `mailto:me@filipkin.com` | |
 | `OSRM_URL` | `https://router.project-osrm.org` | Routing. `off` uses straight lines at 25 km/h. |
+| `TRUST_PROXY_HOPS` | `0` | Proxies in front that append to `X-Forwarded-For`. Set `1` behind Coolify so the login limit counts per client, not per proxy. |
 | `WEB_DIST` | `web/dist` | Serve the web build from another folder. |
 
 ## Checks

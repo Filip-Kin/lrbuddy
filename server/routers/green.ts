@@ -19,7 +19,7 @@ import {
 } from "../dispatch.ts";
 import { emitLot } from "../lots-import.ts";
 import { pushToCc } from "../push.ts";
-import { catalogFor, latestPositions, requestsWhere, requestViews } from "../queries.ts";
+import { catalogFor, crewIdsOnDay, latestPositions, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
 import { greenProcedure, router } from "../trpc.ts";
 
 const ACTIVE_CREW_MS = 30 * 60_000;
@@ -87,7 +87,20 @@ const trucksAt = (ccId: number, dayId: number) => {
   });
 };
 
-const lotsAt = (ccId: number): Lot[] => db.select().from(lots).where(eq(lots.ccId, ccId)).orderBy(lots.address).all();
+/**
+ * Lots at the CC's site, on any day's row of it. A crew assignment left over
+ * from another day reads as no crew: crews are rows for one day.
+ */
+const lotsAt = (ccId: number, dayId: number): Lot[] => {
+  const today = crewIdsOnDay(dayId);
+  return db
+    .select()
+    .from(lots)
+    .where(inArray(lots.ccId, siteCcIds(ccId)))
+    .orderBy(lots.address)
+    .all()
+    .map((l) => (l.crewId !== null && !today.has(l.crewId) ? { ...l, crewId: null } : l));
+};
 
 const scopedRequest = (id: number, ccId: number) => {
   const r = getRequest(id);
@@ -104,17 +117,22 @@ const median = (xs: number[]): number | null => {
 // #endregion
 
 export const greenRouter = router({
-  overview: greenProcedure.query(({ ctx }) => ({
-    cc: ctx.cc,
-    day: ctx.day,
-    crews: crewsAt(ctx.cc.id, ctx.day.id),
-    trucks: trucksAt(ctx.cc.id, ctx.day.id),
-    openRequests: requestsWhere(
-      and(eq(requests.ccId, ctx.cc.id), eq(requests.dayId, ctx.day.id), inArray(requests.status, [...OPEN_STATUSES])),
-    ),
-    lots: lotsAt(ctx.cc.id),
-    companies: db.select().from(companies).where(eq(companies.eventId, ctx.event.id)).orderBy(companies.name).all(),
-  })),
+  overview: greenProcedure.query(({ ctx }) => {
+    const crewList = crewsAt(ctx.cc.id, ctx.day.id);
+    const here = [...new Set(crewList.map((c) => c.companyId).filter((x): x is number => x !== null))];
+    return {
+      cc: ctx.cc,
+      day: ctx.day,
+      crews: crewList,
+      trucks: trucksAt(ctx.cc.id, ctx.day.id),
+      openRequests: requestsWhere(
+        and(eq(requests.ccId, ctx.cc.id), eq(requests.dayId, ctx.day.id), inArray(requests.status, [...OPEN_STATUSES])),
+      ),
+      lots: lotsAt(ctx.cc.id, ctx.day.id),
+      /** Companies with a crew at this CC today; the filter offers nothing that would show an empty board. */
+      companies: here.length === 0 ? [] : db.select().from(companies).where(inArray(companies.id, here)).orderBy(companies.name).all(),
+    };
+  }),
 
   requests: greenProcedure.input(z.object({ companyId: z.number().int().nullish() }).optional()).query(({ ctx, input }) => {
     const all = requestsWhere(and(eq(requests.ccId, ctx.cc.id), eq(requests.dayId, ctx.day.id)), 1000);
@@ -175,7 +193,7 @@ export const greenRouter = router({
   catalog: greenProcedure.query(({ ctx }) => catalogFor(ctx.event.id)),
 
   lots: greenProcedure.query(({ ctx }) => {
-    const rows = lotsAt(ctx.cc.id);
+    const rows = lotsAt(ctx.cc.id, ctx.day.id);
     const crewList = crewsAt(ctx.cc.id, ctx.day.id);
     const byCrew = new Map<number | null, Record<Lot["status"], number>>();
     for (const l of rows) {
@@ -201,7 +219,7 @@ export const greenRouter = router({
       const updated = db
         .update(lots)
         .set({ crewId: input.crewId })
-        .where(and(inArray(lots.id, input.lotIds), eq(lots.ccId, ctx.cc.id)))
+        .where(and(inArray(lots.id, input.lotIds), inArray(lots.ccId, siteCcIds(ctx.cc.id))))
         .returning()
         .all();
       for (const l of updated) emitLot(l);
@@ -245,14 +263,16 @@ export const greenRouter = router({
       byCompany.set(k, (byCompany.get(k) ?? 0) + c.lotsDone);
     }
     const now = Date.now();
-    const lotRows = lotsAt(ctx.cc.id);
+    const lotRows = lotsAt(ctx.cc.id, ctx.day.id);
     const lotsByStatus: Record<Lot["status"], number> = { open: 0, in_progress: 0, done: 0, skipped: 0 };
     for (const l of lotRows) lotsByStatus[l.status]++;
     return {
       requestsByType: [...byType.values()].sort((a, b) => b.count - a.count),
       medianDeliverMs: median(deliverMs),
       delivered: deliverMs.length,
-      open: all.filter((r) => r.status === "open" || r.status === "assigned" || r.status === "en_route").length,
+      /** Same meaning as the Requests board's Open column: no truck yet. */
+      open: all.filter((r) => r.status === "open").length,
+      onTruck: all.filter((r) => r.status === "assigned" || r.status === "en_route").length,
       cancelled: all.filter((r) => r.status === "cancelled").length,
       lotsByStatus,
       lotsTotal: lotRows.length,

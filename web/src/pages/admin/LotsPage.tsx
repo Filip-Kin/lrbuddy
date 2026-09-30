@@ -299,9 +299,10 @@ const LotSheet = ({ lot, ccs, onClose, notify }: { lot: Lot | null; ccs: readonl
 // #endregion
 
 // #region CSV sheet
-const CsvSheet = ({ open, onClose, notify }: { open: boolean; onClose: () => void; notify: (n: NoticeValue) => void }) => {
+const CsvSheet = ({ open, onClose, notify, ccs }: { open: boolean; onClose: () => void; notify: (n: NoticeValue) => void; ccs: readonly Cc[] }) => {
   const utils = trpc.useUtils();
   const [csv, setCsv] = useState("");
+  const [ccId, setCcId] = useState<number | "none">("none");
   const [fileName, setFileName] = useState<string | null>(null);
   const importCsv = trpc.admin.lots.importCsv.useMutation({
     onSuccess: (r) => {
@@ -320,14 +321,22 @@ const CsvSheet = ({ open, onClose, notify }: { open: boolean; onClose: () => voi
   }, [open]);
   const rows = csv.trim() ? csv.trim().split(/\r?\n/).length - 1 : 0;
   const r = importCsv.data;
+  // The same text imported once already; a second tap would only repeat it.
+  const done = importCsv.isSuccess && importCsv.variables?.csv === csv;
   return (
     <Sheet
       open={open}
       onClose={onClose}
       title="Import lots"
       footer={
-        <Button block size="lg" disabled={rows < 1} busy={importCsv.isPending} onClick={() => importCsv.mutate({ csv })}>
-          {rows > 0 ? `Import ${plural(rows, "row")}` : "Import"}
+        <Button
+          block
+          size="lg"
+          disabled={rows < 1 || done}
+          busy={importCsv.isPending}
+          onClick={() => importCsv.mutate({ csv, ccId: ccId === "none" ? null : ccId })}
+        >
+          {done ? "Imported" : rows > 0 ? `Import ${plural(rows, "row")}` : "Import"}
         </Button>
       }
     >
@@ -336,6 +345,10 @@ const CsvSheet = ({ open, onClose, notify }: { open: boolean; onClose: () => voi
           <div className="text-sm text-muted">Columns</div>
           <code className="block font-mono text-sm">address, lat, lng, parcel_id</code>
         </div>
+        <Select label="Command center" value={ccId} onChange={(e) => setCcId(e.target.value === "none" ? "none" : Number(e.target.value))}>
+          <option value="none">No CC</option>
+          <CcOptions ccs={ccs} />
+        </Select>
         <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl bg-surface font-semibold ring-2 ring-line ring-inset hover:bg-surface-2">
           <UploadIcon />
           {fileName ?? "Choose CSV file"}
@@ -595,7 +608,7 @@ export const LotsPage = () => {
         notify={setNotice}
       />
       <LotSheet lot={selected} ccs={ccs} onClose={() => setLotId(null)} notify={setNotice} />
-      <CsvSheet open={csvOpen} onClose={() => setCsvOpen(false)} notify={setNotice} />
+      <CsvSheet open={csvOpen} onClose={() => setCsvOpen(false)} notify={setNotice} ccs={ccs} />
     </Page>
   );
 };

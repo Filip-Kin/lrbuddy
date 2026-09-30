@@ -74,7 +74,7 @@ export const StatsPage = () => {
       ) : (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Tile label="Open" value={s.open} sub="requests" />
+            <Tile label="Open" value={s.open} sub={`${s.onTruck} on a truck`} />
             <Tile label="Delivered" value={s.delivered} sub={s.cancelled > 0 ? `${s.cancelled} cancelled` : "requests"} />
             <Tile label="Median to deliver" value={s.medianDeliverMs === null ? "None" : duration(s.medianDeliverMs)} />
             <Tile label="Active crews" value={`${s.activeCrews}/${s.totalCrews}`} sub="last 30 min" />

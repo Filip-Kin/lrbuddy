@@ -56,8 +56,10 @@ export const ButtonLink = ({
   className = "",
   external,
   children,
+  "aria-label": ariaLabel,
 }: {
   href: string;
+  "aria-label"?: string;
   variant?: ButtonVariant;
   size?: ButtonSize;
   block?: boolean;
@@ -68,13 +70,13 @@ export const ButtonLink = ({
   const cls = buttonClass(variant, size, `${block ? "w-full" : ""} ${className}`);
   if (external || /^(https?:|tel:|sms:|mailto:)/.test(href)) {
     return (
-      <a href={href} className={cls} target={href.startsWith("http") ? "_blank" : undefined} rel="noopener noreferrer">
+      <a href={href} className={cls} aria-label={ariaLabel} target={href.startsWith("http") ? "_blank" : undefined} rel="noopener noreferrer">
         {children}
       </a>
     );
   }
   return (
-    <Link href={href} className={cls}>
+    <Link href={href} className={cls} aria-label={ariaLabel}>
       {children}
     </Link>
   );

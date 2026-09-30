@@ -3,14 +3,12 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { ContactButtons } from "../../components/green/Contact.tsx";
 import { useNow } from "../../components/green/hooks.ts";
 import { StockList } from "../../components/green/StockList.tsx";
+import { TruckStatusPill } from "../../components/green/TruckStatus.tsx";
 import { Card, Fact } from "../../components/green/ui.tsx";
 import { SkeletonList } from "../../components/Skeleton.tsx";
 import { StatusPill } from "../../components/StatusPill.tsx";
 import { ago } from "../../lib/format.ts";
 import { trpc } from "../../lib/trpc.ts";
-
-/** A truck unseen for 15 minutes gets no new requests; the card says so. */
-const STALE_MS = 15 * 60_000;
 
 export const TrucksPage = () => {
   const now = useNow();
@@ -28,7 +26,6 @@ export const TrucksPage = () => {
       ) : (
         <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((t) => {
-            const stale = t.status !== "offline" && (t.lastSeenAt === null || now - t.lastSeenAt > STALE_MS);
             return (
               <li key={t.id}>
                 <Card className="flex h-full flex-col gap-4">
@@ -39,7 +36,7 @@ export const TrucksPage = () => {
                     </div>
                     <div className="flex shrink-0 flex-wrap justify-end gap-1">
                       {t.lowStock && <StatusPill status="low" />}
-                      {stale ? <StatusPill status="offline" label="No signal" /> : <StatusPill status={t.status} />}
+                      <TruckStatusPill truck={t} now={now} />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">

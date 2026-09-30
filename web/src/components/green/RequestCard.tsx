@@ -3,7 +3,8 @@ import { Button } from "../Button.tsx";
 import { Sheet } from "../Sheet.tsx";
 import { StatusPill } from "../StatusPill.tsx";
 import { ago, clock, duration } from "../../lib/format.ts";
-import { errorText, isUrgent, itemLine, requestWho, useRequestActions, type GreenRequest, type GreenTruck } from "./hooks.ts";
+import { errorText, isUrgent, itemLine, requestWho, useNow, useRequestActions, type GreenRequest, type GreenTruck } from "./hooks.ts";
+import { TruckStatusPill } from "./TruckStatus.tsx";
 import { TruckIcon } from "./ui.tsx";
 
 const OPEN = new Set<GreenRequest["status"]>(["open", "assigned", "en_route"]);
@@ -24,6 +25,7 @@ export const AssignSheet = ({
 }) => {
   const { assign } = useRequestActions();
   const [err, setErr] = useState<string | null>(null);
+  const now = useNow();
   return (
     <Sheet open={open} onClose={onClose} title={`Assign ${itemLine(request)}`}>
       <div className="space-y-2 pb-2">
@@ -62,7 +64,7 @@ export const AssignSheet = ({
                 </span>
               </span>
               <span className="flex shrink-0 flex-col items-end gap-1">
-                {current ? <StatusPill status="assigned" label="Current" /> : <StatusPill status={t.status} />}
+                {current ? <StatusPill status="assigned" label="Current" /> : <TruckStatusPill truck={t} now={now} />}
                 {t.lowStock && <StatusPill status="low" />}
               </span>
             </button>
@@ -160,9 +162,12 @@ export const RequestCard = ({
       {r.note && <p className="mt-1 text-sm break-words text-ink/80">{r.note}</p>}
       <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
         {(r.truckName !== null || live) && (
-          <div className="flex gap-1">
-            <dt className="text-muted">Truck</dt>
-            <dd className="font-semibold">{r.truckName ?? "None"}</dd>
+          <div className="flex items-center gap-1">
+            <dt className="text-muted">
+              <TruckIcon />
+              <span className="sr-only">Truck</span>
+            </dt>
+            <dd className="font-semibold">{r.truckName ?? "No truck"}</dd>
           </div>
         )}
         {live && r.etaAt !== null && (

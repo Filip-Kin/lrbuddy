@@ -3,6 +3,7 @@ import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import { eq } from "drizzle-orm";
 import superjson from "superjson";
 import { getSession, sessionIdFrom } from "./auth.ts";
+import { markTruckSeen } from "./dispatch.ts";
 import { db } from "./db/index.ts";
 import {
   commandCenters,
@@ -75,10 +76,7 @@ export const touchCrew = (crew: Crew, now = Date.now()): void => {
 };
 
 export const touchTruck = (truck: Truck, now = Date.now()): void => {
-  if (truck.lastSeenAt === null || now - truck.lastSeenAt > TOUCH_MS) {
-    db.update(trucks).set({ lastSeenAt: now }).where(eq(trucks.id, truck.id)).run();
-    truck.lastSeenAt = now;
-  }
+  if (truck.lastSeenAt === null || now - truck.lastSeenAt > TOUCH_MS) markTruckSeen(truck, now);
 };
 // #endregion
 

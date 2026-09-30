@@ -189,3 +189,30 @@ export const copySetupFromPreviousDay = (dayId: number): { ccs: number; trucks: 
   }
   return { ccs: ccCount, trucks: truckCount };
 };
+
+/**
+ * Gives every truck of the type's event a stock row for it, full at the
+ * default capacity, where the truck has none. For items added, or switched to
+ * tracking, after the trucks were set up. Returns the trucks that got a row.
+ */
+export const stockTypeOnTrucks = (typeId: number): number[] => {
+  const type = db.select().from(requestTypes).where(eq(requestTypes.id, typeId)).get();
+  if (!type || !type.tracksStock) return [];
+  const eventTrucks = db
+    .select({ id: trucks.id })
+    .from(trucks)
+    .innerJoin(days, eq(days.id, trucks.dayId))
+    .where(eq(days.eventId, type.eventId))
+    .all();
+  const added: number[] = [];
+  for (const t of eventTrucks) {
+    const row = db
+      .insert(truckStock)
+      .values({ truckId: t.id, typeId, qty: type.defaultCapacity, capacity: type.defaultCapacity })
+      .onConflictDoNothing()
+      .returning({ truckId: truckStock.truckId })
+      .get();
+    if (row) added.push(row.truckId);
+  }
+  return added;
+};

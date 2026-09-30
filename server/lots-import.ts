@@ -4,6 +4,7 @@ import { bus } from "./bus.ts";
 import { db } from "./db/index.ts";
 import { commandCenters, lots, type Lot, type LotGeometry, type LotSource } from "./db/schema.ts";
 import { normalizeBBox, type BBox } from "./geo.ts";
+import { siteCcIds } from "./queries.ts";
 
 export const DLBA_URL =
   "https://services2.arcgis.com/qvkbeam7Wirps6zC/arcgis/rest/services/DLBA_Owned_Properties/FeatureServer/0/query";
@@ -24,10 +25,15 @@ export interface ImportResult {
   skipped: number;
 }
 
+/** "5125 IROQUOIS" to "5125 Iroquois", the way DLBA writes addresses. Mixed case is left alone. */
+export const titleCase = (v: string): string =>
+  /[a-z]/.test(v) ? v : v.toLowerCase().replace(/(^|[\s.-])([a-z])/g, (_m, pre: string, c: string) => pre + c.toUpperCase());
+
 // #region upsert
 /** Inserts lots, updating address and position when the parcel is already there. */
-export const upsertLots = (eventId: number, rows: readonly LotInput[], source: LotSource): ImportResult => {
+export const upsertLots = (eventId: number, rows: readonly LotInput[], source: LotSource, ccId: number | null = null): ImportResult => {
   const res: ImportResult = { added: 0, updated: 0, skipped: 0 };
+  let touched: Lot | null = null;
   db.transaction((tx) => {
     for (const r of rows) {
       if (!Number.isFinite(r.lat) || !Number.isFinite(r.lng) || Math.abs(r.lat) > 90 || Math.abs(r.lng) > 180) {
@@ -38,23 +44,35 @@ export const upsertLots = (eventId: number, rows: readonly LotInput[], source: L
       const address = r.address?.trim() || null;
       if (parcelId) {
         const existing = tx
-          .select({ id: lots.id })
+          .select({ id: lots.id, ccId: lots.ccId })
           .from(lots)
           .where(and(eq(lots.eventId, eventId), eq(lots.parcelId, parcelId)))
           .get();
         if (existing) {
-          const set = r.geometry ? { address, lat: r.lat, lng: r.lng, geometry: r.geometry } : { address, lat: r.lat, lng: r.lng };
-          tx.update(lots).set(set).where(eq(lots.id, existing.id)).run();
+          const set = {
+            address,
+            lat: r.lat,
+            lng: r.lng,
+            ...(r.geometry ? { geometry: r.geometry } : {}),
+            ...(ccId !== null && existing.ccId === null ? { ccId } : {}),
+          };
+          const row = tx.update(lots).set(set).where(eq(lots.id, existing.id)).returning().get();
+          if (row && ccId !== null && row.ccId === ccId) touched = row;
           res.updated++;
           continue;
         }
       }
-      tx.insert(lots)
-        .values({ eventId, parcelId, address, lat: r.lat, lng: r.lng, source, status: "open", geometry: r.geometry ?? null })
-        .run();
+      const row = tx
+        .insert(lots)
+        .values({ eventId, parcelId, address, lat: r.lat, lng: r.lng, source, status: "open", geometry: r.geometry ?? null, ccId })
+        .returning()
+        .get();
+      if (ccId !== null) touched = row;
       res.added++;
     }
   });
+  // One event is enough for the CC's screens to refetch.
+  if (touched) emitLot(touched);
   return res;
 };
 // #endregion
@@ -174,7 +192,8 @@ const toParcel = (f: ParcelFeature): Parcel | null => {
   const id = str(f.properties?.parcel_id);
   const geometry = asGeometry(f.geometry);
   if (!id || !geometry) return null;
-  return { parcelId: id, address: str(f.properties?.address), geometry };
+  const address = str(f.properties?.address);
+  return { parcelId: id, address: address === null ? null : titleCase(address), geometry };
 };
 
 /** Centre of the outer ring's bounding box; good enough to place a pin on a city lot. */
@@ -385,10 +404,19 @@ export const parseLotsCsv = (csv: string): { rows: LotInput[]; errors: string[] 
   const rows: LotInput[] = [];
   const errors: string[] = [];
   parsed.data.forEach((r, i) => {
-    const lat = Number(pick(r, "lat", "latitude"));
-    const lng = Number(pick(r, "lng", "lon", "long", "longitude"));
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) || pick(r, "lat", "latitude") === null) {
-      errors.push(`Row ${i + 2}: lat and lng`);
+    const rawLat = pick(r, "lat", "latitude");
+    const rawLng = pick(r, "lng", "lon", "long", "longitude");
+    const lat = Number(rawLat);
+    const lng = Number(rawLng);
+    const problem = (name: string, raw: string | null, v: number, max: number): string | null => {
+      if (raw === null) return `${name} missing`;
+      if (!Number.isFinite(v)) return `${name} not a number`;
+      if (Math.abs(v) > max) return `${name} out of range`;
+      return null;
+    };
+    const problems = [problem("lat", rawLat, lat, 90), problem("lng", rawLng, lng, 180)].filter((x): x is string => x !== null);
+    if (problems.length > 0) {
+      errors.push(`Row ${i + 2}: ${problems.join(", ")}`);
       return;
     }
     rows.push({ address: pick(r, "address", "name"), lat, lng, parcelId: pick(r, "parcel_id", "parcel", "parcelid") });
@@ -396,10 +424,16 @@ export const parseLotsCsv = (csv: string): { rows: LotInput[]; errors: string[] 
   return { rows, errors };
 };
 
-export const importLotsCsv = async (eventId: number, csv: string, opts: DlbaOptions = {}): Promise<ImportResult & { errors: string[] }> => {
+/** With `ccId`, new lots and lots with no CC go to that CC, the same as the rectangle imports. */
+export const importLotsCsv = async (
+  eventId: number,
+  csv: string,
+  opts: DlbaOptions = {},
+  ccId: number | null = null,
+): Promise<ImportResult & { errors: string[] }> => {
   const { rows, errors } = parseLotsCsv(csv);
   const resolved = await resolveParcels(rows, opts);
-  return { ...upsertLots(eventId, resolved, "csv"), errors };
+  return { ...upsertLots(eventId, resolved, "csv", ccId), errors };
 };
 // #endregion
 
@@ -410,8 +444,11 @@ export const emitLot = (lot: Lot): void => {
     bus.emit("lot.changed", { ccId: null, dayId: null }, { lot });
     return;
   }
-  const cc = db.select({ dayId: commandCenters.dayId }).from(commandCenters).where(eq(commandCenters.id, lot.ccId)).get();
-  bus.emit("lot.changed", { ccId: lot.ccId, dayId: cc?.dayId ?? null }, { lot });
+  // Every day's row of the site shows the lot.
+  for (const id of siteCcIds(lot.ccId)) {
+    const cc = db.select({ dayId: commandCenters.dayId }).from(commandCenters).where(eq(commandCenters.id, id)).get();
+    bus.emit("lot.changed", { ccId: id, dayId: cc?.dayId ?? null }, { lot });
+  }
 };
 
 /** Tap-to-add lot. Takes the parcel under the tap when there is one; a parcel already imported is returned as is. */
@@ -463,9 +500,12 @@ export const assignLotsToCcByBBox = (eventId: number, bbox: BBox, ccId: number |
     onlyUnassigned ? isNull(lots.ccId) : undefined,
   );
   const before = db.selectDistinct({ ccId: lots.ccId }).from(lots).where(where).all();
+  // Moving between days' rows of one site keeps the crew; a new site clears it.
+  const site = ccId === null ? [] : siteCcIds(ccId);
+  const sameSite = site.length > 0 ? sql`${lots.ccId} in (${sql.join(site.map((i) => sql`${i}`), sql`, `)})` : sql`${lots.ccId} is null`;
   const res = db
     .update(lots)
-    .set({ ccId, crewId: sql`case when ${lots.ccId} is ${ccId} then ${lots.crewId} else null end` })
+    .set({ ccId, crewId: sql`case when ${sameSite} then ${lots.crewId} else null end` })
     .where(where)
     .returning()
     .all();

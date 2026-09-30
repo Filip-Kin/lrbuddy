@@ -195,7 +195,8 @@ describe("green router", () => {
     await w.green.cancel({ requestId: c.id });
     const st = await w.green.stats();
     expect(st.delivered).toBe(1);
-    expect(st.open).toBe(1);
+    expect(st.open).toBe(0);
+    expect(st.onTruck).toBe(1);
     expect(st.cancelled).toBe(1);
     expect(st.requestsByType).toEqual([{ label: "Water", count: 2, qty: 3 }]);
     expect(st.medianDeliverMs).not.toBeNull();
@@ -208,5 +209,47 @@ describe("green router", () => {
     await expect(callerFor(session("driver", null)).overview()).rejects.toThrow("Not allowed");
     await expect(callerFor(session("crew", null)).overview()).rejects.toThrow("Not allowed");
     await expect(callerFor(null).overview()).rejects.toThrow("Sign in");
+  });
+});
+
+describe("lots follow the CC site across days", () => {
+  test("Day 2's copied CC sees Day 1's lots; a Day 1 crew assignment reads as no crew", async () => {
+    d.cancelScheduledRoutes();
+    db.delete(s.events).run();
+    const ev = setup.createEvent({ name: "Two days", year: 2027, startDate: "2027-09-27", dayCount: 2, active: true });
+    const [d1, d2] = db.select().from(s.days).where(eq(s.days.eventId, ev.id)).orderBy(s.days.sort).all();
+    const north1 = setup.createCc({ dayId: d1!.id, name: "North", ...CC_EAST });
+    setup.createCc({ dayId: d1!.id, name: "South", ...CC_WEST });
+    const crew1 = setup.createCrew({ dayId: d1!.id, ccId: north1.id, companyId: null });
+    const lot = db
+      .insert(s.lots)
+      .values({ eventId: ev.id, lat: CC_EAST.lat, lng: CC_EAST.lng, source: "manual", status: "open", ccId: north1.id, crewId: crew1.id })
+      .returning()
+      .get();
+    expect(setup.copySetupFromPreviousDay(d2!.id)).toEqual({ ccs: 2, trucks: 0 });
+    const north2 = db.select().from(s.commandCenters).where(and(eq(s.commandCenters.dayId, d2!.id), eq(s.commandCenters.name, "North"))).get()!;
+    const south2 = db.select().from(s.commandCenters).where(and(eq(s.commandCenters.dayId, d2!.id), eq(s.commandCenters.name, "South"))).get()!;
+
+    const day2 = await callerFor(session("green", north2.id)).lots();
+    expect(day2.lots.map((l) => l.id)).toEqual([lot.id]);
+    expect(day2.lots[0]!.crewId).toBeNull();
+    expect((await callerFor(session("green", south2.id)).lots()).lots).toHaveLength(0);
+    // Day 1 keeps its view and its crew.
+    const day1 = await callerFor(session("green", north1.id)).lots();
+    expect(day1.lots[0]!.crewId).toBe(crew1.id);
+    // Day 2 green can hand it to a Day 2 crew.
+    const crew2 = setup.createCrew({ dayId: d2!.id, ccId: north2.id, companyId: null });
+    expect(await callerFor(session("green", north2.id)).assignLots({ lotIds: [lot.id], crewId: crew2.id })).toEqual({ updated: 1 });
+  });
+});
+
+describe("company filter", () => {
+  test("lists only companies with a crew at this CC today", async () => {
+    const w = world();
+    const [ford, dte] = ["Ford", "DTE"].map((name) => db.insert(s.companies).values({ eventId: w.ev.id, name }).returning().get());
+    setup.createCrew({ dayId: w.day.id, ccId: w.east.id, companyId: ford!.id });
+    setup.createCrew({ dayId: w.day.id, ccId: w.west.id, companyId: dte!.id });
+    const o = await w.green.overview();
+    expect(o.companies.map((c) => c.name)).toEqual(["Ford"]);
   });
 });

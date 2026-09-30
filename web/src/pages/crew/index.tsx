@@ -1,5 +1,5 @@
 import { Redirect, Route, Switch } from "wouter";
-import { BroadcastBanner } from "../../components/crew/BroadcastBanner.tsx";
+import { BroadcastBanner } from "../../components/BroadcastBanner.tsx";
 import type { NavLink } from "../../components/Nav.tsx";
 import { CcPage } from "./CcPage.tsx";
 import { LotsPage } from "./LotsPage.tsx";
@@ -20,7 +20,7 @@ export const crewLinks: NavLink[] = [
 /** Broadcast banner on top, the page below it filling the rest (the map needs a fixed height). */
 export const CrewRoutes = () => (
   <div className="flex h-full flex-col">
-    <BroadcastBanner />
+    <BroadcastBanner ccHref="/cc" />
     <div className="relative min-h-0 flex-1 overflow-y-auto">
       <Switch>
         <Route path="/" component={MapPage} />

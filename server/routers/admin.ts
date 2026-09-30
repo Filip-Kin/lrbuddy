@@ -19,6 +19,7 @@ import {
   positions,
   requests,
   requestTypes,
+  sessions,
   stockMoves,
   trucks,
   truckStock,
@@ -27,7 +28,7 @@ import {
   type CommandCenter,
   type Event,
 } from "../db/schema.ts";
-import { crewLabel, scheduleRoute, stockFor, sweepOpen } from "../dispatch.ts";
+import { crewLabel, emitStock, scheduleRoute, stockFor, sweepOpen } from "../dispatch.ts";
 import { normalizeBBox } from "../geo.ts";
 import {
   addManualLot,
@@ -40,7 +41,7 @@ import {
   parcelAtPoint,
 } from "../lots-import.ts";
 import { activeEvent, catalogFor, requestViews } from "../queries.ts";
-import { copySetupFromPreviousDay, createCc, createCrew, createEvent, createTruck, setActiveEvent } from "../setup.ts";
+import { copySetupFromPreviousDay, createCc, createCrew, createEvent, createTruck, setActiveEvent, stockTypeOnTrucks } from "../setup.ts";
 import { adminProcedure, router } from "../trpc.ts";
 
 // #region helpers
@@ -299,6 +300,8 @@ const greenCodesRouter = router({
   regenerate: adminProcedure.input(z.object({ ccId: id })).mutation(({ input }) => {
     const code = uniqueCode();
     db.insert(greenCodes).values({ ccId: input.ccId, code }).onConflictDoUpdate({ target: greenCodes.ccId, set: { code } }).run();
+    // A new code exists to lock out whoever holds the old one.
+    db.delete(sessions).where(and(eq(sessions.role, "green"), eq(sessions.ccId, input.ccId))).run();
     return { code };
   }),
 });
@@ -346,13 +349,20 @@ const trucksRouter = router({
       // Stops belong to the old CC; they go back to open there.
       const reopened = moving ? reopenStops(tid) : [];
       const t = db.update(trucks).set(set).where(eq(trucks.id, tid)).returning().get();
+      // Push to a CC goes by sessions.cc_id; the driver's phones follow the truck.
+      if (moving) db.update(sessions).set({ ccId: t.ccId }).where(eq(sessions.truckId, tid)).run();
       afterReopen(reopened, current);
+      // Back from offline: it can take what sat open while it was off.
+      if (current.status === "offline" && t.status !== "offline") sweepOpen(t.ccId, t.dayId);
       scheduleRoute(tid);
       return t;
     }),
-  regenerateCode: adminProcedure.input(z.object({ id })).mutation(({ input }) =>
-    db.update(trucks).set({ code: uniqueCode() }).where(eq(trucks.id, input.id)).returning().get(),
-  ),
+  /** Also signs out every phone that used the old code. */
+  regenerateCode: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
+    const t = db.update(trucks).set({ code: uniqueCode() }).where(eq(trucks.id, input.id)).returning().get();
+    db.delete(sessions).where(eq(sessions.truckId, input.id)).run();
+    return t;
+  }),
   setCapacity: adminProcedure
     .input(z.object({ truckId: id, typeId: id, capacity: z.number().int().min(0).max(1000) }))
     .mutation(({ input }) => {
@@ -422,6 +432,15 @@ const crewInput = z.object({
   notes: z.string().max(1000).nullish(),
 });
 
+/**
+ * A crew now at another CC: its lot assignments at the old CC end, and its
+ * phones' sessions follow it, since push to a CC goes by sessions.cc_id.
+ */
+const afterCrewMoved = (crewId: number, ccId: number): void => {
+  db.update(lots).set({ crewId: null }).where(eq(lots.crewId, crewId)).run();
+  db.update(sessions).set({ ccId }).where(eq(sessions.crewId, crewId)).run();
+};
+
 const crewsRouter = router({
   list: adminProcedure.input(z.object({ dayId: id })).query(({ input }) =>
     db
@@ -452,19 +471,22 @@ const crewsRouter = router({
     const patch: Partial<typeof crews.$inferInsert> = { ...set };
     if (set.leadName !== undefined) patch.leadName = set.leadName || null;
     if (set.leadPhone !== undefined) patch.leadPhone = set.leadPhone || null;
-    if (set.ccId !== undefined && set.ccId !== current.ccId) {
-      patch.dayId = getCcOrThrow(set.ccId).dayId;
-      db.update(lots).set({ crewId: null }).where(eq(lots.crewId, cid)).run();
-    }
-    return db.update(crews).set(patch).where(eq(crews.id, cid)).returning().get();
+    const moving = set.ccId !== undefined && set.ccId !== current.ccId;
+    if (moving && set.ccId !== undefined) patch.dayId = getCcOrThrow(set.ccId).dayId;
+    const row = db.update(crews).set(patch).where(eq(crews.id, cid)).returning().get();
+    if (moving) afterCrewMoved(cid, row.ccId);
+    return row;
   }),
   delete: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
     db.delete(crews).where(eq(crews.id, input.id)).run();
     return { ok: true };
   }),
-  regenerateToken: adminProcedure.input(z.object({ id })).mutation(({ input }) =>
-    db.update(crews).set({ token: newCrewToken() }).where(eq(crews.id, input.id)).returning().get(),
-  ),
+  /** Also signs out every phone that joined with the old link. */
+  regenerateToken: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
+    const row = db.update(crews).set({ token: newCrewToken() }).where(eq(crews.id, input.id)).returning().get();
+    db.delete(sessions).where(eq(sessions.crewId, input.id)).run();
+    return row;
+  }),
   /** CSV `day, cc, company, lead_name, lead_phone, headcount`. Day matches label, date or number. */
   importCsv: adminProcedure.input(z.object({ csv: z.string().max(2_000_000), eventId: id.nullish() })).mutation(({ input }) => {
     const eventId = eventOrActive(input.eventId);
@@ -482,6 +504,7 @@ const crewsRouter = router({
       db.select().from(companies).where(eq(companies.eventId, eventId)).all().map((c) => [c.name.toLowerCase(), c.id]),
     );
     let added = 0;
+    let updated = 0;
     const errors: string[] = [];
     parsed.data.forEach((r, i) => {
       const line = i + 2;
@@ -512,22 +535,46 @@ const crewsRouter = router({
         }
       }
       const head = Number(r.headcount);
-      createCrew({
-        dayId: day.id,
+      const fields = {
         ccId: target.id,
         companyId,
         leadName: r.lead_name?.trim() || null,
         leadPhone: r.lead_phone?.trim() || null,
         headcount: Number.isFinite(head) && r.headcount?.trim() ? head : null,
-      });
-      added++;
+      };
+      // Same day, same company, same lead (phone digits or name, any case): the row updates
+      // that crew, so a corrected CSV imported twice never doubles the crews.
+      const digits = (v: string | null) => (v ?? "").replace(/\D/g, "");
+      const existing = db
+        .select()
+        .from(crews)
+        .where(and(eq(crews.dayId, day.id), companyId === null ? isNull(crews.companyId) : eq(crews.companyId, companyId)))
+        .all()
+        .find(
+          (c) =>
+            (digits(fields.leadPhone) !== "" && digits(c.leadPhone) === digits(fields.leadPhone)) ||
+            (fields.leadName !== null && (c.leadName ?? "").toLowerCase() === fields.leadName.toLowerCase()),
+        );
+      if (existing) {
+        db.update(crews).set(fields).where(eq(crews.id, existing.id)).run();
+        if (existing.ccId !== fields.ccId) afterCrewMoved(existing.id, fields.ccId);
+        updated++;
+      } else {
+        createCrew({ dayId: day.id, ...fields });
+        added++;
+      }
     });
-    return { added, errors };
+    return { added, updated, errors };
   }),
 });
 // #endregion
 
 // #region catalog
+/** Trucks set up before a tracked item existed get a full row of it; their drivers' stock refetches. */
+const afterStockTypeChange = (typeId: number): void => {
+  for (const truckId of stockTypeOnTrucks(typeId)) emitStock(truckId);
+};
+
 const catalogRouter = router({
   list: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => catalogFor(eventOrActive(input?.eventId), true)),
   create: adminProcedure
@@ -546,11 +593,13 @@ const catalogRouter = router({
       const eventId = eventOrActive(input.eventId);
       const last = db.select({ n: sql<number>`coalesce(max(${requestTypes.sort}), 0)` }).from(requestTypes).where(eq(requestTypes.eventId, eventId)).get();
       const { eventId: _e, key, ...rest } = input;
-      return db
+      const row = db
         .insert(requestTypes)
         .values({ ...rest, key: key ?? keyFor(eventId, input.label), eventId, sort: (last?.n ?? 0) + 1, active: true })
         .returning()
         .get();
+      afterStockTypeChange(row.id);
+      return row;
     }),
   update: adminProcedure
     .input(
@@ -566,7 +615,9 @@ const catalogRouter = router({
     )
     .mutation(({ input }) => {
       const { id: tid, ...set } = input;
-      return db.update(requestTypes).set(set).where(eq(requestTypes.id, tid)).returning().get();
+      const row = db.update(requestTypes).set(set).where(eq(requestTypes.id, tid)).returning().get();
+      afterStockTypeChange(tid);
+      return row;
     }),
   /** Sets the order to the given id list. */
   reorder: adminProcedure.input(z.object({ ids: z.array(id).min(1).max(200) })).mutation(({ input }) => {
@@ -642,10 +693,15 @@ const lotsRouter = router({
       const assigned = input.ccId != null ? assignLotsToCcByBBox(eventId, [w, s, e, n], input.ccId, true) : 0;
       return { ...res, assigned };
     }),
-  importCsv: adminProcedure.input(z.object({ csv: z.string().max(5_000_000), eventId: id.nullish() })).mutation(async ({ input }) => {
-    const res = await importLotsCsv(eventOrActive(input.eventId), input.csv);
-    return { ...res, errors: res.errors.map((e) => e.replace(/: lat and lng$/, ": lat or lng missing")) };
-  }),
+  importCsv: adminProcedure
+    .input(z.object({ csv: z.string().max(5_000_000), ccId: id.nullish(), eventId: id.nullish() }))
+    .mutation(async ({ input }) => {
+      const eventId = eventOrActive(input.eventId);
+      if (input.ccId != null && eventOfCc(getCcOrThrow(input.ccId)) !== eventId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Command center is in another event" });
+      }
+      return importLotsCsv(eventId, input.csv, {}, input.ccId ?? null);
+    }),
   add: adminProcedure
     .input(z.object({ lat: z.number(), lng: z.number(), address: z.string().max(200).nullish(), ccId: id.nullish(), eventId: id.nullish() }))
     .mutation(({ input }) => addManualLot(eventOrActive(input.eventId), input)),

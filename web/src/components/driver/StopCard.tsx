@@ -130,9 +130,16 @@ export const StopDetails = ({
             Navigate
           </ButtonLink>
           {stop.leadPhone && (
-            <ButtonLink href={telHref(stop.leadPhone)} variant="secondary" size="lg" block className="min-w-0 px-3! whitespace-nowrap">
+            <ButtonLink
+              href={telHref(stop.leadPhone)}
+              variant="secondary"
+              size="lg"
+              block
+              className="min-w-0 px-3! whitespace-nowrap"
+              aria-label={stop.leadName ? `Call ${stop.leadName}` : "Call lead"}
+            >
               <PhoneIcon />
-              <span className="truncate text-base">{stop.leadName ? `Call ${stop.leadName.split(" ")[0]}` : "Call lead"}</span>
+              <span className="truncate text-base">Call</span>
             </ButtonLink>
           )}
         </div>

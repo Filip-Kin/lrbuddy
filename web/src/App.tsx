@@ -16,19 +16,21 @@ import { LoginPage } from "./pages/join/LoginPage.tsx";
 
 const Shell = ({
   scope,
+  scopeShort,
   scopeTone,
   links,
   onSignOut,
   children,
 }: {
   scope?: string;
+  scopeShort?: string;
   scopeTone?: "crew" | "plain";
   links: readonly NavLink[];
   onSignOut?: () => void;
   children: ReactNode;
 }) => (
   <div className="flex h-dvh flex-col">
-    <Nav scope={scope} scopeTone={scopeTone} links={links} onSignOut={onSignOut} />
+    <Nav scope={scope} scopeShort={scopeShort} scopeTone={scopeTone} links={links} onSignOut={onSignOut} />
     <main className="relative min-h-0 flex-1 overflow-y-auto">{children}</main>
   </div>
 );
@@ -56,7 +58,7 @@ const NamePrompt = ({ me }: { me: SignedIn }) => {
     <Sheet
       open={open}
       onClose={() => setDismissed(true)}
-      title="Name"
+      title={me.scope}
       footer={
         <Button block size="lg" busy={busy} disabled={!name.trim()} onClick={() => void save()}>
           Save
@@ -81,7 +83,7 @@ const AdminGreen = ({ me }: { me: SignedIn }) => {
   }, [cc, utils]);
   if (cc === null) return <Redirect to="/admin/green" />;
   return (
-    <Shell scope={me.scope} links={[...greenLinks("/green", `?cc=${cc}`), { href: "/admin", label: "Admin" }]} onSignOut={() => void logout()}>
+    <Shell scope={me.scope} scopeShort={me.scopeShort} links={[...greenLinks("/green", `?cc=${cc}`), { href: "/admin", label: "Admin" }]} onSignOut={() => void logout()}>
       <Route path="/green" nest>
         <GreenRoutes />
       </Route>
@@ -100,20 +102,20 @@ const SignedInApp = ({ me }: { me: SignedIn }) => {
   switch (me.role) {
     case "crew":
       return (
-        <Shell scope={me.scope} scopeTone="crew" links={crewLinks}>
+        <Shell scope={me.scope} scopeShort={me.scopeShort} scopeTone="crew" links={crewLinks}>
           <CrewRoutes />
           <NamePrompt me={me} />
         </Shell>
       );
     case "driver":
       return (
-        <Shell scope={me.scope} links={driverLinks}>
+        <Shell scope={me.scope} scopeShort={me.scopeShort} links={driverLinks}>
           <DriverRoutes />
         </Shell>
       );
     case "green":
       return (
-        <Shell scope={me.scope} links={greenLinks()} onSignOut={() => void logout()}>
+        <Shell scope={me.scope} scopeShort={me.scopeShort} links={greenLinks()} onSignOut={() => void logout()}>
           <GreenRoutes />
         </Shell>
       );
@@ -121,7 +123,7 @@ const SignedInApp = ({ me }: { me: SignedIn }) => {
       if (adminInGreen) return <AdminGreen me={me} />;
       if (!loc.startsWith("/admin")) return <Redirect to="/admin" />;
       return (
-        <Shell scope={me.scope} links={adminLinks} onSignOut={() => void logout()}>
+        <Shell scope={me.scope} scopeShort={me.scopeShort} links={adminLinks} onSignOut={() => void logout()}>
           <AdminRoutes />
         </Shell>
       );

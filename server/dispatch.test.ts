@@ -221,6 +221,47 @@ describe("routes", () => {
     expect(route!.durationS).toBeCloseTo(route!.legs[1]!.etaS, 5);
   });
 
+  test("a route computed 10 min ago never gives an ETA at or before now while the stop is open", async () => {
+    const now = Date.now();
+    const t = addTruck(w, "A", CC, 0, now);
+    const c = addCrew(w, north(1), now);
+    const r = request(w, c.id, "water", 1, now - 10 * MIN);
+    await d.computeRouteNow(t.id, now - 10 * MIN);
+    db.update(s.routes).set({ legs: [{ key: `crew:${c.id}`, crewId: c.id, requestIds: [r.id], lat: 0, lng: 0, etaS: 120, distanceM: 600 }] }).where(eq(s.routes.truckId, t.id)).run();
+    const { requestViews } = await import("./queries.ts");
+    const view = requestViews([d.getRequest(r.id)], now)[0]!;
+    expect(view.etaAt).not.toBeNull();
+    expect(view.etaAt!).toBeGreaterThan(now);
+  });
+
+  test("a truck unseen for 16 minutes has no ETA", async () => {
+    const now = Date.now();
+    const t = addTruck(w, "A", CC, 0, now);
+    const c = addCrew(w, north(1), now);
+    const r = request(w, c.id, "water", 1, now);
+    await d.computeRouteNow(t.id, now);
+    db.update(s.trucks).set({ lastSeenAt: now - 16 * MIN }).where(eq(s.trucks.id, t.id)).run();
+    const { requestViews } = await import("./queries.ts");
+    expect(requestViews([d.getRequest(r.id)], now)[0]!.etaAt).toBeNull();
+  });
+
+  test("a live truck's route is recomputed once it is a minute old", async () => {
+    const now = Date.now();
+    const live = addTruck(w, "A", CC, 0, now);
+    const gone = addTruck(w, "B", CC, 20 * MIN, now);
+    const c = addCrew(w, north(1), now);
+    const r = request(w, c.id, "water", 1, now);
+    d.reassign(r.id, live.id, now);
+    const c2 = addCrew(w, north(2), now);
+    const r2 = request(w, c2.id, "water", 1, now);
+    d.reassign(r2.id, gone.id, now);
+    await d.computeRouteNow(live.id, now - 2 * MIN);
+    await d.computeRouteNow(gone.id, now - 2 * MIN);
+    d.cancelScheduledRoutes();
+    expect(d.refreshLiveRoutes(now)).toBe(1);
+    d.cancelScheduledRoutes();
+  });
+
   test("several requests from one crew are one stop", async () => {
     const now = Date.now();
     const t = addTruck(w, "A", CC, MIN, now);

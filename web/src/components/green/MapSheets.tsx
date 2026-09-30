@@ -8,6 +8,7 @@ import { ContactButtons } from "./Contact.tsx";
 import { errorText, useGreenInvalidate, type GreenRequest, type GreenTruck } from "./hooks.ts";
 import { RequestCard } from "./RequestCard.tsx";
 import { StockList } from "./StockList.tsx";
+import { TruckStatusPill } from "./TruckStatus.tsx";
 import { Fact } from "./ui.tsx";
 
 type Overview = RouterOutputs["green"]["overview"];
@@ -61,7 +62,7 @@ export const TruckSheet = ({ truck, now, onClose }: { truck: GreenTruck | null; 
     {truck && (
       <div className="space-y-4 pb-2">
         <div className="flex flex-wrap gap-1.5">
-          <StatusPill status={truck.status} />
+          <TruckStatusPill truck={truck} now={now} />
           {truck.lowStock && <StatusPill status="low" />}
         </div>
         <div className="grid grid-cols-2 gap-3 rounded-2xl bg-surface-2 p-3">

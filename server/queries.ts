@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "./db/index.ts";
 import {
   commandCenters,
@@ -17,7 +17,30 @@ import {
   type Request,
   type RequestType,
 } from "./db/schema.ts";
-import { crewLabel } from "./dispatch.ts";
+import { crewLabel, legEtaAt } from "./dispatch.ts";
+
+/**
+ * Every CC row of the event that is the same site as this one: same name, any
+ * case, any day. Lots belong to a site, not to one day's CC row, so lots placed
+ * at Day 1's CC North are at Day 2's CC North too.
+ */
+export const siteCcIds = (ccId: number): number[] => {
+  const cc = db.select().from(commandCenters).where(eq(commandCenters.id, ccId)).get();
+  if (!cc) return [];
+  const day = db.select().from(days).where(eq(days.id, cc.dayId)).get();
+  if (!day) return [cc.id];
+  return db
+    .select({ id: commandCenters.id })
+    .from(commandCenters)
+    .innerJoin(days, eq(days.id, commandCenters.dayId))
+    .where(and(eq(days.eventId, day.eventId), sql`lower(${commandCenters.name}) = ${cc.name.toLowerCase()}`))
+    .all()
+    .map((r) => r.id);
+};
+
+/** Crew ids on the day, for telling a lot's crew from today apart from one left over from another day. */
+export const crewIdsOnDay = (dayId: number): Set<number> =>
+  new Set(db.select({ id: crews.id }).from(crews).where(eq(crews.dayId, dayId)).all().map((r) => r.id));
 
 export const activeEvent = (): Event | undefined => db.select().from(events).where(eq(events.active, true)).get();
 
@@ -48,7 +71,7 @@ export interface RequestView extends Request {
 }
 
 /** Joins everything a request card shows. */
-export const requestViews = (rows: readonly Request[]): RequestView[] => {
+export const requestViews = (rows: readonly Request[], now = Date.now()): RequestView[] => {
   if (rows.length === 0) return [];
   const typeIds = [...new Set(rows.map((r) => r.typeId))];
   const crewIds = [...new Set(rows.map((r) => r.crewId).filter((x): x is number => x !== null))];
@@ -74,6 +97,7 @@ export const requestViews = (rows: readonly Request[]): RequestView[] => {
     const t = types.get(r.typeId);
     const c = r.crewId !== null ? crewMap.get(r.crewId) : undefined;
     const route = r.truckId !== null ? routeMap.get(r.truckId) : undefined;
+    const truck = r.truckId !== null ? truckMap.get(r.truckId) : undefined;
     const leg = route?.legs.find((l) => l.requestIds.includes(r.id));
     const active = r.status === "assigned" || r.status === "en_route";
     return {
@@ -88,9 +112,9 @@ export const requestViews = (rows: readonly Request[]): RequestView[] => {
       leadPhone: c?.crew.leadPhone ?? null,
       companyId: c?.company?.id ?? null,
       companyName: c?.company?.name ?? null,
-      truckName: r.truckId !== null ? (truckMap.get(r.truckId)?.name ?? null) : null,
+      truckName: truck?.name ?? null,
       etaS: active && leg ? leg.etaS : null,
-      etaAt: active && leg && route ? route.computedAt + leg.etaS * 1000 : null,
+      etaAt: active && leg && route && truck ? legEtaAt(route, leg, truck, now) : null,
     };
   });
 };

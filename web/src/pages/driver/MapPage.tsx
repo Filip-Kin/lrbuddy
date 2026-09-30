@@ -60,9 +60,9 @@ export const MapPage = () => {
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand text-base font-extrabold text-on-brand ring-[3px] ring-on-brand ring-inset">1</span>
               <span className="min-w-0">
                 <span className="block truncate text-base font-bold">{next.name}</span>
-                <span className="flex min-w-0 items-center gap-2">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   {next.urgent && <StatusPill status="urgent" />}
-                  <span className="truncate text-sm text-muted">{itemsSummary(next.items)}</span>
+                  <span className="text-sm break-words text-muted">{itemsSummary(next.items)}</span>
                 </span>
               </span>
             </button>

@@ -4,6 +4,7 @@ import { join, normalize } from "node:path";
 import { allowLogin, clearCookie, deleteSession, joinWithToken, loginWithCode, sessionCookie, sessionIdFrom, setSessionName } from "./auth.ts";
 import { config } from "./config.ts";
 import { sqlite } from "./db/index.ts";
+import { startRouteRefresh } from "./dispatch.ts";
 import { appRouter } from "./routers/index.ts";
 import { createContextFor } from "./trpc.ts";
 
@@ -12,8 +13,17 @@ const DIST = config.webDist.endsWith("/") ? config.webDist : `${config.webDist}/
 const json = (body: unknown, init: ResponseInit = {}): Response =>
   new Response(JSON.stringify(body), { ...init, headers: { "content-type": "application/json", ...(init.headers ?? {}) } });
 
-const clientIp = (req: Request, server: { requestIP(r: Request): { address: string } | null }): string =>
-  req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || server.requestIP(req)?.address || "unknown";
+/**
+ * The socket address, or with TRUST_PROXY_HOPS set, the X-Forwarded-For entry
+ * the outermost trusted proxy appended. The left-most entry is whatever the
+ * caller sent, so keying the login limit on it lets anyone reset the limit.
+ */
+const clientIp = (req: Request, server: { requestIP(r: Request): { address: string } | null }): string => {
+  const socket = server.requestIP(req)?.address || "unknown";
+  if (config.trustProxyHops === 0) return socket;
+  const list = (req.headers.get("x-forwarded-for") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  return list[list.length - config.trustProxyHops] ?? socket;
+};
 
 // #region static
 const IMMUTABLE = /^\/assets\//;
@@ -120,6 +130,8 @@ const server = Bun.serve({
     return serveStatic(path);
   },
 });
+
+startRouteRefresh();
 
 if (!existsSync(join(DIST, "index.html"))) console.warn(`[lrbuddy] web build missing at ${DIST}; run: bun run build`);
 console.log(`[lrbuddy] ${config.version} listening on :${server.port}, data in ${config.dataDir}`);

@@ -24,6 +24,7 @@ bun run seed                 # demo event, prints codes and join links
 bun run dev                  # server on :3000 + vite on :5173
 bun run typecheck && bun test && bun run build
 bun run shots                # screenshots into /home/filip/preview-shots/lrbuddy
+/home/filip/pit-podcast-automation/.venv/bin/python scripts/gate.py http://127.0.0.1:3000 <admin pw>   # release gate, must exit 0
 ```
 
 Screenshot harness needs Playwright: use `/home/filip/pit-podcast-automation/.venv/bin/python scripts/shots.py`.

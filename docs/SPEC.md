@@ -157,8 +157,9 @@ No accounts, no Firebase. A session cookie names a role and a scope.
 - Cookie `lrb_session`: HttpOnly, SameSite=Lax, Secure when `PUBLIC_URL` starts with https, 30 days.
   Value is the `sessions.id` uuid. Nothing is signed; the id is the secret. `SESSION_SECRET` is still
   required and used to HMAC push payload signatures and QR tokens if needed.
-- Auth routes are plain `Bun.serve` routes, not tRPC: `POST /auth/login {code}` (tries admin password,
-  truck code, green code in that order), `GET /j/:token` (sets session, 302 to `/`), `POST /auth/logout`.
+- Auth routes are plain `Bun.serve` routes, not tRPC: `POST /auth/login {code, displayName?}` (tries admin
+  password, truck code, green code, crew token in that order; JSON body; 200 with `{role}` or 401),
+  `GET /j/:token` (sets session, 302 to `/`), `POST /auth/logout`, `POST /auth/name {displayName}`.
 - `shared.me` returns `{ role, displayName, crew?, truck?, cc?, day?, event }` or `{ role: 'anon' }`.
 - Role procedures throw `UNAUTHORIZED` when the session is missing and `FORBIDDEN` when the role is
   wrong. Green procedures are also allowed for admin. Every procedure scopes its queries by the
@@ -362,6 +363,8 @@ has content. Idempotent: wipes and recreates the event named "Demo 2026".
 - No user-visible string breaks the `ui-copy` rules.
 - No `any`, no `console.log` noise in the client, no TODO left for a required feature.
 - Docker image builds locally with `docker build .` and answers `/health`.
+- `scripts/gate.py <base> <admin password>` exits 0 against the seeded server. It is the executable form
+  of section 14 and the final word: a screen is not done while the gate fails on it.
 
 ## 13. Palette
 
@@ -386,3 +389,52 @@ Map markers: me = blue dot (`#2f80ed`, the one exception, so it reads as "you" l
 CC = `--ink` flag with a yellow fill, truck = yellow rounded square with the truck name, crew = red dot,
 lots = small squares in their status colour, open requests = pulsing ring in `--crew` around the crew.
 Contrast: every text/background pair at least 4.5:1; yellow never carries white text.
+
+## 14. Mistakes that have shipped before (enforced by `scripts/gate.py`)
+
+Each of these has been called out on an earlier app. The gate checks them mechanically; this list
+says why.
+
+Phone
+- Below 860 px the nav is a hamburger: `button[aria-expanded]`, opens a panel, closes on Escape, on
+  route change, and on tapping a `[data-scrim]` element. Above 860 px the links are inline and the
+  button is hidden. The bar keeps only the brand, the scope chip and the button.
+- `scrollWidth == clientWidth` at 390 px on every route. Long addresses wrap or truncate, tables
+  scroll inside their own container, maps are `width: 100%`.
+- Tap targets: primary buttons at least 44 px tall, nothing tappable under 40 px. Inputs at 16 px
+  font or more (smaller makes iOS zoom the page on focus).
+- `100dvh`, never `100vh`. `viewport-fit=cover` and `env(safe-area-inset-*)` padding on the fixed
+  bottom button and any bottom sheet, so the installed app clears the home indicator.
+- `touch-action: manipulation` on buttons so double-tap zoom does not eat the second tap.
+- Nothing hover-only. Every affordance works on a first tap.
+- A fixed **Request** button on the crew map must not cover the Leaflet attribution or zoom control.
+
+Look
+- Light and dark, both finished. Dark surfaces are the teal from section 13, not black, and the map
+  container keeps `isolation: isolate` so Leaflet's z-index does not punch through the sticky bar.
+- Real icons and a real app icon (192 and 512, maskable, plus `apple-touch-icon`), never a default.
+- Empty states for every list. No raw ids, no `undefined`, `null`, `NaN`, no placeholder text.
+- Relative times ("4 min") on cards, absolute local time (Detroit) in tables and exports.
+- The last section of any page is a plain panel, never a collapsed accordion.
+
+Words
+- Labels, not sentences. No "you", "we", "please", "successfully", "oops". No helper paragraphs under
+  controls. Error text says what happened and what to do, in the reader's terms.
+- No em dashes or en dashes anywhere: UI, README, comments, commits.
+- README and docs in a plain human voice, no marketing adjectives.
+
+Code
+- No `any`. No `console.log` in the client. No `TODO` in shipped code. `// #region` for sections,
+  never dashed comment banners.
+- No migration shims or compatibility branches; nothing has shipped.
+- One version bump per release, not per commit. Author Filip Kin, no Co-Authored-By.
+- Every asset the page loads must exist: a 404 on `sw.js`, an icon or a font is a failure (behind
+  the NAS front door a polling 404 gets the client IP banned by fail2ban).
+- Basemap constants exactly as in `reference/basemap.ts`; `server.arcgisonline.com`, `maxNativeZoom: 16`.
+
+iOS, said plainly in the UI where it matters
+- WebKit only delivers Web Push to a PWA that has been added to the Home Screen, and only on
+  iOS 16.4 or later. The Notifications control on iPhone Safari shows the label "Add to Home Screen
+  first" instead of a toggle that silently fails.
+- Geolocation permission on iOS is re-asked per site more often than on Android; the Location row on
+  the settings page shows the current permission state so the red shirt can see why the dot is missing.

@@ -1,0 +1,389 @@
+import { sql } from "drizzle-orm";
+import {
+  index,
+  integer,
+  primaryKey,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
+
+// #region enums
+export const ROLES = ["admin", "green", "driver", "crew"] as const;
+export type Role = (typeof ROLES)[number];
+
+export const TRUCK_STATUSES = ["idle", "delivering", "returning", "offline"] as const;
+export type TruckStatus = (typeof TRUCK_STATUSES)[number];
+
+export const UNITS = ["case", "box", "can", "each", "roll"] as const;
+export type Unit = (typeof UNITS)[number];
+
+export const REQUEST_STATUSES = ["open", "assigned", "en_route", "delivered", "cancelled"] as const;
+export type RequestStatus = (typeof REQUEST_STATUSES)[number];
+
+export const REQUEST_CREATORS = ["crew", "green"] as const;
+export const CANCELLERS = ["crew", "green", "driver"] as const;
+export type Canceller = (typeof CANCELLERS)[number];
+
+export const STOCK_REASONS = ["delivery", "restock", "adjust"] as const;
+export type StockReason = (typeof STOCK_REASONS)[number];
+
+export const POSITION_KINDS = ["crew", "truck"] as const;
+export type PositionKind = (typeof POSITION_KINDS)[number];
+
+export const LOT_SOURCES = ["dlba", "csv", "manual"] as const;
+export type LotSource = (typeof LOT_SOURCES)[number];
+
+export const LOT_STATUSES = ["open", "in_progress", "done", "skipped"] as const;
+export type LotStatus = (typeof LOT_STATUSES)[number];
+
+export const ROUTE_ENGINES = ["osrm", "fallback"] as const;
+export type RouteEngine = (typeof ROUTE_ENGINES)[number];
+// #endregion
+
+// #region json shapes
+/** One stop on a computed route, in visit order. */
+export interface RouteLeg {
+  /** `crew:<id>` for a crew stop, `req:<id>` for a crewless request, `cc` for the return leg. */
+  key: string;
+  crewId: number | null;
+  requestIds: number[];
+  lat: number;
+  lng: number;
+  /** Seconds from the origin to this stop, cumulative. */
+  etaS: number;
+  /** Metres from the origin to this stop, cumulative. */
+  distanceM: number;
+}
+// #endregion
+
+export const events = sqliteTable("events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  year: integer("year").notNull(),
+  active: integer("active", { mode: "boolean" }).notNull().default(false),
+});
+
+export const days = sqliteTable(
+  "days",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    date: text("date").notNull(),
+    label: text("label").notNull(),
+    sort: integer("sort").notNull().default(0),
+  },
+  (t) => [index("days_event_idx").on(t.eventId)],
+);
+
+export const commandCenters = sqliteTable(
+  "command_centers",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    dayId: integer("day_id")
+      .notNull()
+      .references(() => days.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    lat: real("lat").notNull(),
+    lng: real("lng").notNull(),
+    address: text("address"),
+    notes: text("notes"),
+  },
+  (t) => [index("cc_day_idx").on(t.dayId)],
+);
+
+export const greenShirts = sqliteTable(
+  "green_shirts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ccId: integer("cc_id")
+      .notNull()
+      .references(() => commandCenters.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    phone: text("phone"),
+    roleLabel: text("role_label"),
+  },
+  (t) => [index("green_shirts_cc_idx").on(t.ccId)],
+);
+
+export const companies = sqliteTable(
+  "companies",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+  },
+  (t) => [index("companies_event_idx").on(t.eventId)],
+);
+
+export const crews = sqliteTable(
+  "crews",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    dayId: integer("day_id")
+      .notNull()
+      .references(() => days.id, { onDelete: "cascade" }),
+    ccId: integer("cc_id")
+      .notNull()
+      .references(() => commandCenters.id, { onDelete: "cascade" }),
+    companyId: integer("company_id").references(() => companies.id, { onDelete: "set null" }),
+    /** Crew number within the day, shown as "Crew 7". */
+    number: integer("number").notNull(),
+    leadName: text("lead_name"),
+    leadPhone: text("lead_phone"),
+    token: text("token").notNull().unique(),
+    headcount: integer("headcount"),
+    notes: text("notes"),
+    lastSeenAt: integer("last_seen_at"),
+  },
+  (t) => [index("crews_day_idx").on(t.dayId), index("crews_cc_idx").on(t.ccId)],
+);
+
+export const trucks = sqliteTable(
+  "trucks",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    dayId: integer("day_id")
+      .notNull()
+      .references(() => days.id, { onDelete: "cascade" }),
+    ccId: integer("cc_id")
+      .notNull()
+      .references(() => commandCenters.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    driverName: text("driver_name"),
+    driverPhone: text("driver_phone"),
+    code: text("code").notNull().unique(),
+    status: text("status", { enum: TRUCK_STATUSES }).notNull().default("idle"),
+    lastSeenAt: integer("last_seen_at"),
+  },
+  (t) => [index("trucks_cc_idx").on(t.ccId)],
+);
+
+export const greenCodes = sqliteTable("green_codes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ccId: integer("cc_id")
+    .notNull()
+    .unique()
+    .references(() => commandCenters.id, { onDelete: "cascade" }),
+  code: text("code").notNull().unique(),
+});
+
+export const sessions = sqliteTable("sessions", {
+  id: text("id").primaryKey(),
+  role: text("role", { enum: ROLES }).notNull(),
+  crewId: integer("crew_id").references(() => crews.id, { onDelete: "cascade" }),
+  truckId: integer("truck_id").references(() => trucks.id, { onDelete: "cascade" }),
+  ccId: integer("cc_id").references(() => commandCenters.id, { onDelete: "cascade" }),
+  displayName: text("display_name"),
+  createdAt: integer("created_at").notNull(),
+  lastUsedAt: integer("last_used_at").notNull(),
+  userAgent: text("user_agent"),
+});
+
+export const requestTypes = sqliteTable(
+  "request_types",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    unit: text("unit", { enum: UNITS }).notNull(),
+    /** 1 low, 2 normal, 3 urgent. */
+    priority: integer("priority").notNull().default(2),
+    tracksStock: integer("tracks_stock", { mode: "boolean" }).notNull().default(true),
+    /** Stock capacity given to a new truck for this type. */
+    defaultCapacity: integer("default_capacity").notNull().default(0),
+    sort: integer("sort").notNull().default(0),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+  },
+  (t) => [uniqueIndex("request_types_event_key").on(t.eventId, t.key)],
+);
+
+export const requests = sqliteTable(
+  "requests",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    crewId: integer("crew_id").references(() => crews.id, { onDelete: "cascade" }),
+    ccId: integer("cc_id")
+      .notNull()
+      .references(() => commandCenters.id, { onDelete: "cascade" }),
+    dayId: integer("day_id")
+      .notNull()
+      .references(() => days.id, { onDelete: "cascade" }),
+    typeId: integer("type_id")
+      .notNull()
+      .references(() => requestTypes.id, { onDelete: "cascade" }),
+    qty: integer("qty").notNull().default(1),
+    note: text("note"),
+    createdBy: text("created_by", { enum: REQUEST_CREATORS }).notNull(),
+    label: text("label"),
+    status: text("status", { enum: REQUEST_STATUSES }).notNull().default("open"),
+    truckId: integer("truck_id").references(() => trucks.id, { onDelete: "set null" }),
+    createdAt: integer("created_at").notNull(),
+    assignedAt: integer("assigned_at"),
+    enRouteAt: integer("en_route_at"),
+    deliveredAt: integer("delivered_at"),
+    cancelledAt: integer("cancelled_at"),
+    cancelledBy: text("cancelled_by", { enum: CANCELLERS }),
+    /** Reason given when a driver cancels an en route request. */
+    cancelNote: text("cancel_note"),
+    lat: real("lat"),
+    lng: real("lng"),
+  },
+  (t) => [
+    index("requests_cc_day_idx").on(t.ccId, t.dayId),
+    index("requests_truck_idx").on(t.truckId),
+    index("requests_crew_idx").on(t.crewId),
+  ],
+);
+
+export const truckStock = sqliteTable(
+  "truck_stock",
+  {
+    truckId: integer("truck_id")
+      .notNull()
+      .references(() => trucks.id, { onDelete: "cascade" }),
+    typeId: integer("type_id")
+      .notNull()
+      .references(() => requestTypes.id, { onDelete: "cascade" }),
+    qty: integer("qty").notNull().default(0),
+    capacity: integer("capacity").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.truckId, t.typeId] })],
+);
+
+export const stockMoves = sqliteTable(
+  "stock_moves",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    truckId: integer("truck_id")
+      .notNull()
+      .references(() => trucks.id, { onDelete: "cascade" }),
+    typeId: integer("type_id")
+      .notNull()
+      .references(() => requestTypes.id, { onDelete: "cascade" }),
+    delta: integer("delta").notNull(),
+    reason: text("reason", { enum: STOCK_REASONS }).notNull(),
+    requestId: integer("request_id").references(() => requests.id, { onDelete: "set null" }),
+    at: integer("at").notNull(),
+  },
+  (t) => [index("stock_moves_truck_idx").on(t.truckId)],
+);
+
+export const positions = sqliteTable(
+  "positions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    kind: text("kind", { enum: POSITION_KINDS }).notNull(),
+    refId: integer("ref_id").notNull(),
+    lat: real("lat").notNull(),
+    lng: real("lng").notNull(),
+    accuracy: real("accuracy"),
+    heading: real("heading"),
+    speed: real("speed"),
+    at: integer("at").notNull(),
+  },
+  (t) => [index("positions_kind_ref_at").on(t.kind, t.refId, sql`${t.at} desc`)],
+);
+
+export const lots = sqliteTable(
+  "lots",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    parcelId: text("parcel_id"),
+    address: text("address"),
+    lat: real("lat").notNull(),
+    lng: real("lng").notNull(),
+    source: text("source", { enum: LOT_SOURCES }).notNull(),
+    ccId: integer("cc_id").references(() => commandCenters.id, { onDelete: "set null" }),
+    crewId: integer("crew_id").references(() => crews.id, { onDelete: "set null" }),
+    status: text("status", { enum: LOT_STATUSES }).notNull().default("open"),
+    statusByCrewId: integer("status_by_crew_id").references(() => crews.id, { onDelete: "set null" }),
+    statusAt: integer("status_at"),
+    note: text("note"),
+  },
+  (t) => [
+    uniqueIndex("lots_event_parcel").on(t.eventId, t.parcelId).where(sql`parcel_id is not null`),
+    index("lots_cc_idx").on(t.ccId),
+    index("lots_crew_idx").on(t.crewId),
+  ],
+);
+
+export const pushSubscriptions = sqliteTable("push_subscriptions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => sessions.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const broadcasts = sqliteTable(
+  "broadcasts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ccId: integer("cc_id")
+      .notNull()
+      .references(() => commandCenters.id, { onDelete: "cascade" }),
+    dayId: integer("day_id")
+      .notNull()
+      .references(() => days.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    sentBy: text("sent_by"),
+    at: integer("at").notNull(),
+  },
+  (t) => [index("broadcasts_cc_idx").on(t.ccId)],
+);
+
+export const routes = sqliteTable("routes", {
+  truckId: integer("truck_id")
+    .primaryKey()
+    .references(() => trucks.id, { onDelete: "cascade" }),
+  computedAt: integer("computed_at").notNull(),
+  /** Request ids in visit order. */
+  stopOrder: text("stop_order", { mode: "json" }).$type<number[]>().notNull(),
+  /** Polyline as [[lat, lng], ...]. */
+  geometry: text("geometry", { mode: "json" }).$type<Array<[number, number]>>().notNull(),
+  /** One entry per stop in visit order, with cumulative ETA. */
+  legs: text("legs", { mode: "json" }).$type<RouteLeg[]>().notNull(),
+  distanceM: real("distance_m").notNull(),
+  durationS: real("duration_s").notNull(),
+  endsAtCc: integer("ends_at_cc", { mode: "boolean" }).notNull().default(false),
+  engine: text("engine", { enum: ROUTE_ENGINES }).notNull(),
+  /** Where the truck was when this route was computed, to detect a 250 m move. */
+  originLat: real("origin_lat").notNull(),
+  originLng: real("origin_lng").notNull(),
+});
+
+// #region row types
+export type Event = typeof events.$inferSelect;
+export type Day = typeof days.$inferSelect;
+export type CommandCenter = typeof commandCenters.$inferSelect;
+export type GreenShirt = typeof greenShirts.$inferSelect;
+export type Company = typeof companies.$inferSelect;
+export type Crew = typeof crews.$inferSelect;
+export type Truck = typeof trucks.$inferSelect;
+export type GreenCode = typeof greenCodes.$inferSelect;
+export type Session = typeof sessions.$inferSelect;
+export type RequestType = typeof requestTypes.$inferSelect;
+export type Request = typeof requests.$inferSelect;
+export type TruckStock = typeof truckStock.$inferSelect;
+export type StockMove = typeof stockMoves.$inferSelect;
+export type Position = typeof positions.$inferSelect;
+export type Lot = typeof lots.$inferSelect;
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
+export type Broadcast = typeof broadcasts.$inferSelect;
+export type Route = typeof routes.$inferSelect;
+// #endregion

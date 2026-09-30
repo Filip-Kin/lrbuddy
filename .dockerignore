@@ -7,3 +7,5 @@ reference
 *.db
 *.db-wal
 *.db-shm
+data-*
+web/dist-*

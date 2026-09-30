@@ -55,7 +55,8 @@ const crewsAt = (ccId: number, dayId: number) => {
       if (r.crewId !== null) doneCounts.set(r.crewId, r.n);
     }
   }
-  return rows.map(({ crew, company }) => ({
+  // The join token is the crew's password; green views never need it.
+  return rows.map(({ crew: { token: _token, ...crew }, company }) => ({
     ...crew,
     name: crewLabel(crew),
     companyName: company?.name ?? null,
@@ -223,7 +224,7 @@ export const greenRouter = router({
   }),
 
   broadcasts: greenProcedure.query(({ ctx }) =>
-    db.select().from(broadcasts).where(and(eq(broadcasts.ccId, ctx.cc.id), eq(broadcasts.dayId, ctx.day.id))).orderBy(desc(broadcasts.at)).all(),
+    db.select().from(broadcasts).where(and(eq(broadcasts.ccId, ctx.cc.id), eq(broadcasts.dayId, ctx.day.id))).orderBy(desc(broadcasts.at), desc(broadcasts.id)).all(),
   ),
 
   stats: greenProcedure.query(({ ctx }) => {
@@ -244,11 +245,17 @@ export const greenRouter = router({
       byCompany.set(k, (byCompany.get(k) ?? 0) + c.lotsDone);
     }
     const now = Date.now();
+    const lotRows = lotsAt(ctx.cc.id);
+    const lotsByStatus: Record<Lot["status"], number> = { open: 0, in_progress: 0, done: 0, skipped: 0 };
+    for (const l of lotRows) lotsByStatus[l.status]++;
     return {
       requestsByType: [...byType.values()].sort((a, b) => b.count - a.count),
       medianDeliverMs: median(deliverMs),
       delivered: deliverMs.length,
       open: all.filter((r) => r.status === "open" || r.status === "assigned" || r.status === "en_route").length,
+      cancelled: all.filter((r) => r.status === "cancelled").length,
+      lotsByStatus,
+      lotsTotal: lotRows.length,
       lotsDoneByCompany: [...byCompany.entries()].map(([company, done]) => ({ company, done })).sort((a, b) => b.done - a.done),
       activeCrews: crewList.filter((c) => c.lastSeenAt !== null && now - c.lastSeenAt <= ACTIVE_CREW_MS).length,
       totalCrews: crewList.length,

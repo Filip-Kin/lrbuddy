@@ -6,14 +6,50 @@ type Utils = ReturnType<typeof trpc.useUtils>;
 type Kind = "requests" | "positions" | "route" | "lots" | "stock" | "broadcast";
 
 const COALESCE_MS = 1500;
+
+// #region settle
 /**
- * The stream opens a moment after the page settles. An open SSE request
- * counts as network activity forever, so opening it at once would keep the
- * page from ever reaching network idle (the gate and the screenshot harness
- * wait for that). Queries load on mount anyway and the stream's start
- * refetches them, so nothing is missed.
+ * The stream opens once the page's first load has gone quiet. An open SSE
+ * request counts as network activity forever, so opening it while map tiles
+ * are still arriving would keep the page from ever reaching network idle
+ * (the gate and the screenshot harness wait for that). Queries load on mount
+ * anyway and the stream's start refetches them, so nothing is missed.
  */
-const START_DELAY_MS = 2500;
+const SETTLE_MIN_MS = 2500;
+const SETTLE_QUIET_MS = 1200;
+const SETTLE_MAX_MS = 12_000;
+
+/** True once no resource has finished loading for a moment (at least 2.5 s after mount, at most 12 s). */
+export const useSettled = (): boolean => {
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    const start = performance.now();
+    let last = start;
+    let observer: PerformanceObserver | null = null;
+    try {
+      observer = new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) last = Math.max(last, e.startTime + e.duration);
+      });
+      observer.observe({ type: "resource", buffered: false });
+    } catch {
+      observer = null;
+    }
+    const t = window.setInterval(() => {
+      const now = performance.now();
+      if (now - start >= SETTLE_MAX_MS || (now - start >= SETTLE_MIN_MS && now - last >= SETTLE_QUIET_MS)) {
+        window.clearInterval(t);
+        observer?.disconnect();
+        setSettled(true);
+      }
+    }, 250);
+    return () => {
+      window.clearInterval(t);
+      observer?.disconnect();
+    };
+  }, []);
+  return settled;
+};
+// #endregion
 
 /** Which cached queries each kind of event makes stale. Role pages add their own as they grow. */
 const invalidate = (utils: Utils, kind: Kind): void => {
@@ -75,11 +111,7 @@ const KIND: Record<string, Kind> = {
 export const useLiveInvalidation = (role: Role, enabled: boolean): void => {
   const utils = trpc.useUtils();
   const timers = useRef(new Map<Kind, ReturnType<typeof setTimeout>>());
-  const [settled, setSettled] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setSettled(true), START_DELAY_MS);
-    return () => clearTimeout(t);
-  }, []);
+  const settled = useSettled();
   const on = settled && enabled && (role === "crew" || role === "driver" || role === "green" || role === "admin");
   trpc.shared.onCc.useSubscription(undefined, {
     enabled: on,

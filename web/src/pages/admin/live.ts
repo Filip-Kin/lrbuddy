@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { useSettled } from "../../lib/live.ts";
 import { trpc } from "../../lib/trpc.ts";
 
 type Utils = ReturnType<typeof trpc.useUtils>;
@@ -6,8 +7,6 @@ type Kind = "requests" | "positions" | "lots" | "stock";
 
 /** Positions arrive every few seconds per truck and crew; admin screens only need a slow trickle. */
 const COALESCE_MS: Record<Kind, number> = { requests: 1500, positions: 10_000, lots: 1500, stock: 3000 };
-/** Same delay as the role shells: an open stream would keep the page from reaching network idle. */
-const START_DELAY_MS = 2500;
 
 const KIND: Record<string, Kind> = {
   "request.changed": "requests",
@@ -42,12 +41,10 @@ const invalidate = (utils: Utils, kind: Kind): void => {
 export const useAdminLive = (): void => {
   const utils = trpc.useUtils();
   const timers = useRef(new Map<Kind, ReturnType<typeof setTimeout>>());
-  const [settled, setSettled] = useState(false);
+  const settled = useSettled();
   useEffect(() => {
-    const t = setTimeout(() => setSettled(true), START_DELAY_MS);
     const pending = timers.current;
     return () => {
-      clearTimeout(t);
       for (const x of pending.values()) clearTimeout(x);
       pending.clear();
     };

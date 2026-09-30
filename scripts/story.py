@@ -82,6 +82,14 @@ def new_role(browser, code: str, size: tuple[int, int], geo: dict | None = None,
     return ctx, page
 
 
+def go(page: Page, path: str) -> None:
+    """Load a route. Not networkidle: the live stream opens 2.5 s after load, and a slow
+    map tile load can push the page past that, after which it is never idle again."""
+    page.goto(BASE + path, wait_until="load")
+    page.locator("main").wait_for()
+    page.wait_for_timeout(800)
+
+
 def water_qty(ctx: BrowserContext) -> int:
     stock = api(ctx, "driver.stock")
     return next(s["qty"] for s in stock if s["key"] == "water")
@@ -105,14 +113,14 @@ with sync_playwright() as pw:
     green_ctx, green = new_role(browser, "EAST01", (1440, 900))
 
     # The driver's phone is open first so Truck 1 counts as seen and has a fresh fix.
-    drv.goto(BASE + "/", wait_until="networkidle")
+    go(drv, "/")
     drv.get_by_role("heading", name="Queue").wait_for()
     time.sleep(2)
     water_before = water_qty(drv_ctx)
     delivered_before = api(green_ctx, "green.stats")["delivered"]
 
     # #region 1. crew sends Water x2
-    crew.goto(BASE + "/request", wait_until="networkidle")
+    go(crew, "/request")
     crew.get_by_role("button", name="Water").first.click()
     sheet = crew.get_by_role("dialog")
     sheet.get_by_role("button", name="More").click()
@@ -130,37 +138,37 @@ with sync_playwright() as pw:
     check(assigned is not None, f"request assigned to {truck_name}")
     if truck_name and truck_name != "Truck 1":
         # Dispatch picked the other truck; the green moves it to Truck 1, which is the phone in this story.
-        green.goto(BASE + "/requests", wait_until="networkidle")
+        go(green, "/requests")
         card = green.locator("article", has_text="Crew 1").filter(has_text="Water").first
         card.get_by_role("button", name="Assign").click()
         green.get_by_role("dialog").get_by_role("button", name="Truck 1").click()
         moved = wait_for(lambda: next((r for r in api(crew_ctx, "crew.myRequests") if r["id"] == req["id"] and r["truckName"] == "Truck 1"), None), 10)
         check(moved is not None, "green reassigned it to Truck 1")
-    green.goto(BASE + "/requests", wait_until="networkidle")
+    go(green, "/requests")
     board = green.locator("main")
     seen = wait_for(lambda: "Crew 1" in board.inner_text() and "Water" in board.inner_text(), 10)
     check(bool(seen), "green board shows Crew 1 Water")
     shot(green, "2-green-board")
-    green.goto(BASE + "/", wait_until="networkidle")
+    go(green, "/")
     rings = wait_for(lambda: green.locator(".lrb-req").count(), 10)
     check(bool(rings), f"green map shows request rings ({rings})")
     shot(green, "2-green-map")
     # #endregion
 
     # #region 3. driver queue and route
-    drv.goto(BASE + "/", wait_until="networkidle")
+    go(drv, "/")
     in_queue = wait_for(lambda: "Crew 1" in drv.locator("main").inner_text(), 15)
     check(bool(in_queue), "Truck 1 queue shows Crew 1")
     shot(drv, "3-driver-queue")
-    drv.goto(BASE + "/map", wait_until="networkidle")
+    go(drv, "/map")
     route = wait_for(lambda: drv.locator("path.lrb-route").count(), 15)
     check(bool(route), "driver map draws the route")
     shot(drv, "3-driver-map")
     # #endregion
 
     # #region 4. en route
-    crew.goto(BASE + "/requests", wait_until="networkidle")
-    drv.goto(BASE + "/", wait_until="networkidle")
+    go(crew, "/requests")
+    go(drv, "/")
     drv.get_by_text("Crew 1").first.wait_for()
     time.sleep(1)  # a freshly shown stop card ignores taps for 800 ms
     stop_for(drv, "Crew 1").get_by_role("button", name="En route").click()
@@ -183,16 +191,16 @@ with sync_playwright() as pw:
     shot(crew, "5-crew-delivered")
     water_after = water_qty(drv_ctx)
     check(water_after == max(0, water_before - 2), f"truck water {water_before} -> {water_after}")
-    drv.goto(BASE + "/stock", wait_until="networkidle")
+    go(drv, "/stock")
     shot(drv, "5-driver-stock")
     stats = wait_for(lambda: (s := api(green_ctx, "green.stats"))["delivered"] > delivered_before and s, 10)
     check(bool(stats), f"green stats delivered {delivered_before} -> {stats['delivered'] if stats else '?'}")
-    green.goto(BASE + "/stats", wait_until="networkidle")
+    go(green, "/stats")
     shot(green, "5-green-stats")
     # #endregion
 
     # #region 6. green adds a crewless stop
-    green.goto(BASE + "/", wait_until="networkidle")
+    go(green, "/")
     crewless_before = {r["id"] for r in api(green_ctx, "green.requests") if r["crewId"] is None}
     green.get_by_role("button", name="Add stop").click()
     box = green.locator(".leaflet-container").bounding_box()
@@ -216,9 +224,9 @@ with sync_playwright() as pw:
     # #region 7. admin imports DLBA lots into CC East
     if ADMIN:
         adm_ctx, adm = new_role(browser, ADMIN, (1440, 900))
-        green.goto(BASE + "/lots", wait_until="networkidle")
+        go(green, "/lots")
         lots_before = len(api(green_ctx, "green.lots")["lots"])
-        adm.goto(BASE + "/admin/lots", wait_until="networkidle")
+        go(adm, "/admin/lots")
         adm.locator("img.leaflet-tile-loaded").first.wait_for(timeout=15_000)
         adm.get_by_role("button", name="Import DLBA").click()
         box = adm.locator(".leaflet-container").bounding_box()
@@ -236,7 +244,7 @@ with sync_playwright() as pw:
         shot(adm, "7-admin-imported")
         lots_after = wait_for(lambda: (n := len(api(green_ctx, "green.lots")["lots"])) > lots_before and n, 10)
         check(bool(lots_after), f"green lots {lots_before} -> {lots_after}")
-        green.reload(wait_until="networkidle")
+        green.reload(wait_until="load")
         shot(green, "7-green-lots")
         adm_ctx.close()
     else:

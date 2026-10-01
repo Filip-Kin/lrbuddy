@@ -9,6 +9,7 @@ import { ExportPage } from "./ExportPage.tsx";
 import { GreenPickerPage } from "./GreenPickerPage.tsx";
 import { useAdminLive } from "./live.ts";
 import { LotsPage } from "./LotsPage.tsx";
+import { PhotosPage } from "./PhotosPage.tsx";
 import { PrintPage } from "./PrintPage.tsx";
 
 export const adminLinks: NavLink[] = [
@@ -16,6 +17,7 @@ export const adminLinks: NavLink[] = [
   { href: "/admin/companies", label: "Companies" },
   { href: "/admin/crews", label: "Crews" },
   { href: "/admin/lots", label: "Lots" },
+  { href: "/admin/photos", label: "Photos" },
   { href: "/admin/catalog", label: "Catalog" },
   { href: "/admin/print", label: "Print" },
   { href: "/admin/export", label: "Export" },
@@ -32,6 +34,7 @@ export const AdminRoutes = () => {
       <Route path="/admin/companies" component={CompaniesPage} />
       <Route path="/admin/crews" component={CrewsPage} />
       <Route path="/admin/lots" component={LotsPage} />
+      <Route path="/admin/photos" component={PhotosPage} />
       <Route path="/admin/catalog" component={CatalogPage} />
       <Route path="/admin/print" component={PrintPage} />
       <Route path="/admin/export" component={ExportPage} />

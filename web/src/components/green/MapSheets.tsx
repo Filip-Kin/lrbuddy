@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Select } from "../Field.tsx";
+import { LotSheet as SharedLotSheet } from "../LotSheet.tsx";
 import { Sheet } from "../Sheet.tsx";
 import { lotPill, StatusPill } from "../StatusPill.tsx";
 import { ago, dateTime } from "../../lib/format.ts";
@@ -95,14 +96,19 @@ export const LotSheet = ({
   const assign = trpc.green.assignLots.useMutation({ onSettled: refresh });
   const [err, setErr] = useState<string | null>(null);
   return (
-    <Sheet open={lot !== null} onClose={onClose} title={lot?.address || "Lot"}>
-      {lot && (
-        <div className="space-y-4 pb-2">
+    <SharedLotSheet
+      lot={lot}
+      onClose={onClose}
+      status={
+        lot && (
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill status={lotPill(lot.status)} />
             {lot.statusAt !== null && <span className="text-sm text-muted">{dateTime(lot.statusAt)}</span>}
           </div>
-          {lot.parcelId && <Fact label="Parcel">{lot.parcelId.replace(/\.$/, "")}</Fact>}
+        )
+      }
+      crew={
+        lot && (
           <Select
             label="Crew"
             value={lot.crewId ?? ""}
@@ -120,10 +126,12 @@ export const LotSheet = ({
               </option>
             ))}
           </Select>
-          {lot.note && <p className="text-sm break-words text-muted">{lot.note}</p>}
-        </div>
-      )}
-    </Sheet>
+        )
+      }
+    >
+      {lot?.parcelId && <Fact label="Parcel">{lot.parcelId.replace(/\.$/, "")}</Fact>}
+      {lot?.note && <p className="text-sm break-words text-muted">{lot.note}</p>}
+    </SharedLotSheet>
   );
 };
 

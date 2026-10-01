@@ -41,13 +41,7 @@ export const phoneText = (raw: string): string => {
   return ten.length === 10 ? `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}` : raw;
 };
 
-/** Street address, else the city parcel number, else a plain label. Never a database id. */
-export const lotTitle = (l: Pick<CrewLot, "address" | "parcelId">): string => {
-  const a = l.address?.trim();
-  if (a) return a;
-  const p = l.parcelId?.replace(/\.$/, "").trim();
-  return p ? `Parcel ${p}` : "Lot";
-};
+export { lotTitle } from "../../lib/format.ts";
 
 /** "just now" under a minute, else "4 min ago". */
 export const since = (at: number, now: number): string => (now - at < 60_000 ? "just now" : ago(at, now));

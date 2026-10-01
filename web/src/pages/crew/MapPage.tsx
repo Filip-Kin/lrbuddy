@@ -6,7 +6,7 @@ import { DirectionsIcon, PlusIcon, TypeIcon } from "../../components/crew/Icons.
 import { LotStatusControl, useLotStatus } from "../../components/crew/LotStatusControl.tsx";
 import { etaText } from "../../components/crew/RequestCard.tsx";
 import { useNow } from "../../components/crew/useNow.ts";
-import { Sheet } from "../../components/Sheet.tsx";
+import { LotSheet } from "../../components/LotSheet.tsx";
 import { lotPill, StatusPill } from "../../components/StatusPill.tsx";
 import { distance, mapsDirections } from "../../lib/format.ts";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
@@ -100,27 +100,38 @@ export const MapPage = () => {
           Request
         </ButtonLink>
       </div>
-      <Sheet open={!!lot} onClose={() => setLotId(null)} title={lot ? lotTitle(lot) : "Lot"}>
-        {lot && (
-          <div className="space-y-4 pb-2">
+      <LotSheet
+        lot={lot}
+        onClose={() => setLotId(null)}
+        status={
+          lot && (
+            <>
+              <LotStatusControl status={lot.status} onChange={(s) => lotStatus.set(lot.id, s)} />
+              {lotStatus.error && lotStatus.errorFor === lot.id && (
+                <p role="alert" className="mt-2 text-sm font-semibold">
+                  {lotStatus.error}
+                </p>
+              )}
+            </>
+          )
+        }
+        crew={
+          lot && (
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
               <StatusPill status={lotPill(lot.status)} />
               <span>{distance(lot.distanceM)}</span>
-              {!lot.mine && <span>Nearby</span>}
+              <span>{lot.mine ? "Assigned" : "Nearby"}</span>
             </div>
-            <LotStatusControl status={lot.status} onChange={(s) => lotStatus.set(lot.id, s)} />
-            {lotStatus.error && lotStatus.errorFor === lot.id && (
-              <p role="alert" className="text-sm font-semibold">
-                {lotStatus.error}
-              </p>
-            )}
-            <ButtonLink href={mapsDirections(lot.lat, lot.lng)} variant="secondary" block>
-              <DirectionsIcon size={20} />
-              Directions
-            </ButtonLink>
-          </div>
+          )
+        }
+      >
+        {lot && (
+          <ButtonLink href={mapsDirections(lot.lat, lot.lng)} variant="secondary" block>
+            <DirectionsIcon size={20} />
+            Directions
+          </ButtonLink>
         )}
-      </Sheet>
+      </LotSheet>
     </div>
   );
 };

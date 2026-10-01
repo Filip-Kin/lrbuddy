@@ -1,9 +1,12 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Button, ButtonLink } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { lotTitle, type CrewLot } from "../../components/crew/format.ts";
 import { DirectionsIcon } from "../../components/crew/Icons.tsx";
 import { LotStatusControl, useLotStatus, type LotStatus } from "../../components/crew/LotStatusControl.tsx";
+import { LotSheet } from "../../components/LotSheet.tsx";
+import { PhotoSlot } from "../../components/photos/PhotoSlot.tsx";
+import { PhotoViewer } from "../../components/photos/PhotoViewer.tsx";
 import { SkeletonList } from "../../components/Skeleton.tsx";
 import { Page } from "../../components/Page.tsx";
 import { lotPill, StatusPill } from "../../components/StatusPill.tsx";
@@ -13,11 +16,27 @@ import { trpc } from "../../lib/trpc.ts";
 const COUNT_ORDER: LotStatus[] = ["done", "in_progress", "open", "skipped"];
 const COUNT_LABEL: Record<LotStatus, string> = { done: "Done", in_progress: "In progress", open: "Open", skipped: "Skipped" };
 
-const LotRow = ({ lot, onStatus, error }: { lot: CrewLot; onStatus: (s: LotStatus) => void; error: string | null }) => (
+const LotRow = ({
+  lot,
+  onStatus,
+  error,
+  onOpen,
+  onPhoto,
+}: {
+  lot: CrewLot;
+  onStatus: (s: LotStatus) => void;
+  error: string | null;
+  onOpen: () => void;
+  onPhoto: (photoId: number) => void;
+}) => (
   <li className="rounded-2xl bg-surface p-3 ring-1 ring-line">
     <div className="flex items-start gap-2">
       <div className="min-w-0 flex-1 pt-0.5">
-        <h3 className="text-lg leading-snug font-bold break-words">{lotTitle(lot)}</h3>
+        <h3 className="text-lg leading-snug font-bold break-words">
+          <button type="button" onClick={onOpen} className="min-h-10 text-left underline-offset-4 hover:underline">
+            {lotTitle(lot)}
+          </button>
+        </h3>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
           <StatusPill status={lotPill(lot.status)} />
           <span className="tabular-nums">{distance(lot.distanceM)}</span>
@@ -32,6 +51,10 @@ const LotRow = ({ lot, onStatus, error }: { lot: CrewLot; onStatus: (s: LotStatu
       >
         <DirectionsIcon size={22} />
       </a>
+    </div>
+    <div className="mt-3 flex items-start gap-2">
+      <PhotoSlot size="inline" lotId={lot.id} kind="before" photoId={lot.photos.before} canAdd onOpen={onPhoto} address={lotTitle(lot)} />
+      <PhotoSlot size="inline" lotId={lot.id} kind="after" photoId={lot.photos.after} canAdd onOpen={onPhoto} address={lotTitle(lot)} />
     </div>
     <div className="mt-3">
       <LotStatusControl status={lot.status} onChange={onStatus} label={`Status of ${lotTitle(lot)}`} />
@@ -53,6 +76,9 @@ export const LotsPage = () => {
     return c;
   }, [q.data]);
   const lots = q.data ?? [];
+  const [sheetId, setSheetId] = useState<number | null>(null);
+  const [viewing, setViewing] = useState<{ lotId: number; photoId: number } | null>(null);
+  const sheetLot = lots.find((l) => l.id === sheetId);
   const assigned = lots.length > 0 && lots[0]!.mine;
 
   let body;
@@ -90,11 +116,44 @@ export const LotsPage = () => {
         </div>
         <ul className="space-y-3">
           {lots.map((l) => (
-            <LotRow key={l.id} lot={l} onStatus={(s) => status.set(l.id, s)} error={status.errorFor === l.id ? status.error : null} />
+            <LotRow
+              key={l.id}
+              lot={l}
+              onStatus={(s) => status.set(l.id, s)}
+              error={status.errorFor === l.id ? status.error : null}
+              onOpen={() => setSheetId(l.id)}
+              onPhoto={(photoId) => setViewing({ lotId: l.id, photoId })}
+            />
           ))}
         </ul>
       </div>
     );
 
-  return <Page title="Lots">{body}</Page>;
+  return (
+    <Page title="Lots">
+      {body}
+      <LotSheet
+        lot={sheetLot}
+        onClose={() => setSheetId(null)}
+        status={sheetLot && <LotStatusControl status={sheetLot.status} onChange={(s) => status.set(sheetLot.id, s)} />}
+        crew={
+          sheetLot && (
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
+              <StatusPill status={lotPill(sheetLot.status)} />
+              <span>{distance(sheetLot.distanceM)}</span>
+              <span>{sheetLot.mine ? "Assigned" : "Nearby"}</span>
+            </div>
+          )
+        }
+      >
+        {sheetLot && (
+          <ButtonLink href={mapsDirections(sheetLot.lat, sheetLot.lng)} variant="secondary" block>
+            <DirectionsIcon size={20} />
+            Directions
+          </ButtonLink>
+        )}
+      </LotSheet>
+      {viewing && <PhotoViewer lotId={viewing.lotId} startId={viewing.photoId} onClose={() => setViewing(null)} />}
+    </Page>
+  );
 };

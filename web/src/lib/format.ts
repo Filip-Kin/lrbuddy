@@ -26,3 +26,11 @@ export const dateTime = (at: number): string =>
 export const telHref = (phone: string): string => `tel:${phone.replace(/[^\d+]/g, "")}`;
 export const smsHref = (phone: string): string => `sms:${phone.replace(/[^\d+]/g, "")}`;
 export const mapsDirections = (lat: number, lng: number): string => `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+
+/** Street address, else the city parcel number, else a plain label. Never a database id. */
+export const lotTitle = (l: { address: string | null; parcelId: string | null }): string => {
+  const a = l.address?.trim();
+  if (a) return a;
+  const p = l.parcelId?.replace(/\.$/, "").trim();
+  return p ? `Parcel ${p}` : "Lot";
+};

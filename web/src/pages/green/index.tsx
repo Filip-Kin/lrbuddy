@@ -4,6 +4,7 @@ import { BroadcastPage } from "./BroadcastPage.tsx";
 import { CrewsPage } from "./CrewsPage.tsx";
 import { LotsPage } from "./LotsPage.tsx";
 import { MapPage } from "./MapPage.tsx";
+import { PhotosPage } from "./PhotosPage.tsx";
 import { RequestsPage } from "./RequestsPage.tsx";
 import { StatsPage } from "./StatsPage.tsx";
 import { TrucksPage } from "./TrucksPage.tsx";
@@ -18,6 +19,7 @@ export const greenLinks = (base = "", search = ""): NavLink[] =>
     { href: "/", label: "Map" },
     { href: "/requests", label: "Requests" },
     { href: "/lots", label: "Lots" },
+    { href: "/photos", label: "Photos" },
     { href: "/crews", label: "Crews" },
     { href: "/trucks", label: "Trucks" },
     { href: "/broadcast", label: "Broadcast" },
@@ -30,6 +32,7 @@ export const GreenRoutes = () => (
     <Route path="/" component={MapPage} />
     <Route path="/requests" component={RequestsPage} />
     <Route path="/lots" component={LotsPage} />
+    <Route path="/photos" component={PhotosPage} />
     <Route path="/crews" component={CrewsPage} />
     <Route path="/trucks" component={TrucksPage} />
     <Route path="/broadcast" component={BroadcastPage} />

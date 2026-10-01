@@ -30,6 +30,9 @@ const invalidate = (utils: Utils, kind: Kind): void => {
       void utils.admin.lots.list.invalidate();
       void utils.admin.lots.counts.invalidate();
       void utils.admin.overview.invalidate();
+      void utils.admin.photos.invalidate();
+      void utils.admin.export.counts.invalidate();
+      void utils.shared.lotPhotos.invalidate();
       break;
     case "stock":
       void utils.admin.days.get.invalidate();

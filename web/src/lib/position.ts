@@ -30,6 +30,9 @@ export const useLocationStatus = (): LocationStatus =>
   );
 
 let lastFix: { lat: number; lng: number; accuracy: number | null } | null = null;
+/** Latest fix from this device outside React, for stamping a photo. Null for roles that do not report. */
+export const currentFix = (): { lat: number; lng: number } | null => lastFix;
+
 /** Latest fix from this device, for drawing the blue dot without a round trip. */
 export const useMyFix = () =>
   useSyncExternalStore(

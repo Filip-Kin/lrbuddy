@@ -3,6 +3,7 @@ import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { errorText, useGreenInvalidate, type GreenLot } from "../../components/green/hooks.ts";
 import { FilterSelect, RectIcon, useFlash } from "../../components/green/ui.tsx";
+import { MissingAfterToggle, PairPill } from "../../components/photos/PairPill.tsx";
 import { Segmented } from "../../components/Segmented.tsx";
 import { Skeleton } from "../../components/Skeleton.tsx";
 import { lotPill, StatusPill } from "../../components/StatusPill.tsx";
@@ -36,6 +37,7 @@ export const LotsPage = () => {
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [status, setStatus] = useState<StatusFilter>("all");
   const [crewFilter, setCrewFilter] = useState<string>("");
+  const [missingAfter, setMissingAfter] = useState(false);
   const [target, setTarget] = useState<string>("");
   const [drawing, setDrawing] = useState(false);
   const [corner, setCorner] = useState<Corner | null>(null);
@@ -53,9 +55,10 @@ export const LotsPage = () => {
       lots.filter(
         (l) =>
           (status === "all" || l.status === status) &&
-          (crewFilter === "" || (crewFilter === NO_CREW ? l.crewId === null : l.crewId === Number(crewFilter))),
+          (crewFilter === "" || (crewFilter === NO_CREW ? l.crewId === null : l.crewId === Number(crewFilter))) &&
+          (!missingAfter || l.photos === "before"),
       ),
-    [lots, status, crewFilter],
+    [lots, status, crewFilter, missingAfter],
   );
 
   const toggle = (id: number): void =>
@@ -265,15 +268,18 @@ export const LotsPage = () => {
             </div>
             <div className="mb-3 space-y-2">
               <Segmented tabs stacked label="Status" value={status} onChange={setStatus} options={STATUS_OPTIONS.map((o) => ({ ...o, count: o.value === "all" ? lots.length : lots.filter((l) => l.status === o.value).length }))} />
-              <FilterSelect label="Crew filter" value={crewFilter} onChange={(e) => setCrewFilter(e.target.value)} className="w-full">
-                <option value="">All crews</option>
-                {crews.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-                <option value={NO_CREW}>No crew</option>
-              </FilterSelect>
+              <div className="flex items-center gap-2">
+                <FilterSelect label="Crew filter" value={crewFilter} onChange={(e) => setCrewFilter(e.target.value)} className="min-w-0 flex-1">
+                  <option value="">All crews</option>
+                  {crews.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                  <option value={NO_CREW}>No crew</option>
+                </FilterSelect>
+                <MissingAfterToggle on={missingAfter} onChange={setMissingAfter} count={lots.filter((l) => l.photos === "before").length} />
+              </div>
             </div>
             {shown.length === 0 ? (
               <div className="rounded-2xl border-2 border-dashed border-line px-4 py-10 text-center font-semibold text-muted">No lots match</div>
@@ -287,6 +293,7 @@ export const LotsPage = () => {
                       </th>
                       <th className="px-2 py-2 font-semibold">Address</th>
                       <th className="px-2 py-2 font-semibold">Status</th>
+                      <th className="px-2 py-2 font-semibold">Photos</th>
                       <th className="px-3 py-2 font-semibold">Crew</th>
                     </tr>
                   </thead>
@@ -308,6 +315,9 @@ export const LotsPage = () => {
                           <td className="px-2 py-3 font-semibold break-words">{l.address || "No address"}</td>
                           <td className="px-2 py-3">
                             <StatusPill status={lotPill(l.status)} />
+                          </td>
+                          <td className="px-2 py-3">
+                            <PairPill state={l.photos} />
                           </td>
                           <td className="px-3 py-3 whitespace-nowrap">{l.crewId !== null ? (crewName.get(l.crewId) ?? "Crew") : <span className="text-muted">None</span>}</td>
                         </tr>

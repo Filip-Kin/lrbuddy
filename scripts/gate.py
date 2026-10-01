@@ -138,8 +138,8 @@ ROLES = {
     "anon": {"login": None, "routes": ["/login"]},
     "crew": {"login": {"code": "demo-crew-01", "displayName": "Gate"}, "routes": ["/", "/request", "/requests", "/lots", "/cc", "/settings"]},
     "driver": {"login": {"code": "TRUCK1", "displayName": "Gate"}, "routes": ["/", "/map", "/stock", "/settings"]},
-    "green": {"login": {"code": "EAST01", "displayName": "Gate"}, "routes": ["/", "/requests", "/lots", "/crews", "/trucks", "/broadcast", "/stats"]},
-    "admin": {"login": {"code": ADMIN}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/catalog", "/admin/print", "/admin/export"]},
+    "green": {"login": {"code": "EAST01", "displayName": "Gate"}, "routes": ["/", "/requests", "/lots", "/photos", "/crews", "/trucks", "/broadcast", "/stats"]},
+    "admin": {"login": {"code": ADMIN}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/print", "/admin/export"]},
 }
 SIZES = {"phone": (390, 844), "laptop": (1440, 900)}
 NO_NAV = {"/admin/print", "/login"}
@@ -154,6 +154,16 @@ BUTTONS_JS = """() => [...document.querySelectorAll('button, a[role=button], [ro
   .filter(b => b.offsetParent !== null)
   .map(b => { const r = b.getBoundingClientRect(); return { h: r.height, w: r.width, t: (b.innerText||b.getAttribute('aria-label')||'').trim().slice(0,30) }; })
   .filter(b => b.h > 0)"""
+
+CAMERA_JS = """() => [...document.querySelectorAll('[data-camera]')]
+  .filter(b => b.offsetParent !== null)
+  .map(b => { const r = b.getBoundingClientRect(); return { h: r.height, w: r.width, t: (b.getAttribute('aria-label')||b.innerText||'').trim().slice(0,40) }; })"""
+
+VIEWER_JS = """() => { const v = document.querySelector('[data-viewer]'); if (!v) return null;
+  const r = v.getBoundingClientRect();
+  return { h: r.height, vh: window.innerHeight, cls: v.className }; }"""
+
+GALLERY_ROUTES = {"/photos", "/admin/photos"}
 
 INPUTS_JS = """() => [...document.querySelectorAll('input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea')]
   .filter(i => i.offsetParent !== null)
@@ -218,6 +228,32 @@ def dynamic_checks() -> None:
                         for i in page.evaluate(INPUTS_JS):
                             if i["fs"] < 16:
                                 fail(f"{tag}: input '{i['n']}' font-size {i['fs']}px (<16 makes iOS zoom on focus)")
+                        for c in page.evaluate(CAMERA_JS):
+                            if c["h"] < 44 or c["w"] < 44:
+                                fail(f"{tag}: camera button '{c['t']}' is {c['w']:.0f}x{c['h']:.0f}px (<44)")
+                        if route in GALLERY_ROUTES and size == "phone":
+                            pair = page.locator("main li button").first
+                            if pair.count() == 0:
+                                fail(f"{tag}: gallery shows no pair to open")
+                            else:
+                                pair.click()
+                                page.wait_for_timeout(900)
+                                v = page.evaluate(VIEWER_JS)
+                                if v is None:
+                                    fail(f"{tag}: tapping a pair opened no [data-viewer]")
+                                else:
+                                    page.screenshot(path=str(OUT / f"{tag}-viewer.png"))
+                                    if abs(v["h"] - v["vh"]) > 1:
+                                        fail(f"{tag}: viewer is {v['h']:.0f}px tall, viewport {v['vh']}px")
+                                    if "100dvh" not in v["cls"] or "safe-area-inset-bottom" not in v["cls"]:
+                                        fail(f"{tag}: viewer lacks 100dvh height or safe-area padding")
+                                    for b in page.evaluate(BUTTONS_JS):
+                                        if b["h"] < 40 and len(b["t"]) > 1:
+                                            fail(f"{tag}: viewer button '{b['t']}' is {b['h']:.0f}px tall (<40)")
+                                    page.keyboard.press("Escape")
+                                    page.wait_for_timeout(300)
+                                    if page.evaluate(VIEWER_JS) is not None:
+                                        fail(f"{tag}: Escape did not close the viewer")
                         if size == "phone" and route not in NO_NAV:
                             for b in page.evaluate(BUTTONS_JS):
                                 if b["h"] < 40 and len(b["t"]) > 1:

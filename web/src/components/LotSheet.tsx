@@ -1,0 +1,36 @@
+import type { ReactNode } from "react";
+import { lotTitle } from "../lib/format.ts";
+import { LotPhotos } from "./photos/LotPhotos.tsx";
+import { Sheet } from "./Sheet.tsx";
+
+/**
+ * The sheet a lot opens in, for every role: the address as the title, then the
+ * role's status control, the crew, the Before and After tiles, and anything
+ * else the role adds below.
+ */
+export const LotSheet = ({
+  lot,
+  onClose,
+  status,
+  crew,
+  children,
+  footer,
+}: {
+  lot: { id: number; address: string | null; parcelId: string | null } | null | undefined;
+  onClose: () => void;
+  status?: ReactNode;
+  crew?: ReactNode;
+  children?: ReactNode;
+  footer?: ReactNode;
+}) => (
+  <Sheet open={!!lot} onClose={onClose} title={lot ? lotTitle(lot) : "Lot"} footer={footer}>
+    {lot && (
+      <div className="space-y-4 pb-2">
+        {status}
+        {crew}
+        <LotPhotos lotId={lot.id} />
+        {children}
+      </div>
+    )}
+  </Sheet>
+);

@@ -130,3 +130,10 @@ One line per call made without anyone to ask. Newest at the bottom.
 - 2026-09-30 photos: files with no live row are removed at boot and after admin lot deletes, which covers cascades from lot and event deletes without hooks in every delete path.
 - 2026-09-30 photos: zip entries are stored, not deflated (JPEGs do not shrink), one file read per stream pull. Day and CC filters select photos by the day and CC row they were taken under. `n` in the file name counts per name in time order.
 - 2026-09-30 photos: the server reads width and height from the JPEG's SOF marker rather than trusting the client, and refuses a file without one.
+- 2026-09-30 photos: the viewer runs older befores, newest before, newest after, older afters, so the pair is one swipe apart and history runs out to either end. "2 of 3" counts within the kind, newest first.
+- 2026-09-30 photos: a gallery pair's crew and company are the lot's crew, else the crew that took the newest photo. Missing after means a before and no after; an after with no before is not counted.
+- 2026-09-30 photos: the admin gallery's Crew filter appears once a Day is chosen, since crews are per-day rows. The zip honours Day and CC only, as the spec's URL says; the other filters narrow the screen, not the download.
+- 2026-09-30 photos: on crew `/lots` the address opens the LotSheet; the inline thumbs open the viewer straight away. The green lots table keeps row taps for selection; its photos column is a state pill.
+- 2026-09-30 photos: no driver screen shows lots, so drivers get no camera in the UI yet. The server accepts their photos for lots at their CC (SPEC 15).
+- 2026-09-30 photos: the seed pairs are 768 x 576 crops (3 x 3 zoom 19 tiles hold no more detail than that), the same crop for before and after since World Imagery has one date.
+- 2026-09-30 photos: the hidden file input is `display: none` (clicked from the camera button) so the gate's 16 px input check does not see it; Playwright's set_input_files still reaches it.

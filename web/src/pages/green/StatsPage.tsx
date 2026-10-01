@@ -6,8 +6,8 @@ import { Skeleton } from "../../components/Skeleton.tsx";
 import { duration } from "../../lib/format.ts";
 import { trpc } from "../../lib/trpc.ts";
 
-const Tile = ({ label, value, sub }: { label: string; value: ReactNode; sub?: string }) => (
-  <Card className="min-w-0">
+const Tile = ({ label, value, sub, className = "" }: { label: string; value: ReactNode; sub?: string; className?: string }) => (
+  <Card className={`min-w-0 ${className}`}>
     <div className="text-sm font-semibold text-muted">{label}</div>
     <div className="mt-1 text-3xl font-extrabold tracking-tight tabular-nums">{value}</div>
     {sub && <div className="mt-0.5 text-sm text-muted">{sub}</div>}
@@ -73,11 +73,12 @@ export const StatsPage = () => {
         <EmptyState title="Stats not loaded" description="Check the connection" action={<Button onClick={() => void q.refetch()}>Retry</Button>} />
       ) : (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
             <Tile label="Open" value={s.open} sub={`${s.onTruck} on a truck`} />
             <Tile label="Delivered" value={s.delivered} sub={s.cancelled > 0 ? `${s.cancelled} cancelled` : "requests"} />
             <Tile label="Median to deliver" value={s.medianDeliverMs === null ? "None" : duration(s.medianDeliverMs)} />
             <Tile label="Active crews" value={`${s.activeCrews}/${s.totalCrews}`} sub="last 30 min" />
+            <Tile label="Photographed" value={s.photographed} sub={`${s.missingAfter} missing after`} className="col-span-2 md:col-span-1" />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">

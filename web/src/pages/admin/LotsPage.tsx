@@ -3,6 +3,7 @@ import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field, Select, TextArea } from "../../components/Field.tsx";
 import { Page } from "../../components/Page.tsx";
+import { LotSheet as SharedLotSheet } from "../../components/LotSheet.tsx";
 import { Sheet } from "../../components/Sheet.tsx";
 import { lotPill, StatusPill } from "../../components/StatusPill.tsx";
 import { Chips } from "../../components/Segmented.tsx";
@@ -237,10 +238,28 @@ const LotSheet = ({ lot, ccs, onClose, notify }: { lot: Lot | null; ccs: readonl
       { onSuccess: () => onClose() },
     );
   return (
-    <Sheet
-      open
+    <SharedLotSheet
+      lot={lot}
       onClose={onClose}
-      title={lot.address ?? "Lot"}
+      status={<Segmented label="Status" value={lot.status} options={STATUS_OPTIONS} onChange={(status) => update.mutate({ id: lot.id, status })} />}
+      crew={
+        <dl className="grid grid-cols-2 gap-2 text-sm">
+          <div className="rounded-xl bg-surface-2 px-3 py-2">
+            <dt className="text-muted">Source</dt>
+            <dd className="font-semibold">{SOURCE_LABEL[lot.source] ?? lot.source}</dd>
+          </div>
+          <div className="rounded-xl bg-surface-2 px-3 py-2">
+            <dt className="text-muted">Crew</dt>
+            <dd className="font-semibold">{lot.crewNumber != null ? `Crew ${lot.crewNumber}${cc ? `, ${cc.dayLabel}` : ""}` : "None"}</dd>
+          </div>
+          {lot.parcelId && (
+            <div className="col-span-2 rounded-xl bg-surface-2 px-3 py-2">
+              <dt className="text-muted">Parcel</dt>
+              <dd className="font-mono font-semibold break-all">{lot.parcelId}</dd>
+            </div>
+          )}
+        </dl>
+      }
       footer={
         confirmDelete ? (
           <div className="grid grid-cols-2 gap-2">
@@ -263,37 +282,13 @@ const LotSheet = ({ lot, ccs, onClose, notify }: { lot: Lot | null; ccs: readonl
         )
       }
     >
-      <div className="space-y-4 pb-2">
-        <dl className="grid grid-cols-2 gap-2 text-sm">
-          <div className="rounded-xl bg-surface-2 px-3 py-2">
-            <dt className="text-muted">Source</dt>
-            <dd className="font-semibold">{SOURCE_LABEL[lot.source] ?? lot.source}</dd>
-          </div>
-          <div className="rounded-xl bg-surface-2 px-3 py-2">
-            <dt className="text-muted">Crew</dt>
-            <dd className="font-semibold">{lot.crewNumber != null ? `Crew ${lot.crewNumber}${cc ? `, ${cc.dayLabel}` : ""}` : "None"}</dd>
-          </div>
-          {lot.parcelId && (
-            <div className="col-span-2 rounded-xl bg-surface-2 px-3 py-2">
-              <dt className="text-muted">Parcel</dt>
-              <dd className="font-mono font-semibold break-all">{lot.parcelId}</dd>
-            </div>
-          )}
-        </dl>
-        <Segmented
-          label="Status"
-          value={lot.status}
-          options={STATUS_OPTIONS}
-          onChange={(status) => update.mutate({ id: lot.id, status })}
-        />
-        <Select label="Command center" value={ccId} onChange={(e) => setCcId(e.target.value === "none" ? "none" : Number(e.target.value))}>
-          <option value="none">No CC</option>
-          <CcOptions ccs={ccs} />
-        </Select>
-        <Field label="Address" value={address} onChange={(e) => setAddress(e.target.value)} maxLength={200} autoComplete="off" />
-        <TextArea label="Note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} />
-      </div>
-    </Sheet>
+      <Select label="Command center" value={ccId} onChange={(e) => setCcId(e.target.value === "none" ? "none" : Number(e.target.value))}>
+        <option value="none">No CC</option>
+        <CcOptions ccs={ccs} />
+      </Select>
+      <Field label="Address" value={address} onChange={(e) => setAddress(e.target.value)} maxLength={200} autoComplete="off" />
+      <TextArea label="Note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} />
+    </SharedLotSheet>
   );
 };
 // #endregion

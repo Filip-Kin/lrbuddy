@@ -26,6 +26,8 @@ import {
 import { cancelScheduledRoutes, computeRouteNow } from "./dispatch.ts";
 import { haversine, type LatLng } from "./geo.ts";
 import { attachOutlines, fetchDlba, upsertLots, type LotInput } from "./lots-import.ts";
+import { sweepPhotoFiles } from "./photos.ts";
+import { seedLotPhotos, type SeedPhotoTarget } from "./seed-photos.ts";
 import { createCc, createCrew, createEvent, createTruck } from "./setup.ts";
 
 const EVENT_NAME = "Demo 2026";
@@ -58,6 +60,8 @@ const wipe = (): void => {
     }
     db.delete(events).where(eq(events.id, ev.id)).run();
   }
+  // Photo rows went with their lots; their files go here.
+  sweepPhotoFiles();
 };
 // #endregion
 
@@ -267,6 +271,32 @@ const main = async (): Promise<void> => {
   db.update(truckStock).set({ qty: 5 }).where(and(eq(truckStock.truckId, t2.id), eq(truckStock.typeId, typeId("water")))).run();
   // #endregion
 
+  // #region photos: two done lots per CC get a before and after pair
+  const photoTargets: SeedPhotoTarget[] = [];
+  for (const cc of [east, west]) {
+    const done = db
+      .select()
+      .from(lots)
+      .where(and(eq(lots.eventId, ev.id), eq(lots.ccId, cc.id), eq(lots.status, "done")))
+      .all()
+      .sort((a, b) => haversine(a, cc) - haversine(b, cc))
+      .slice(0, 2);
+    done.forEach((l, k) => {
+      const crew = crewRows.find((c) => c.id === l.crewId) ?? null;
+      photoTargets.push({
+        lot: l,
+        ccId: cc.id,
+        dayId: day1.id,
+        crewId: crew?.id ?? null,
+        takenBy: crew?.leadName ?? "Crew",
+        beforeAt: now - (150 - k * 10) * MIN,
+        afterAt: now - (50 - k * 10) * MIN,
+      });
+    });
+  }
+  const photographed = await seedLotPhotos(photoTargets);
+  // #endregion
+
   db.insert(broadcasts).values({ ccId: east.id, dayId: day1.id, body: "Lunch at the CC 12:30", sentBy: "Dana Brooks", at: now - 25 * MIN }).run();
 
   for (const t of [t1, t2, t3]) await computeRouteNow(t.id, now);
@@ -289,7 +319,7 @@ const main = async (): Promise<void> => {
   ];
   const w0 = Math.max(...rows.map((r) => r[0].length));
   const w1 = Math.max(...rows.map((r) => r[1].length));
-  console.log(`\nSeeded "${EVENT_NAME}": ${allLots.length} lots (${lotSource}), ${crewRows.length} crews, 3 trucks, ${seedReqs.length} requests\n`);
+  console.log(`\nSeeded "${EVENT_NAME}": ${allLots.length} lots (${lotSource}), ${crewRows.length} crews, 3 trucks, ${seedReqs.length} requests, ${photographed} photo pairs\n`);
   console.log(`${"role".padEnd(w0)}  ${"who".padEnd(w1)}  code or join link`);
   console.log(`${"-".repeat(w0)}  ${"-".repeat(w1)}  ${"-".repeat(40)}`);
   for (const [role, who, code] of rows) console.log(`${role.padEnd(w0)}  ${who.padEnd(w1)}  ${code}`);

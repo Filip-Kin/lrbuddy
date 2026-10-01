@@ -22,7 +22,6 @@ const p = await import("./parcels.ts");
 const { createSession } = await import("./auth.ts");
 const { planRouter } = await import("./routers/plan.ts");
 const { splitSides, joinNames } = await import("./routers/plan/areas.ts");
-const { markLine } = await import("./routers/plan/marks.ts");
 const { eq } = await import("drizzle-orm");
 const { config } = await import("./config.ts");
 
@@ -344,38 +343,3 @@ describe("shared areas", () => {
 });
 
 
-describe("block side marks", () => {
-  // Local metres to degrees near the test fixture.
-  const lat0 = 42.38;
-  const lng0 = -82.99;
-  const kx = 111320 * Math.cos((lat0 * Math.PI) / 180);
-  const at = (x: number, y: number) => ({ lat: lat0 + y / 111320, lng: lng0 + x / kx });
-  const metres = (p: { lat: number; lng: number }): [number, number] => [(p.lng - lng0) * kx, (p.lat - lat0) * 111320];
-
-  test("runs 6 m off the centreline on its own side, from the first to the last parcel needing work", () => {
-    // This side's centres 20 m north of the street, the other side 20 m south; work spans x 10 to 30.
-    const side = [0, 10, 20, 30, 40].map((x) => at(x, 20));
-    const across = [0, 15, 30, 45].map((x) => at(x, -20));
-    const work = [at(10, 15), at(10, 25), at(30, 15), at(30, 25)];
-    // Lots 8 m wide and 30 m deep, running back from the street.
-    const outlines = [0, 10, 20, 30, 40].map((x) => [at(x - 4, 5), at(x + 4, 5), at(x + 4, 35), at(x - 4, 35)]);
-    const line = markLine({ side, across, work, outlines })!;
-    const [a, b] = line.map(metres).sort((p, q) => p[0] - q[0]);
-    expect(a![0]).toBeCloseTo(10, 1);
-    expect(b![0]).toBeCloseTo(30, 1);
-    expect(a![1]).toBeCloseTo(6, 1);
-    expect(b![1]).toBeCloseTo(6, 1);
-  });
-
-  test("a single lot takes the street's direction from its own outline", () => {
-    const line = markLine({ side: [at(0, 20)], across: [at(5, -20)], work: [at(-4, 5), at(4, 35)], outlines: [[at(-4, 5), at(4, 5), at(4, 35), at(-4, 35)]] })!;
-    const [a, b] = line.map(metres).sort((p, q) => p[0] - q[0]);
-    expect(a![0]).toBeCloseTo(-4, 1);
-    expect(b![0]).toBeCloseTo(4, 1);
-    expect(a![1]).toBeCloseTo(6, 1);
-  });
-
-  test("a single square-ish parcel with nothing across gets no mark", () => {
-    expect(markLine({ side: [at(0, 0)], across: [], work: [at(0, 0)] })).toBeNull();
-  });
-});

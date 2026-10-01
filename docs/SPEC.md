@@ -798,18 +798,23 @@ Seed
   DTE "DTE", Henry Ford Health "HFH", GM "GM"). One shared area for two crews at each CC so the
   company sheet shows the "&" label.
 
-Marks (from the second photo, the same sheet after a morning in the field)
-- The B&B lead marks the paper with a sharpie: a thick line along the stretch of a block side that
-  needs work, an X across a rectangle that is done, a company name ("DTE") written over a rectangle
-  that was handed to another company, small dots for single lots. Filip will photograph the marked
-  sheet at the end of the day.
+Marks (from the photos of the same sheet during the day; legend confirmed by Filip)
+- The B&B lead marks the paper with a sharpie. Legend: a line along a street = that stretch of the
+  block side needs work; a dot = a single lot needs work; an **X** across an area = do not touch
+  (owner working on it, unsafe, or off limits), never "done"; a **vertical line** between two streets
+  = an alley to be worked; a written company name ("DTE") over a rectangle = handed to that company.
 - Maps and sheets keep drawing lots as parcel polygons. The sharpie sheet is an import source, not a
-  style: the marks are read off the photo, each marked stretch is matched to its block side (street,
-  cross streets, odd or even side) in the cached parcels, and loaded as survey tags (`high` for a
-  full line, `low` for dots), lot status `done` for an X, and a reassignment for a written company
-  name. First pass is done by hand with the photo and `plan.survey.tag`; a portal "Import marked map"
-  (photo upload, proposed block-side list, confirm) comes later.
+  style: the marks are read off the photo at the end of the day, each matched to its block side
+  (street, cross streets, odd or even side) in the cached parcels, and loaded as survey tags (`high`
+  for a line, `low` for dots), lot status `skipped` with note "Do not touch" for an X (and the area
+  flagged `do_not_touch` so it prints hatched), an alley work item for a vertical line, and a
+  reassignment for a written company name. First pass is done by hand with the photo and the plan
+  procedures; a portal "Import marked map" (photo upload, proposed list, confirm) comes later.
+- Alleys are work units too: `alleys` (id, event_id, day_id, cc_id, polygon or centreline GeoJSON,
+  between_street_1, between_street_2, from_cross, to_cross, status open|done|skipped, crew_id).
+  Drawn as a dashed line on maps and sheets, assignable like a block side, markable done by a crew.
 - Green map, day of: tap a rectangle label for a sheet with **Reassign** (pick another company and
-  its crews at this CC) and **Done** (marks every open lot in the rectangle done, with a confirm that
-  states the count); tap a block side for **Done** on that side only. Both emit lot.changed and show
+  its crews at this CC), **Done** (marks every open lot in the rectangle done, with a confirm that
+  states the count) and **Do not touch** (marks the area's open lots skipped with that note and
+  flags the area); tap a block side for **Done** or **Do not touch** on that side only. Both emit lot.changed and show
   on the admin Assignments page. The crews involved get a push ("Reassigned: W Boston Blvd to DTE").

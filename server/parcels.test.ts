@@ -64,6 +64,15 @@ describe("blockSideKey", () => {
     expect(p.blockSideKey(garland(3964, { crossStreet1: null, crossStreet2: null }))).toBe("GARLAND|even");
   });
 
+  test("review: two blocks of one street with no cross streets are not one block side", () => {
+    // Real rows from the layer (seed bbox, 2026-09-30): 3727 and 5533 Mcclellan both have blank
+    // cross streets and sit about 1.4 km apart, two blocks apart. One key merges them, so one
+    // assignment hands both blocks to one crew and the side's centre falls between them.
+    const near = { streetName: "MCCLELLAN", streetNumber: 3727, crossStreet1: null, crossStreet2: null, address: "3727 Mcclellan" };
+    const far = { streetName: "MCCLELLAN", streetNumber: 5533, crossStreet1: null, crossStreet2: null, address: "5533 Mcclellan" };
+    expect(p.blockSideKey(near)).not.toBe(p.blockSideKey(far));
+  });
+
   test("the prefix belongs to the street; the address fills a missing street or number", () => {
     expect(p.blockSideKey({ streetName: "Warren", streetPrefix: "E", streetNumber: 12, crossStreet1: "Chalmers", crossStreet2: "Alter" })).toBe(
       "E WARREN|ALTER|CHALMERS|even",

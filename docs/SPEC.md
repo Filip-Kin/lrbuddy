@@ -671,3 +671,52 @@ Replaces the Driver rows in section 5. The driver has one screen while driving.
   drivers).
 - Gate: driver routes become `/`, `/stock`, `/settings`; the card plus banner together are under
   36 % of the viewport height at 390x844; Queue button at least 56 px; overflow 0.
+
+## 18. Sign-in and access requests (replaces section 4's code field)
+
+Nobody should be faced with a "Code" box. A person identifies themself once, then either a QR grants
+the right access on the spot or they ask for it and a leader approves.
+
+Identity
+- Firebase Authentication, as in FTA-Buddy: **Phone** (SMS code) and **Google**. The client sends the
+  Firebase ID token; the server verifies it with the Admin SDK and keeps its own `users` row.
+- `/login`: the LR Buddy mark, then **Name** and **Mobile number** fields and a **Continue** button
+  that sends the SMS code; a six-digit code field appears under it. Below a divider, **Google**.
+  Returning users skip straight to their role. Admin password login stays as a small link
+  ("Staff password") for Filip and Life Remodeled staff until they are added as users.
+- `users`: id, firebase_uid (unique), name, phone (E.164, nullable), email (nullable), created_at, last_seen_at.
+- `sessions` gains `user_id`; a session is the user's current role and scope, as today.
+- `memberships`: id, user_id, event_id, role ('crew'|'driver'|'green'|'admin'), day_id (nullable),
+  cc_id (nullable), crew_id (nullable), truck_id (nullable), status ('pending'|'approved'|'denied'),
+  requested_at, decided_at, decided_by_user_id, note. A user can hold several, one per day and role.
+
+Access
+- **QR**: opening `/j/<token>` after sign-in creates an approved crew membership for that crew and
+  day and signs the session into it. Before sign-in, it remembers the token, sends the person
+  through `/login`, then completes the join. The QR is the fast path for red shirts and stays on the
+  print sheet. The same works for a truck QR (`/t/<code>`) and a CC QR (`/g/<code>`) printed on the
+  CC sheet, so drivers and greens can also scan in.
+- **Request access** (no QR): after sign-in, a short form, role first because the next choice depends
+  on it: **Role** (Red shirt, Driver, Green shirt), then **Day** (defaults to today), then
+  **Command center**, then for a red shirt **Company** and **Crew**, for a driver **Truck**, for a
+  green shirt nothing more. **Request**. The screen then shows the pending state with the CC's green
+  shirts' Call and Text buttons, and updates live when a decision lands.
+- **Approvals**: greens see an **Access** page (badge count in the nav) listing pending requests for
+  their CC with name, phone, role, the chosen crew or truck, and **Approve** / **Deny**; approving a
+  red shirt for a crew that already has a lead asks "Replace lead" or "Add". Admin sees all CCs under
+  `/admin/access`. A pending request pushes the CC's green shirts ("Access request, Jordan Reed,
+  Red shirt, Crew 7 Ford").
+- Roles map to the existing scopes unchanged. Switching role or day = a new membership; the session
+  picks the approved membership for today, and a user with several gets a chooser.
+- Codes: truck and CC codes stay for the QR links and as a fallback staff can read out, but no screen
+  leads with a code field.
+
+Setup outside the repo: a Firebase project on the Blaze plan (phone sign-in on the free plan is capped
+at a handful of SMS a day) with Phone and Google providers enabled and `lrbuddy.filipkin.com` as an
+authorized domain; the web config in `web/src/lib/firebase.ts` picked by hostname like FTA-Buddy; a
+service account in `FIREBASE_SERVICE_ACCOUNT` on Coolify (single-line JSON). Until the project exists
+the client config is read from `VITE_FIREBASE_CONFIG` and the Firebase Auth emulator runs locally
+(`docker compose up` in the repo), so no real SMS is sent in development or tests.
+
+Gate: `/login` shows no field labelled Code. Phone field is `type="tel"` with `autocomplete="tel"`,
+code field `inputmode="numeric"` with `autocomplete="one-time-code"`. Both at least 16 px.

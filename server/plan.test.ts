@@ -164,6 +164,18 @@ describe("assignments and publish", () => {
     expect(stillDone).toMatchObject({ status: "done", crewId: null });
   });
 
+  test("review: a parcel tagged clear after a publish leaves the crew's work list on the next publish", async () => {
+    await tagAll();
+    const crew = setup.createCrew({ dayId, ccId, companyId: ford, headcount: 10 });
+    await admin.assignments.set({ dayId, ccId, crewId: crew.id, keys: [ODD, EVEN] });
+    await admin.assignments.publish();
+    await admin.survey.tag({ parcelId: "Garland-3963.", grade: "clear" });
+    await admin.assignments.publish();
+    const lot = db.select().from(s.lots).where(eq(s.lots.parcelId, "Garland-3963.")).get();
+    // Clear takes the parcel off the work list (SPEC 16); an open lot on the crew still sends them there.
+    expect(lot === undefined || lot.status !== "open" || lot.crewId !== crew.id).toBe(true);
+  });
+
   test("assigning a side again moves it; clear removes it", async () => {
     await tagAll();
     await admin.assignments.set({ dayId, ccId, companyId: ford, keys: [ODD] });

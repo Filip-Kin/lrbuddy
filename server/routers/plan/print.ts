@@ -80,9 +80,13 @@ export const printRouter = router({
     const siteOf = new Map(ccs.map((c) => [c.id, siteCcIds(c.id)]));
     const allSiteIds = [...new Set([...siteOf.values()].flat())];
     const lotRows = allSiteIds.length ? db.select().from(lots).where(and(eq(lots.eventId, eventId), inArray(lots.ccId, allSiteIds))).all() : [];
-    const crewLots = crewIds.size ? db.select().from(lots).where(and(eq(lots.eventId, eventId), inArray(lots.crewId, [...crewIds]))).all() : [];
+    // Not todo lots are not work (SPEC 21) and never print.
+    const crewLots = crewIds.size
+      ? db.select().from(lots).where(and(eq(lots.eventId, eventId), inArray(lots.crewId, [...crewIds]))).all().filter((l) => l.status !== "not_todo")
+      : [];
     const grades = newestTags(eventId, [...lotRows, ...crewLots].map((l) => l.parcelId).filter((p): p is string => p !== null));
-    const gradeOf = (l: Lot) => (l.parcelId ? (grades.get(l.parcelId)?.grade ?? null) : null);
+    // The lot's own grade (SPEC 21), else the parcel's newest survey grade.
+    const gradeOf = (l: Lot) => l.grade ?? (l.parcelId ? (grades.get(l.parcelId)?.grade ?? null) : null);
 
     // One entry per area, shared or not, labelled the way the sheets print it.
     const areas = dayAreas(day.id)
@@ -99,7 +103,8 @@ export const printRouter = router({
 
     const ccPages = ccs.map((cc) => {
       const site = new Set(siteOf.get(cc.id) ?? [cc.id]);
-      const work = lotRows.filter((l) => l.ccId !== null && site.has(l.ccId) && (l.status === "open" || l.status === "in_progress"));
+      // Lots still to do, and Do not touch lots, which print hatched (SPEC 21).
+      const work = lotRows.filter((l) => l.ccId !== null && site.has(l.ccId) && (l.status === "open" || l.status === "in_progress" || l.status === "do_not_touch"));
       const ccAreas = areas.filter((a) => a.ccId === cc.id);
       const pts = [{ lat: cc.lat, lng: cc.lng }, ...work, ...ccAreas.flatMap((a) => areaPoints(a.area))];
       const bounds: BBox = bboxOf(pts) ?? [cc.lng, cc.lat, cc.lng, cc.lat];

@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { bus } from "../bus.ts";
 import { db } from "../db/index.ts";
-import { broadcasts, companies, crews, LOT_STATUSES, lots, requests, trucks, type Lot } from "../db/schema.ts";
+import { broadcasts, companies, companyDays, crews, LOT_GRADES, LOT_STATUSES, lots, requests, trucks, type Lot } from "../db/schema.ts";
 import {
   cancelRequest,
   createRequest,
@@ -17,7 +17,10 @@ import {
   stockFor,
   stopsForTruck,
 } from "../dispatch.ts";
-import { dayOfMap, markArea, markSide, reassignArea } from "../dayof.ts";
+import { assignDrawnArea, dayOfMap, deleteArea, markArea, markSide, moveArea, reassignArea } from "../dayof.ts";
+import { bareParcelsFor, setLot } from "../parcel-status.ts";
+import { buildCrewsFor } from "./plan/assignments.ts";
+import { areaInput } from "./plan/common.ts";
 import { emitLot } from "../lots-import.ts";
 import { filterPairs, pairState, photoCounts, photoPairs, photoSummary, sitePhotos } from "../photos.ts";
 import { pushToCc } from "../push.ts";
@@ -186,7 +189,7 @@ export const greenRouter = router({
     const byCrew = new Map<number | null, Record<Lot["status"], number>>();
     for (const l of rows) {
       const k = l.crewId;
-      const c = byCrew.get(k) ?? { open: 0, in_progress: 0, done: 0, skipped: 0 };
+      const c = byCrew.get(k) ?? { open: 0, in_progress: 0, done: 0, do_not_touch: 0, not_todo: 0 };
       c[l.status]++;
       byCrew.set(k, c);
     }
@@ -216,9 +219,25 @@ export const greenRouter = router({
 
   // #region day of (SPEC 19 Marks): rectangles and block sides on the map
   /** This CC's rectangles and assigned block sides on its day, with lot counts, and the companies a rectangle can go to. */
-  plan: greenProcedure.query(({ ctx }) => dayOfMap({ cc: ctx.cc, day: ctx.day })),
+  plan: greenProcedure.query(({ ctx }) => {
+    const m = dayOfMap({ cc: ctx.cc, day: ctx.day });
+    // Companies of the event with no crew on the day: Draw area offers Build crews for them.
+    const withCrews = new Set(
+      db.select({ companyId: crews.companyId }).from(crews).where(eq(crews.dayId, ctx.day.id)).all().map((r) => r.companyId),
+    );
+    const promised = new Map(db.select().from(companyDays).where(eq(companyDays.dayId, ctx.day.id)).all().map((r) => [r.companyId, r.headcount]));
+    const buildable = db
+      .select()
+      .from(companies)
+      .where(eq(companies.eventId, ctx.event.id))
+      .orderBy(companies.name)
+      .all()
+      .filter((c) => !withCrews.has(c.id))
+      .map((c) => ({ id: c.id, name: c.name, headcount: promised.get(c.id) ?? null }));
+    return { ...m, buildable };
+  }),
 
-  /** Every unfinished lot of the rectangle done, or skipped as Do not touch (which also flags the rectangle). */
+  /** Every unfinished lot of the rectangle Done, or Do not touch (which also flags the rectangle). */
   markArea: greenProcedure
     .input(z.object({ areaId: z.number().int(), action: z.enum(["done", "doNotTouch"]) }))
     .mutation(({ ctx, input }) => markArea({ cc: ctx.cc, day: ctx.day }, input.areaId, input.action)),
@@ -232,6 +251,48 @@ export const greenRouter = router({
   reassignArea: greenProcedure
     .input(z.object({ areaId: z.number().int(), companyId: z.number().int(), crewIds: z.array(z.number().int()).min(1).max(50) }))
     .mutation(({ ctx, input }) => reassignArea({ cc: ctx.cc, day: ctx.day }, input)),
+  // #endregion
+
+  // #region SPEC 21: one parcel status, areas drawn on the map
+  /** Cached parcels in the CC's day area with no lot: drawn as thin outlines, tappable. */
+  parcels: greenProcedure.query(({ ctx }) => bareParcelsFor({ role: ctx.session.role === "admin" ? "admin" : "green", cc: ctx.cc, day: ctx.day, event: ctx.event, crew: null })),
+
+  /** Status, grade or note of a lot or a bare parcel; Todo on a bare parcel creates the lot. */
+  setLotStatus: greenProcedure
+    .input(
+      z.object({
+        lotId: z.number().int().nullish(),
+        parcelId: z.string().min(1).max(40).nullish(),
+        status: z.enum(LOT_STATUSES).optional(),
+        grade: z.enum(LOT_GRADES).nullish(),
+        note: z.string().max(500).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      setLot(
+        { role: ctx.session.role === "admin" ? "admin" : "green", cc: ctx.cc, day: ctx.day, event: ctx.event, crew: null },
+        { lotId: input.lotId, parcelId: input.parcelId, status: input.status, grade: input.grade, note: input.note },
+        ctx.session.displayName,
+      ),
+    ),
+
+  /** Draw area, then Assign: the crews take the rectangle and the Todo lots inside it. */
+  assignArea: greenProcedure
+    .input(z.object({ polygon: areaInput, crewIds: z.array(z.number().int()).min(1).max(50) }))
+    .mutation(({ ctx, input }) => assignDrawnArea({ cc: ctx.cc, day: ctx.day }, input)),
+
+  /** Edit corners. */
+  moveArea: greenProcedure
+    .input(z.object({ areaId: z.number().int(), polygon: areaInput }))
+    .mutation(({ ctx, input }) => moveArea({ cc: ctx.cc, day: ctx.day }, input)),
+
+  /** Delete area: lots stay, unassigned. */
+  deleteArea: greenProcedure.input(z.object({ areaId: z.number().int() })).mutation(({ ctx, input }) => deleteArea({ cc: ctx.cc, day: ctx.day }, input.areaId)),
+
+  /** Crews for a company with none on the day, from its headcount (SPEC 16 Build crews), at this CC. */
+  buildCrews: greenProcedure
+    .input(z.object({ companyId: z.number().int(), headcount: z.number().int().min(1).max(5000).optional() }))
+    .mutation(({ ctx, input }) => buildCrewsFor({ eventId: ctx.event.id, dayId: ctx.day.id, ccId: ctx.cc.id, companyId: input.companyId, headcount: input.headcount })),
   // #endregion
 
   /** Before and after pairs at this CC's site, newest first, with the filter options. */
@@ -296,7 +357,7 @@ export const greenRouter = router({
     }
     const now = Date.now();
     const lotRows = lotsAt(ctx.cc.id, ctx.day.id);
-    const lotsByStatus: Record<Lot["status"], number> = { open: 0, in_progress: 0, done: 0, skipped: 0 };
+    const lotsByStatus: Record<Lot["status"], number> = { open: 0, in_progress: 0, done: 0, do_not_touch: 0, not_todo: 0 };
     for (const l of lotRows) lotsByStatus[l.status]++;
     const photographed = photoCounts(lotRows.map((l) => l.id), photoSummary(ctx.event.id));
     return {
@@ -311,7 +372,8 @@ export const greenRouter = router({
       onTruck: all.filter((r) => r.status === "assigned" || r.status === "en_route").length,
       cancelled: all.filter((r) => r.status === "cancelled").length,
       lotsByStatus,
-      lotsTotal: lotRows.length,
+      /** Work lots: every lot but Not todo. */
+      lotsTotal: lotRows.length - lotsByStatus.not_todo,
       lotsDoneByCompany: [...byCompany.entries()].map(([company, done]) => ({ company, done })).sort((a, b) => b.done - a.done),
       activeCrews: crewList.filter((c) => c.lastSeenAt !== null && now - c.lastSeenAt <= ACTIVE_CREW_MS).length,
       totalCrews: crewList.length,

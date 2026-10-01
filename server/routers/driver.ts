@@ -3,7 +3,7 @@ import { and, between, eq } from "drizzle-orm";
 import { z } from "zod";
 import { bus } from "../bus.ts";
 import { db } from "../db/index.ts";
-import { companies, crews, LOT_STATUSES, lots, routes, sessions, trucks, truckStock, type CommandCenter, type Manoeuvre, type Route, type Truck } from "../db/schema.ts";
+import { companies, crews, LOT_GRADES, LOT_STATUSES, lots, routes, sessions, trucks, truckStock, type CommandCenter, type Manoeuvre, type Route, type Truck } from "../db/schema.ts";
 import {
   adjustStock,
   cancelRequest,
@@ -23,8 +23,8 @@ import {
 } from "../dispatch.ts";
 import { bboxAround, directionsUrl, haversine, type LatLng } from "../geo.ts";
 import { dayOfAreas } from "../dayof.ts";
-import { emitLot } from "../lots-import.ts";
-import { latestPositions, lotsAt, requestViews, siteCcIds } from "../queries.ts";
+import { setLot } from "../parcel-status.ts";
+import { latestPositions, lotsAt, requestViews } from "../queries.ts";
 import { driverProcedure, liveFor, readCcScope, router, sameCc } from "../trpc.ts";
 
 // #region constants
@@ -254,9 +254,12 @@ export const driverRouter = router({
     }),
 
   // #region lots and crews on the map (SPEC 17)
-  /** Every lot at the truck's CC site with its outline, and the CC's rectangles on the truck's day. */
+  /**
+   * Every lot at the truck's CC site with its outline, and the CC's rectangles on the truck's day.
+   * Drivers see lots only (SPEC 21): no bare parcels and no Not todo lots.
+   */
   lots: driverProcedure.query(({ ctx }) => ({
-    lots: lotsAt(ctx.cc.id, ctx.day.id).map((l) => ({
+    lots: lotsAt(ctx.cc.id, ctx.day.id).filter((l) => l.status !== "not_todo").map((l) => ({
       id: l.id,
       lat: l.lat,
       lng: l.lng,
@@ -264,6 +267,7 @@ export const driverRouter = router({
       parcelId: l.parcelId,
       geometry: l.geometry,
       status: l.status,
+      grade: l.grade,
       statusAt: l.statusAt,
       crewId: l.crewId,
       note: l.note,
@@ -296,18 +300,19 @@ export const driverRouter = router({
   }),
 
   /**
-   * Status of a lot at the truck's CC site, for a crew that forgot to mark it.
-   * Sets no crew in `status_by_crew_id`: the driver made the call.
+   * Status of a lot at the truck's CC site, or a parcel in the CC's day area
+   * (SPEC 21): Todo, In progress, Done, Not todo. Sets no crew in
+   * `status_by_crew_id`: the driver made the call. Do not touch is for greens.
    */
-  setLotStatus: driverProcedure.input(z.object({ lotId: z.number().int(), status: z.enum(LOT_STATUSES) })).mutation(({ ctx, input }) => {
-    const lot = db.select().from(lots).where(eq(lots.id, input.lotId)).get();
-    if (!lot || lot.eventId !== ctx.event.id) throw new TRPCError({ code: "NOT_FOUND", message: "Lot not found" });
-    if (lot.ccId === null || !siteCcIds(ctx.cc.id).includes(lot.ccId)) throw new TRPCError({ code: "FORBIDDEN", message: "Lot not at this command center" });
-    if (lot.status === input.status) return lot;
-    const updated = db.update(lots).set({ status: input.status, statusByCrewId: null, statusAt: Date.now() }).where(eq(lots.id, lot.id)).returning().get();
-    emitLot(updated);
-    return updated;
-  }),
+  setLotStatus: driverProcedure
+    .input(z.object({ lotId: z.number().int().nullish(), parcelId: z.string().min(1).max(40).nullish(), status: z.enum(LOT_STATUSES).optional(), grade: z.enum(LOT_GRADES).nullish() }))
+    .mutation(({ ctx, input }) =>
+      setLot(
+        { role: "driver", cc: ctx.cc, day: ctx.day, event: ctx.event, crew: null },
+        { lotId: input.lotId, parcelId: input.parcelId, status: input.status, grade: input.grade },
+        ctx.session.displayName,
+      ),
+    ),
   // #endregion
 
   stock: driverProcedure.query(({ ctx }): StockRow[] => stockFor(ctx.truck.id)),

@@ -3,10 +3,10 @@ import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { bus } from "../bus.ts";
 import { db } from "../db/index.ts";
-import { crews, LOT_STATUSES, lots, requests, trucks, type CommandCenter, type Crew, type Lot } from "../db/schema.ts";
+import { crews, LOT_GRADES, LOT_STATUSES, lots, requests, trucks, type CommandCenter, type Crew, type Lot } from "../db/schema.ts";
 import { cancelRequest, createRequest, crewLabel, getRequest, getType, latestPosition } from "../dispatch.ts";
 import { bboxAround, haversine, type LatLng } from "../geo.ts";
-import { emitLot } from "../lots-import.ts";
+import { bareParcelsFor, crewRect, lotsInCrewRect, setLot } from "../parcel-status.ts";
 import { photoSummary } from "../photos.ts";
 import { latestPositions, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
 import { crewProcedure, liveFor, readCcScope, router, sameCc } from "../trpc.ts";
@@ -28,14 +28,19 @@ export interface CrewLot extends Lot {
 }
 
 /**
- * Lots assigned to the crew, else lots within 400 m that are at its CC or at no
- * CC and not assigned to another crew. Nearest first.
+ * SPEC 21: a crew with a rectangle sees the lots inside it and nothing else.
+ * Without one: lots assigned to the crew, else lots within 400 m that are at
+ * its CC or at no CC and not assigned to another crew. Nearest first. Not todo
+ * lots are left out unless `withNotTodo` (the map draws them as outlines).
  */
-const lotsForCrew = (crew: Crew, cc: CommandCenter, eventId: number): CrewLot[] => {
+const lotsForCrew = (crew: Crew, cc: CommandCenter, eventId: number, withNotTodo = false): CrewLot[] => {
   const at = crewPoint(crew, cc);
-  const mine = db.select().from(lots).where(and(eq(lots.eventId, eventId), eq(lots.crewId, crew.id))).all();
+  const inRect = lotsInCrewRect(crew, eventId, cc);
+  const mine = inRect ? [] : db.select().from(lots).where(and(eq(lots.eventId, eventId), eq(lots.crewId, crew.id))).all();
   let rows: Array<Lot & { mine: boolean }>;
-  if (mine.length > 0) {
+  if (inRect) {
+    rows = inRect.map((l) => ({ ...l, mine: l.crewId === crew.id }));
+  } else if (mine.length > 0) {
     rows = mine.map((l) => ({ ...l, mine: true }));
   } else {
     const [w, s, e, n] = bboxAround(at, NEARBY_LOT_M);
@@ -56,6 +61,7 @@ const lotsForCrew = (crew: Crew, cc: CommandCenter, eventId: number): CrewLot[] 
       .filter((l) => haversine(at, l) <= NEARBY_LOT_M)
       .map((l) => ({ ...l, mine: false }));
   }
+  if (!withNotTodo) rows = rows.filter((l) => l.status !== "not_todo");
   const photos = rows.length > 0 ? photoSummary(eventId) : new Map<number, { before: number | null; after: number | null }>();
   return rows
     .map((l) => {
@@ -128,26 +134,29 @@ export const crewRouter = router({
 
   lots: crewProcedure.query(({ ctx }) => lotsForCrew(ctx.crew, ctx.cc, ctx.event.id)),
 
+  /** True when the crew has a rectangle: its lots list is then "the lots in its area" (SPEC 21). */
+  hasArea: crewProcedure.query(({ ctx }) => crewRect(ctx.crew) !== null),
+
+  /**
+   * Status of a lot or a bare parcel inside the crew's rectangle (SPEC 21):
+   * Todo, In progress, Done, Not todo. Do not touch is for green shirts.
+   */
   setLotStatus: crewProcedure
-    .input(z.object({ lotId: z.number().int(), status: z.enum(LOT_STATUSES) }))
-    .mutation(({ ctx, input }) => {
-      const lot = db.select().from(lots).where(eq(lots.id, input.lotId)).get();
-      if (!lot || lot.eventId !== ctx.event.id) throw new TRPCError({ code: "NOT_FOUND", message: "Lot not found" });
-      const allowed =
-        lot.crewId === ctx.crew.id ||
-        (lot.ccId !== null && siteCcIds(ctx.cc.id).includes(lot.ccId)) ||
-        (lot.ccId === null && haversine(crewPoint(ctx.crew, ctx.cc), lot) <= NEARBY_LOT_M);
-      if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "Lot not at this command center" });
-      if (lot.status === input.status) return lot;
-      const updated = db
-        .update(lots)
-        .set({ status: input.status, statusByCrewId: ctx.crew.id, statusAt: Date.now() })
-        .where(eq(lots.id, lot.id))
-        .returning()
-        .get();
-      emitLot(updated);
-      return updated;
-    }),
+    .input(
+      z.object({
+        lotId: z.number().int().nullish(),
+        parcelId: z.string().min(1).max(40).nullish(),
+        status: z.enum(LOT_STATUSES).optional(),
+        grade: z.enum(LOT_GRADES).nullish(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      setLot(
+        { role: "crew", cc: ctx.cc, day: ctx.day, event: ctx.event, crew: ctx.crew },
+        { lotId: input.lotId, parcelId: input.parcelId, status: input.status, grade: input.grade },
+        ctx.session.displayName,
+      ),
+    ),
 
   /** Everything the crew map draws in one call. */
   map: crewProcedure.query(({ ctx }) => {
@@ -175,7 +184,10 @@ export const crewRouter = router({
       me,
       cc: ctx.cc,
       trucks: myTrucks.map((t) => ({ id: t.id, name: t.name, status: t.status, position: truckPos.get(t.id) ?? null })),
-      lots: lotsForCrew(crew, ctx.cc, ctx.event.id),
+      lots: lotsForCrew(crew, ctx.cc, ctx.event.id, true),
+      /** The crew's rectangle ([lng, lat] ring) and the bare parcels inside it; the map fits to it. */
+      area: crewRect(crew),
+      bare: bareParcelsFor({ role: "crew", cc: ctx.cc, day: ctx.day, event: ctx.event, crew }),
       companyCrews: mates.map((m) => ({ id: m.id, number: m.number, name: crewLabel(m), position: matePos.get(m.id) ?? null })),
     };
   }),

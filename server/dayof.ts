@@ -7,17 +7,19 @@
  * What belongs to a rectangle: the block sides assigned to it on the day at
  * the CC (to its shared area, or to one of its crews), and the lots at the CC's
  * site on those sides, plus any other lot of its crews. "Unfinished" is open or
- * in progress; done and skipped lots are left as they are.
+ * in progress; done, do not touch and not todo lots are left as they are.
  */
 import { TRPCError } from "@trpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "./db/index.ts";
-import { assignments, companies, crewAreas, crews, lots, parcels, type CommandCenter, type Day, type Lot, type LotStatus } from "./db/schema.ts";
+import { inRing } from "./geo.ts";
+import { assignments, companies, crewAreas, crews, lots, parcels, type AreaPolygon, type CommandCenter, type Day, type Lot, type LotStatus } from "./db/schema.ts";
 import { emitLot, titleCase } from "./lots-import.ts";
 import { blockSideLabel, parseKey } from "./parcels.ts";
+import { scheduleOneway } from "./oneway.ts";
 import { pushToCrew } from "./push.ts";
 import { crewIdsOnDay, siteCcIds } from "./queries.ts";
-import { dayAreas, joinNames, pruneAreas, splitSides, type AreaView } from "./routers/plan/areas.ts";
+import { areaForCrews, dayAreas, joinNames, pruneAreas, splitSides, type AreaView } from "./routers/plan/areas.ts";
 import { sideShapes, type Ring } from "./routers/plan/blocks.ts";
 
 export const DO_NOT_TOUCH = "Do not touch";
@@ -32,17 +34,18 @@ export interface Counts {
   open: number;
   inProgress: number;
   done: number;
-  skipped: number;
+  doNotTouch: number;
 }
 
-const emptyCounts = (): Counts => ({ open: 0, inProgress: 0, done: 0, skipped: 0 });
+/** Counts of the work lots; Not todo lots are not work and are not counted. */
+const emptyCounts = (): Counts => ({ open: 0, inProgress: 0, done: 0, doNotTouch: 0 });
 const count = (list: readonly Lot[]): Counts => {
   const c = emptyCounts();
   for (const l of list) {
     if (l.status === "open") c.open++;
     else if (l.status === "in_progress") c.inProgress++;
     else if (l.status === "done") c.done++;
-    else c.skipped++;
+    else if (l.status === "do_not_touch") c.doNotTouch++;
   }
   return c;
 };
@@ -54,7 +57,7 @@ const notHere = (what: string): TRPCError => new TRPCError({ code: "NOT_FOUND", 
 interface Snapshot {
   areas: AreaView[];
   /** Assigned block sides at the CC on the day, in assignment order. */
-  sides: Array<{ key: string; areaId: number | null; crewId: number | null; companyId: number | null }>;
+  sides: Array<{ key: string; areaId: number | null; crewId: number | null; companyId: number | null; doNotTouch: boolean }>;
   lots: Lot[];
   sideOfParcel: Map<string, string>;
   /** "W Boston Blvd" per block side key, from the parcels' addresses. */
@@ -80,6 +83,7 @@ const snapshot = ({ cc, day }: Scope): Snapshot => {
     areaId: r.areaId ?? (r.crewId !== null ? (crewArea.get(r.crewId) ?? null) : null),
     crewId: r.crewId,
     companyId: r.companyId,
+    doNotTouch: r.doNotTouch === true,
   }));
   const today = crewIdsOnDay(day.id);
   const lotRows = db
@@ -156,6 +160,8 @@ export interface DayOfSide {
   ring: Ring;
   areaId: number | null;
   companyId: number | null;
+  /** Marked Do not touch as a whole by a green (the band); one Do not touch lot never sets it. */
+  doNotTouch: boolean;
   counts: Counts;
 }
 
@@ -194,7 +200,7 @@ export const dayOfMap = (scope: Scope) => {
   const sides: DayOfSide[] = s.sides.flatMap((x) => {
     const ring = shapes.get(x.key);
     if (!ring) return [];
-    return [{ key: x.key, label: sideName(s, x.key), ring, areaId: x.areaId, companyId: x.companyId, counts: count(lotsOnSide(s, x.key)) }];
+    return [{ key: x.key, label: sideName(s, x.key), ring, areaId: x.areaId, companyId: x.companyId, doNotTouch: x.doNotTouch, counts: count(lotsOnSide(s, x.key)) }];
   });
   const crewRows = db.select().from(crews).where(and(eq(crews.dayId, scope.day.id), eq(crews.ccId, scope.cc.id))).orderBy(crews.number).all();
   const here = companyRows
@@ -223,10 +229,10 @@ const sideOf = (s: Snapshot, key: string): Snapshot["sides"][number] => {
 };
 
 /** Sets the status of the unfinished lots; returns the rows written. */
-const mark = (list: readonly Lot[], status: "done" | "skipped"): Lot[] => {
+const mark = (list: readonly Lot[], status: "done" | "do_not_touch"): Lot[] => {
   const ids = list.filter((l) => UNFINISHED.includes(l.status)).map((l) => l.id);
   if (ids.length === 0) return [];
-  const set = status === "done" ? { status, statusAt: Date.now(), statusByCrewId: null } : { status, statusAt: Date.now(), statusByCrewId: null, note: DO_NOT_TOUCH };
+  const set = { status, statusAt: Date.now(), statusByCrewId: null };
   const out: Lot[] = [];
   db.transaction((tx) => {
     for (let i = 0; i < ids.length; i += 500) out.push(...tx.update(lots).set(set).where(inArray(lots.id, ids.slice(i, i + 500))).returning().all());
@@ -255,7 +261,7 @@ export const markArea = (scope: Scope, areaId: number, action: "done" | "doNotTo
   const s = snapshot(scope);
   const area = areaOf(s, areaId);
   const inArea = lotsOfArea(s, area);
-  const written = mark(inArea, action === "done" ? "done" : "skipped");
+  const written = mark(inArea, action === "done" ? "done" : "do_not_touch");
   if (action === "doNotTouch") db.update(crewAreas).set({ doNotTouch: true }).where(eq(crewAreas.id, area.id)).run();
   emitAll(written, inArea);
   const what = areaStreets(s, area.id) || area.label;
@@ -267,7 +273,12 @@ export const markSide = (scope: Scope, key: string, action: "done" | "doNotTouch
   const s = snapshot(scope);
   const side = sideOf(s, key);
   const onSide = lotsOnSide(s, side.key);
-  const written = mark(onSide, action === "done" ? "done" : "skipped");
+  const written = mark(onSide, action === "done" ? "done" : "do_not_touch");
+  // The band on the map: set by Do not touch on the side, cleared by Done on it.
+  db.update(assignments)
+    .set({ doNotTouch: action === "doNotTouch" ? true : null })
+    .where(and(eq(assignments.dayId, scope.day.id), eq(assignments.ccId, scope.cc.id), eq(assignments.blockSideKey, side.key)))
+    .run();
   emitAll(written, onSide);
   const area = side.areaId !== null ? s.areas.find((a) => a.id === side.areaId) : undefined;
   notify([...(area?.crewIds ?? []), ...(side.crewId !== null ? [side.crewId] : []), ...crewsOf(written)], scope.cc, `${action === "done" ? "Done" : DO_NOT_TOUCH}: ${sideName(s, side.key)}`, `side-${side.key}`);
@@ -341,5 +352,124 @@ export const reassignArea = (scope: Scope, input: { areaId: number; companyId: n
   const what = areaStreets(s, area.id) || area.label;
   notify([...area.crewIds, ...ordered], scope.cc, `Reassigned: ${what} to ${company?.name ?? "another company"}`, `area-${area.id}`);
   return { moved: moved.length, label: joinNames(ordered.map((id) => s.names.get(id) ?? "")) };
+};
+// #endregion
+
+// #region areas drawn on the green map (SPEC 21)
+/** A drawn rectangle: a closed ring of four corners, [lng, lat]. */
+const ringOfPolygon = (polygon: AreaPolygon): Array<[number, number]> => (polygon.coordinates[0] ?? []).map((p): [number, number] => [p[0] ?? 0, p[1] ?? 0]);
+
+/** Crews of this CC on its day, in crew number order; throws when any is elsewhere. */
+const crewsHere = (scope: Scope, ids: readonly number[]): number[] => {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) throw badRequest("Crew needed");
+  const rows = db.select().from(crews).where(inArray(crews.id, unique)).orderBy(crews.number).all();
+  if (rows.length !== unique.length || rows.some((r) => r.dayId !== scope.day.id || r.ccId !== scope.cc.id)) throw notHere("Crew");
+  return rows.map((r) => r.id);
+};
+
+/** lot.changed for the written lots, else for one lot at the CC's site so open screens (and admin Assignments) refetch. */
+const emitOrPoke = (written: readonly Lot[], scope: Scope): void => {
+  if (written.length > 0) {
+    for (const l of written) emitLot(l);
+    return;
+  }
+  const any = db.select().from(lots).where(inArray(lots.ccId, siteCcIds(scope.cc.id))).limit(1).get();
+  if (any) emitLot(any);
+};
+
+export interface AssignAreaResult {
+  areaId: number;
+  /** Todo lots inside that went to the crews. */
+  moved: number;
+  label: string;
+}
+
+/**
+ * Draw area, then Assign (SPEC 21): the crews take the rectangle as their
+ * area (the same crews keep one area, the Assignments rule), and every Todo
+ * lot at this CC with its centre inside goes to them. Several crews split the
+ * lots by block side the way Publish does. Lots in progress, done, do not
+ * touch or not todo keep their crew.
+ */
+export const assignDrawnArea = (scope: Scope, input: { polygon: AreaPolygon; crewIds: readonly number[] }): AssignAreaResult => {
+  const ordered = crewsHere(scope, input.crewIds);
+  const ring = ringOfPolygon(input.polygon);
+  const site = siteCcIds(scope.cc.id);
+  const inside = db
+    .select()
+    .from(lots)
+    .where(and(eq(lots.eventId, scope.day.eventId), eq(lots.status, "open")))
+    .all()
+    .filter((l) => (l.ccId === null || site.includes(l.ccId)) && inRing(l, ring));
+  const keyOf = new Map<number, string>();
+  const pids = inside.map((l) => l.parcelId).filter((p): p is string => p !== null);
+  for (let i = 0; i < pids.length; i += 500) {
+    for (const p of db.select({ parcelId: parcels.parcelId, key: parcels.blockSideKey }).from(parcels).where(inArray(parcels.parcelId, pids.slice(i, i + 500))).all()) {
+      const lot = inside.find((l) => l.parcelId === p.parcelId);
+      if (lot) keyOf.set(lot.id, p.key ?? `lot:${lot.id}`);
+    }
+  }
+  for (const l of inside) if (!keyOf.has(l.id)) keyOf.set(l.id, `lot:${l.id}`);
+  const groups = new Map<string, Lot[]>();
+  for (const l of inside) groups.set(keyOf.get(l.id)!, [...(groups.get(keyOf.get(l.id)!) ?? []), l]);
+  const split = splitSides(
+    [...groups.entries()].map(([key, list]) => ({
+      key,
+      center: { lat: list.reduce((t, l) => t + l.lat, 0) / list.length, lng: list.reduce((t, l) => t + l.lng, 0) / list.length },
+      weight: list.reduce((t, l) => t + (l.grade === "high" ? 2 : 1), 0),
+    })),
+    ordered,
+  );
+  const moved: Lot[] = [];
+  const areaId = db.transaction((tx) => {
+    const area = areaForCrews(tx, { eventId: scope.day.eventId, dayId: scope.day.id, crewIds: ordered, polygon: input.polygon });
+    for (const l of inside) {
+      const crewId = split.get(keyOf.get(l.id)!) ?? ordered[0]!;
+      if (l.crewId === crewId && l.ccId !== null) continue;
+      const row = tx.update(lots).set({ crewId, ccId: l.ccId ?? scope.cc.id }).where(eq(lots.id, l.id)).returning().get();
+      if (row) moved.push(row);
+    }
+    pruneAreas(scope.day.id, tx);
+    return area.id;
+  });
+  emitOrPoke(moved, scope);
+  // The CC's day area changed: one-way streets and alleys are fetched for it again (SPEC 20).
+  scheduleOneway(scope.cc.id);
+  const names = db.select({ id: crews.id, name: crews.name }).from(crews).where(inArray(crews.id, ordered)).all();
+  const label = joinNames(ordered.map((id) => names.find((n) => n.id === id)?.name ?? ""));
+  notify(ordered, scope.cc, `New area: ${moved.length === 1 ? "1 lot" : `${moved.length} lots`}`, `area-${areaId}`);
+  return { areaId, moved: moved.length, label };
+};
+
+/** Edit corners: a new outline for a rectangle at this CC. Lots keep their crews. */
+export const moveArea = (scope: Scope, input: { areaId: number; polygon: AreaPolygon }): { areaId: number } => {
+  const s = snapshot(scope);
+  const area = areaOf(s, input.areaId);
+  db.update(crewAreas).set({ polygon: input.polygon }).where(eq(crewAreas.id, area.id)).run();
+  emitOrPoke([], scope);
+  scheduleOneway(scope.cc.id);
+  return { areaId: area.id };
+};
+
+/**
+ * Delete area: the rectangle goes and its crews have none; its lots stay at
+ * the CC with no crew, except done lots, which keep the crew that did them.
+ */
+export const deleteArea = (scope: Scope, areaId: number): { unassigned: number } => {
+  const s = snapshot(scope);
+  const area = areaOf(s, areaId);
+  const loose = lotsOfArea(s, area).filter((l) => l.status !== "done" && l.crewId !== null);
+  const written: Lot[] = [];
+  db.transaction((tx) => {
+    for (let i = 0; i < loose.length; i += 500) {
+      written.push(...tx.update(lots).set({ crewId: null }).where(inArray(lots.id, loose.slice(i, i + 500).map((l) => l.id))).returning().all());
+    }
+    tx.update(crews).set({ areaId: null }).where(eq(crews.areaId, area.id)).run();
+    tx.delete(crewAreas).where(eq(crewAreas.id, area.id)).run();
+  });
+  emitOrPoke(written, scope);
+  notify(area.crewIds, scope.cc, `Area removed: ${area.label}`, `area-${area.id}`);
+  return { unassigned: written.length };
 };
 // #endregion

@@ -268,7 +268,7 @@ describe("driver lots", () => {
     expect(map.lots.map((l) => l.id)).not.toContain(there.id);
 
     const l = listen();
-    const saved = await caller.setLotStatus({ lotId: here.id, status: "done" });
+    const saved = (await caller.setLotStatus({ lotId: here.id, status: "done" })).lot!;
     l.off();
     expect(saved.status).toBe("done");
     expect(saved.statusByCrewId).toBeNull();
@@ -304,7 +304,7 @@ describe("driver lots", () => {
     const t = setup.createTruck({ dayId: d2!.id, ccId: cc2.id, name: "Truck N" });
     db.update(s.trucks).set({ lastSeenAt: now }).where(eq(s.trucks.id, t.id)).run();
     const lot = addLot(ev.id, cc1.id, "500 Site St");
-    const saved = await driverOf(t.id, cc2.id).setLotStatus({ lotId: lot.id, status: "in_progress" });
+    const saved = (await driverOf(t.id, cc2.id).setLotStatus({ lotId: lot.id, status: "in_progress" })).lot!;
     expect(saved.status).toBe("in_progress");
   });
 

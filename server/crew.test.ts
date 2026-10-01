@@ -163,12 +163,12 @@ describe("crew lots", () => {
   test("status changes: own lot yes, another CC's lot no, same status is a no-op", async () => {
     const api = callerFor(w.crew.id, w.east.id);
     const mine = addLot(w, north(250), { crewId: w.crew.id, ccId: w.east.id });
-    const done = await api.setLotStatus({ lotId: mine.id, status: "done" });
+    const done = (await api.setLotStatus({ lotId: mine.id, status: "done" })).lot!;
     expect(done.status).toBe("done");
     expect(done.statusByCrewId).toBe(w.crew.id);
-    const again = await api.setLotStatus({ lotId: mine.id, status: "done" });
+    const again = (await api.setLotStatus({ lotId: mine.id, status: "done" })).lot!;
     expect(again.statusAt).toBe(done.statusAt);
-    const back = await api.setLotStatus({ lotId: mine.id, status: "open" });
+    const back = (await api.setLotStatus({ lotId: mine.id, status: "open" })).lot!;
     expect(back.status).toBe("open");
 
     const westLot = addLot(w, north(100, WEST), { ccId: w.west.id });

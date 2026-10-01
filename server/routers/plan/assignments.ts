@@ -20,7 +20,7 @@ export const CREW_SIZE = 10;
 export interface PublishResult {
   added: number;
   updated: number;
-  /** Lots a crew already marked done, left as they were. */
+  /** Lots the field already decided on (done, do not touch, not todo), left as they were. */
   kept: number;
   /** Open survey lots taken off the work list because the parcel's newest tag is no longer work. */
   removed: number;
@@ -31,7 +31,8 @@ export interface PublishResult {
 /**
  * Writes lots for the tagged work parcels of every assigned block side (one
  * day, or all), keyed on event and parcel so a second publish updates rather
- * than duplicates. A done lot is left alone. A side assigned to a shared area
+ * than duplicates. A lot the field decided on (done, do not touch, not todo)
+ * is left alone. A side assigned to a shared area
  * goes to one of the area's crews (`splitSides`), so every crew keeps its own
  * list. Crews get an area around their parcels, padded 15 m, when they have
  * none yet or `resetAreas` is set; a shared area is padded around the parcels
@@ -39,7 +40,7 @@ export interface PublishResult {
  *
  * A parcel on an assigned side whose newest tag is no longer work (tagged
  * clear, or its tag undone) leaves the work list: its open survey lot is
- * deleted, or, when it has photos, taken off its crew and marked skipped so
+ * deleted, or, when it has photos, taken off its crew and marked not todo so
  * the photos stay. Lots from other sources and lots in progress or done are
  * left alone.
  */
@@ -89,11 +90,11 @@ export const publishAssignments = (eventId: number, opts: { dayId?: number | nul
           crewPoints.set(crewId, pts);
         }
         const existing = tx.select().from(lots).where(and(eq(lots.eventId, eventId), eq(lots.parcelId, p.parcelId))).get();
-        if (existing?.status === "done") {
+        if (existing && (existing.status === "done" || existing.status === "do_not_touch" || existing.status === "not_todo")) {
           res.kept++;
           continue;
         }
-        const set = { address: p.address, lat: p.lat, lng: p.lng, geometry: p.geometry, ccId: a.ccId, crewId };
+        const set = { address: p.address, lat: p.lat, lng: p.lng, geometry: p.geometry, ccId: a.ccId, crewId, grade: p.grade };
         const lot = existing
           ? tx.update(lots).set(set).where(eq(lots.id, existing.id)).returning().get()
           : tx.insert(lots).values({ ...set, eventId, parcelId: p.parcelId, source: "survey", status: "open" }).returning().get();
@@ -118,7 +119,7 @@ export const publishAssignments = (eventId: number, opts: { dayId?: number | nul
         if (lot.ccId === null && lot.crewId === null) continue;
         const photo = tx.select({ id: lotPhotos.id }).from(lotPhotos).where(eq(lotPhotos.lotId, lot.id)).limit(1).get();
         const gone = photo
-          ? tx.update(lots).set({ crewId: null, status: "skipped", statusAt: Date.now(), statusByCrewId: null }).where(eq(lots.id, lot.id)).returning().get()
+          ? tx.update(lots).set({ crewId: null, status: "not_todo", statusAt: Date.now(), statusByCrewId: null }).where(eq(lots.id, lot.id)).returning().get()
           : tx.delete(lots).where(eq(lots.id, lot.id)).returning().get();
         if (!gone) continue;
         res.removed++;
@@ -150,6 +151,32 @@ export const publishAssignments = (eventId: number, opts: { dayId?: number | nul
   // One lot.changed per CC is enough for that CC's screens to refetch.
   for (const lot of touched.values()) emitLot(lot);
   return res;
+};
+// #endregion
+
+// #region build crews
+/**
+ * Crew rows for a company from its headcount, one per 10, when it has none on
+ * the day. Headcount comes from the input, else the day's promised count.
+ * Shared by Assignments and the green map's Draw area (SPEC 21).
+ */
+export const buildCrewsFor = (input: { eventId: number; dayId: number; ccId: number; companyId: number; headcount?: number | undefined }) => {
+  const company = db.select().from(companies).where(eq(companies.id, input.companyId)).get();
+  if (!company || company.eventId !== input.eventId) throw notFound("Company");
+  const existing = db.select({ id: crews.id }).from(crews).where(and(eq(crews.dayId, input.dayId), eq(crews.companyId, input.companyId))).all();
+  if (existing.length > 0) throw new TRPCError({ code: "CONFLICT", message: "Crews already built" });
+  const promised = db.select().from(companyDays).where(and(eq(companyDays.companyId, input.companyId), eq(companyDays.dayId, input.dayId))).get();
+  const headcount = input.headcount ?? promised?.headcount ?? 0;
+  if (headcount <= 0) throw badRequest("Headcount needed");
+  const count = Math.ceil(headcount / CREW_SIZE);
+  const created = db.transaction(() =>
+    Array.from({ length: count }, (_v, i) => {
+      const size = Math.floor(headcount / count) + (i < headcount % count ? 1 : 0);
+      return createCrew({ dayId: input.dayId, ccId: input.ccId, companyId: input.companyId, headcount: size });
+    }),
+  );
+  if (!promised) db.insert(companyDays).values({ companyId: input.companyId, dayId: input.dayId, ccId: input.ccId, headcount }).run();
+  return created.map((c) => ({ id: c.id, number: c.number, name: c.name, headcount: c.headcount }));
 };
 // #endregion
 
@@ -309,22 +336,7 @@ export const assignmentsRouter = router({
       const eventId = eventOrActive(input.eventId);
       dayOfEvent(input.dayId, eventId);
       ccOfDay(input.ccId, input.dayId);
-      const company = db.select().from(companies).where(eq(companies.id, input.companyId)).get();
-      if (!company || company.eventId !== eventId) throw notFound("Company");
-      const existing = db.select({ id: crews.id }).from(crews).where(and(eq(crews.dayId, input.dayId), eq(crews.companyId, input.companyId))).all();
-      if (existing.length > 0) throw new TRPCError({ code: "CONFLICT", message: "Crews already built" });
-      const promised = db.select().from(companyDays).where(and(eq(companyDays.companyId, input.companyId), eq(companyDays.dayId, input.dayId))).get();
-      const headcount = input.headcount ?? promised?.headcount ?? 0;
-      if (headcount <= 0) throw badRequest("Headcount needed");
-      const count = Math.ceil(headcount / CREW_SIZE);
-      const created = db.transaction(() =>
-        Array.from({ length: count }, (_v, i) => {
-          const size = Math.floor(headcount / count) + (i < headcount % count ? 1 : 0);
-          return createCrew({ dayId: input.dayId, ccId: input.ccId, companyId: input.companyId, headcount: size });
-        }),
-      );
-      if (!promised) db.insert(companyDays).values({ companyId: input.companyId, dayId: input.dayId, ccId: input.ccId, headcount }).run();
-      return created.map((c) => ({ id: c.id, number: c.number, name: c.name, headcount: c.headcount }));
+      return buildCrewsFor({ eventId, dayId: input.dayId, ccId: input.ccId, companyId: input.companyId, headcount: input.headcount });
     }),
   /** The day as the field left it at one CC (SPEC 19 Marks): lot counts per block side and rectangle, Do not touch flags. */
   dayOf: adminProcedure.input(z.object({ dayId: id, ccId: id, ...eventInput })).query(({ input }) => {
@@ -332,7 +344,7 @@ export const assignmentsRouter = router({
     const cc = ccOfDay(input.ccId, input.dayId);
     const m = dayOfMap({ cc, day });
     return {
-      sides: m.sides.map((x) => ({ key: x.key, counts: x.counts })),
+      sides: m.sides.map((x) => ({ key: x.key, doNotTouch: x.doNotTouch, counts: x.counts })),
       areas: m.areas.map((a) => ({ id: a.id, doNotTouch: a.doNotTouch, counts: a.counts })),
     };
   }),

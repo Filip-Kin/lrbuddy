@@ -191,7 +191,7 @@ describe("assignments and publish", () => {
     expect(lot === undefined || lot.status !== "open" || lot.crewId !== crew.id).toBe(true);
   });
 
-  test("a cleared parcel's lot with photos is kept, off the crew and skipped", async () => {
+  test("a cleared parcel's lot with photos is kept, off the crew and not todo", async () => {
     await tagAll();
     const crew = setup.createCrew({ dayId, ccId, companyId: ford, headcount: 10 });
     await admin.assignments.set({ dayId, ccId, crewIds: [crew.id], keys: [ODD, EVEN] });
@@ -200,7 +200,7 @@ describe("assignments and publish", () => {
     db.insert(s.lotPhotos).values({ lotId: lot.id, kind: "before", role: "admin", at: Date.now(), width: 10, height: 10, bytes: 100 }).run();
     await admin.survey.tag({ parcelId: "Garland-3963.", grade: "clear" });
     expect(await admin.assignments.publish()).toMatchObject({ removed: 1 });
-    expect(db.select().from(s.lots).where(eq(s.lots.id, lot.id)).get()).toMatchObject({ status: "skipped", crewId: null });
+    expect(db.select().from(s.lots).where(eq(s.lots.id, lot.id)).get()).toMatchObject({ status: "not_todo", crewId: null });
     expect(await admin.assignments.publish()).toMatchObject({ removed: 0 });
   });
 

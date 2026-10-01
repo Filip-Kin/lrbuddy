@@ -930,3 +930,29 @@ foot or from the truck window. Not red shirts.
 - Gate: at 390x844 the shutter is at least 84 px, side buttons 56 px, overflow 0; a Playwright run
   with a fake camera (`--use-fake-device-for-media-stream`) and `set_geolocation` flags a parcel and
   the lot appears Todo with a Before photo.
+
+## 23. Paint mode on the green and admin maps (Filip, 2026-10-01 15:34)
+
+Marking lots one sheet at a time is too slow for a morning sweep or a correction pass. Paint mode is
+the sharpie: pick a brush, drag across the parcels.
+
+- **Paint** button in the map's control row (green map, admin lots map, admin's green view). Tapping it
+  opens a brush bar at the bottom: the five statuses as chips in the usual words and colours
+  (Not todo, Todo, In progress, Done, Do not touch) and, on the green map, a **Crew** brush that
+  assigns the parcel's lot to a chosen crew. One chip is active; the map cursor and a thin coloured
+  border on the map show the mode is on. **Done** (exit) at the right end of the bar.
+- While painting: a tap on a parcel applies the brush to it immediately; a one-finger drag applies it
+  to every parcel the finger crosses, each once per stroke; two-finger gestures still pan and zoom;
+  mouse drag paints on a laptop, scroll zooms. A parcel already in the brush's status is skipped.
+  Applying Todo to a bare parcel creates the lot as section 21 does; Not todo deletes or reverts it.
+- Each stroke is one batch mutation (`green.paint` / `admin.paint`: list of parcel ids plus brush),
+  applied in one transaction with the section 21 role rules, emitting one `lot.changed` per lot.
+  A counter in the bar shows "14 lots" for the stroke in progress and the total this session.
+- **Undo** in the bar reverts the last stroke (server keeps the previous statuses per stroke for the
+  session, up to 20 strokes); Undo again walks further back.
+- Bare parcels are drawn (thin outline) at any zoom while painting so there is something to hit;
+  hit testing uses the parcel polygons, not markers. Minimum zoom to paint is 16; below that the bar
+  says "Zoom in to paint" as a label and the chips are disabled.
+- Red shirts and drivers do not get Paint.
+- Gate: at 1440 and at 390 as DURFB1, Paint opens the bar, a drag across three parcels sets them
+  Todo (count reads 3), Undo returns them, overflow 0, chips at least 44 px tall.

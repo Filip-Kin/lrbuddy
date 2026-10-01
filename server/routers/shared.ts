@@ -26,6 +26,7 @@ import { firebaseEnabled } from "../firebase.ts";
 import { subscribe, unsubscribe, vapidPublicKey } from "../push.ts";
 import { canViewLot, deletePhoto, lotPhotoList, photoScope } from "../photos.ts";
 import { activeEvent, catalogFor, ccCard } from "../queries.ts";
+import { parcelFacts } from "../parcels.ts";
 import { authedProcedure, ccProcedure, liveFor, publicProcedure, readCcScope, router, sameCc, type ScopeChanged } from "../trpc.ts";
 
 // #region me
@@ -217,6 +218,9 @@ export const sharedRouter = router({
   }),
 
   /** Every live photo of a lot, newest first, for the lot sheet and the viewer. */
+  /** What the city parcel layer says about a parcel, in plain words, for the lot sheet. Public assessor data. */
+  parcelInfo: authedProcedure.input(z.object({ parcelId: z.string().min(1).max(40) })).query(({ input }) => parcelFacts(input.parcelId)),
+
   lotPhotos: authedProcedure.input(z.object({ lotId: z.number().int() })).query(({ ctx, input }) => {
     const scope = photoScope(ctx.session);
     if (!scope) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in" });

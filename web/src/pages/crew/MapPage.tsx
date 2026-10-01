@@ -141,6 +141,7 @@ export const MapPage = () => {
         parcel={sheet}
         onClose={() => setSel(null)}
         onSet={lotWrites.set}
+        ensureLot={lotWrites.ensure}
         error={lotWrites.error}
         errorFor={lotWrites.errorFor}
         crew={

@@ -137,6 +137,7 @@ export const LotsPage = () => {
         parcel={sheetLot ? { lotId: sheetLot.id, parcelId: sheetLot.parcelId, address: sheetLot.address, status: sheetLot.status, grade: sheetLot.grade, note: sheetLot.note } : null}
         onClose={() => setSheetId(null)}
         onSet={status.set}
+        ensureLot={status.ensure}
         error={status.error}
         errorFor={status.errorFor}
         crew={

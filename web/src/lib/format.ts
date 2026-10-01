@@ -28,9 +28,5 @@ export const smsHref = (phone: string): string => `sms:${phone.replace(/[^\d+]/g
 export const mapsDirections = (lat: number, lng: number): string => `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
 
 /** Street address, else the city parcel number, else a plain label. Never a database id. */
-export const lotTitle = (l: { address: string | null; parcelId: string | null }): string => {
-  const a = l.address?.trim();
-  if (a) return a;
-  const p = l.parcelId?.replace(/\.$/, "").trim();
-  return p ? `Parcel ${p}` : "Lot";
-};
+/** A lot's name on screen: its address, else "Lot". The parcel id is the city's key, never a name (it stays in exports). */
+export const lotTitle = (l: { address: string | null; parcelId?: string | null }): string => l.address?.trim() || "Lot";

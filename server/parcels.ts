@@ -547,3 +547,42 @@ export const gridAreaAround = (
 export const orientedAreaAround = (pts: readonly LatLng[], theta: number, padM = 15): { type: "Polygon"; coordinates: number[][][] } | null =>
   gridAreaAround(pts, theta, theta + Math.PI / 2, padM);
 // #endregion
+
+// #region facts for the lot sheet
+/** The assessor's class in the words a green shirt uses on the street. */
+const KIND_OF: Record<string, string> = {
+  "RESIDENTIAL-VACANT": "Vacant lot",
+  "RESIDENTIAL-IMPROVED": "House",
+  "COMMERCIAL-VACANT": "Vacant commercial",
+  "COMMERCIAL-IMPROVED": "Commercial",
+  "COMMERCIAL CONDOMINIUMS": "Commercial",
+  "INDUSTRIAL-VACANT": "Vacant industrial",
+  "INDUSTRIAL-IMPROVED": "Industrial",
+};
+
+/** "DETROIT LAND BANK AUTHORITY" as "Detroit Land Bank Authority"; short letter groups (LLC, DBA, P&DD) stay capitals. */
+export const ownerName = (v: string): string =>
+  titleCase(v.trim())
+    .split(" ")
+    .map((w) => (/^[A-Za-z&]{2,4}$/.test(w) && !/[aeiouy]/i.test(w) ? w.toUpperCase() : /^(Of|And|The)$/.test(w) ? w.toLowerCase() : w))
+    .join(" ")
+    .replace(/^./, (c) => c.toUpperCase());
+
+export interface ParcelFacts {
+  /** "Vacant lot", "House", "Commercial"; null when the layer says nothing usable. */
+  kind: string | null;
+  /** Owner of record (taxpayer 1). */
+  owner: string | null;
+}
+
+export const parcelFacts = (parcelId: string): ParcelFacts => {
+  const p = db
+    .select({ d: parcels.propertyClassDescription, t: parcels.taxpayer1 })
+    .from(parcels)
+    .where(eq(parcels.parcelId, parcelId))
+    .get();
+  if (!p) return { kind: null, owner: null };
+  const owner = p.t?.trim() ? ownerName(p.t) : null;
+  return { kind: p.d ? (KIND_OF[p.d.trim().toUpperCase()] ?? null) : null, owner };
+};
+// #endregion

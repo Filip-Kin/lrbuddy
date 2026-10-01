@@ -5,10 +5,27 @@ import { Skeleton } from "../Skeleton.tsx";
 import { PhotoSlot } from "./PhotoSlot.tsx";
 import { PhotoViewer } from "./PhotoViewer.tsx";
 
-/** Before and After tiles side by side for one lot, with the viewer behind a tap. */
-export const LotPhotos = ({ lotId }: { lotId: number }) => {
-  const q = trpc.shared.lotPhotos.useQuery({ lotId });
+const noOpen = (): void => undefined;
+
+/**
+ * Before and After tiles side by side for one lot, with the viewer behind a
+ * tap. A bare parcel (`lotId` null) gets both tiles too: `ensureLot` makes it
+ * a Todo lot before the first photo goes up.
+ */
+export const LotPhotos = ({ lotId, ensureLot }: { lotId: number | null; ensureLot?: () => Promise<number> }) => {
+  const q = trpc.shared.lotPhotos.useQuery({ lotId: lotId ?? 0 }, { enabled: lotId !== null });
   const [viewing, setViewing] = useState<number | null>(null);
+  // Same tree for a bare parcel and for its new lot while the photos load, so an upload under way keeps its tile.
+  if (ensureLot && (lotId === null || q.isLoading)) {
+    const ref = lotId ?? ensureLot;
+    return (
+      <section aria-label="Photos" className="grid grid-cols-2 gap-3">
+        <PhotoSlot lotId={ref} kind="before" photoId={null} canAdd onOpen={noOpen} />
+        <PhotoSlot lotId={ref} kind="after" photoId={null} canAdd onOpen={noOpen} />
+      </section>
+    );
+  }
+  if (lotId === null) return null;
   if (q.isLoading) {
     return (
       <div className="grid grid-cols-2 gap-3" aria-busy="true">

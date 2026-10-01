@@ -18,6 +18,7 @@ export const DriverLotSheet = ({ lot, crew, lots, onClose }: { lot: DriverLot | 
     parcel={lot ? { lotId: lot.id, parcelId: lot.parcelId, address: lot.address, status: lots.pending.get(`l:${lot.id}`) ?? lot.status, grade: lot.grade, note: lot.note } : null}
     onClose={onClose}
     onSet={lots.set}
+    ensureLot={lots.ensure}
     error={lots.error}
     errorFor={lots.errorFor}
     crew={lot && <p className="text-sm text-muted">{crew ? [crew.name, crew.companyName].filter(Boolean).join(", ") : "No crew"}</p>}

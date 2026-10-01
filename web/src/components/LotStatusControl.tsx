@@ -139,8 +139,37 @@ export const useSetLot = (role: LotRole) => {
     [role, crew, driver, green, refetch],
   );
 
+  /**
+   * The lot id of a target, creating the lot as Todo first for a bare parcel
+   * (the Flag screen's path), so a photo can attach to it. Rejects with the
+   * server's reason when the role may not.
+   */
+  const ensure = useCallback(
+    async (t: LotTarget): Promise<number> => {
+      if (t.lotId !== null) return t.lotId;
+      const key = targetKey(t);
+      setPending((m) => new Map(m).set(key, "open"));
+      const input = { lotId: null, parcelId: t.parcelId, status: "open" as const };
+      try {
+        const r = role === "crew" ? await crew.mutateAsync(input) : role === "driver" ? await driver.mutateAsync(input) : await green.mutateAsync(input);
+        if (!r.lot) throw new Error("Lot not saved");
+        return r.lot.id;
+      } finally {
+        void refetch().then(() =>
+          setPending((m) => {
+            const next = new Map(m);
+            next.delete(key);
+            return next;
+          }),
+        );
+      }
+    },
+    [role, crew, driver, green, refetch],
+  );
+
   return {
     set,
+    ensure,
     pending,
     /** The status to draw: a pending tap wins over the server's last answer. */
     statusOf: (t: LotTarget, base: LotStatus | null): LotStatus | null => pending.get(targetKey(t)) ?? base,

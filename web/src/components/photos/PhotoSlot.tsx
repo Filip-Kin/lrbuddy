@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { KIND_LABEL, photoUrl, usePhotoUpload, type PhotoKind } from "../../lib/photos.ts";
+import { KIND_LABEL, photoUrl, usePhotoUpload, type LotRef, type PhotoKind } from "../../lib/photos.ts";
 import { CameraIcon, RetryIcon } from "./icons.tsx";
 
 /**
@@ -18,7 +18,8 @@ export const PhotoSlot = ({
   size = "tile",
   address,
 }: {
-  lotId: number;
+  /** The lot, or for a bare parcel a function that creates it on the first photo. */
+  lotId: LotRef;
   kind: PhotoKind;
   /** Newest live photo of this kind, or null. */
   photoId: number | null;

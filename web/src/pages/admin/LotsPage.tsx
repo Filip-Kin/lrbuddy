@@ -5,6 +5,7 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field, Select, TextArea } from "../../components/Field.tsx";
 import { Page } from "../../components/Page.tsx";
 import { LotSheet as SharedLotSheet } from "../../components/LotSheet.tsx";
+import { ParcelFacts } from "../../components/ParcelSheet.tsx";
 import { Sheet } from "../../components/Sheet.tsx";
 import { lotPill, StatusPill } from "../../components/StatusPill.tsx";
 import { Chips } from "../../components/Segmented.tsx";
@@ -266,12 +267,6 @@ const LotSheet = ({ lot, ccs, onClose, notify }: { lot: Lot | null; ccs: readonl
             <dt className="text-muted">Crew</dt>
             <dd className="font-semibold">{lot.crewName != null ? `${lot.crewName}${cc ? `, ${cc.dayLabel}` : ""}` : "None"}</dd>
           </div>
-          {lot.parcelId && (
-            <div className="col-span-2 rounded-xl bg-surface-2 px-3 py-2">
-              <dt className="text-muted">Parcel</dt>
-              <dd className="font-mono font-semibold break-all">{lot.parcelId}</dd>
-            </div>
-          )}
         </dl>
       }
       footer={
@@ -296,6 +291,7 @@ const LotSheet = ({ lot, ccs, onClose, notify }: { lot: Lot | null; ccs: readonl
         )
       }
     >
+      <ParcelFacts parcelId={lot.parcelId} grade={lot.grade} />
       <Select label="Command center" value={ccId} onChange={(e) => setCcId(e.target.value === "none" ? "none" : Number(e.target.value))}>
         <option value="none">No CC</option>
         <CcOptions ccs={ccs} />

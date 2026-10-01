@@ -329,3 +329,14 @@ describe("survey and publish", () => {
     expect(lotOf("a1")).toMatchObject({ status: "do_not_touch", crewId: w.crewA.id });
   });
 });
+
+describe("parcel facts for the sheet", () => {
+  test("plain words for the class, owner in title case, never the parcel id", async () => {
+    const { parcelFacts, ownerName } = await import("./parcels.ts");
+    expect(parcelFacts(pid("a1"))).toEqual({ kind: "Vacant lot", owner: null });
+    expect(parcelFacts("nope.")).toEqual({ kind: null, owner: null });
+    expect(ownerName("DETROIT LAND BANK AUTHORITY")).toBe("Detroit Land Bank Authority");
+    expect(ownerName("HANTZ WOODLANDS LLC")).toBe("Hantz Woodlands LLC");
+    expect(ownerName("CITY OF DETROIT")).toBe("City of Detroit");
+  });
+});

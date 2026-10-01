@@ -127,7 +127,10 @@ export const useInvalidatePhotos = (): (() => void) => {
  * failure for Retry. The local preview stays up until the server's thumb
  * replaces it.
  */
-export const usePhotoUpload = (lotId: number, kind: PhotoKind) => {
+/** A lot id, or a way to get one: a bare parcel's lot is created on the first photo (SPEC 21). */
+export type LotRef = number | (() => Promise<number>);
+
+export const usePhotoUpload = (lotRef: LotRef, kind: PhotoKind) => {
   const [state, setState] = useState<UploadState>({ phase: "idle" });
   const blobs = useRef<{ photo: Blob; thumb: Blob } | null>(null);
   const preview = useRef<string | null>(null);
@@ -145,6 +148,13 @@ export const usePhotoUpload = (lotId: number, kind: PhotoKind) => {
     const url = preview.current;
     if (!b || !url) return;
     setState({ phase: "working", preview: url, progress: 0 });
+    let lotId: number;
+    try {
+      lotId = typeof lotRef === "number" ? lotRef : await lotRef();
+    } catch (err) {
+      setState({ phase: "failed", preview: url, message: err instanceof Error && err.message.length < 80 ? err.message : "Lot not saved. Try again." });
+      return;
+    }
     const form = new FormData();
     form.set("lotId", String(lotId));
     form.set("kind", kind);
@@ -163,7 +173,7 @@ export const usePhotoUpload = (lotId: number, kind: PhotoKind) => {
     } else {
       setState({ phase: "failed", preview: url, message: r.message });
     }
-  }, [lotId, kind, refresh]);
+  }, [lotRef, kind, refresh]);
 
   const pick = useCallback(
     async (file: File): Promise<void> => {

@@ -107,6 +107,7 @@ export const LotSheet = ({
       parcel={parcel}
       onClose={onClose}
       onSet={lots.set}
+      ensureLot={lots.ensure}
       canDnt
       error={lots.error}
       errorFor={lots.errorFor}
@@ -134,10 +135,7 @@ export const LotSheet = ({
         )
       }
     >
-      <div className="flex flex-wrap gap-x-6 gap-y-2">
-        {parcel?.parcelId && <Fact label="Parcel">{parcel.parcelId.replace(/\.$/, "")}</Fact>}
-        {parcel?.statusAt != null && <Fact label="Changed">{dateTime(parcel.statusAt)}</Fact>}
-      </div>
+      {parcel?.statusAt != null && <Fact label="Changed">{dateTime(parcel.statusAt)}</Fact>}
     </ParcelSheet>
   );
 };

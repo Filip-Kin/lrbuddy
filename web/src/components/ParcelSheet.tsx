@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type { LotGrade, LotStatus } from "../lib/lotStatus.ts";
+import { GRADE_LABEL, type LotGrade, type LotStatus } from "../lib/lotStatus.ts";
+import { trpc } from "../lib/trpc.ts";
 import { Button } from "./Button.tsx";
 import { TextArea } from "./Field.tsx";
 import { LotSheet } from "./LotSheet.tsx";
@@ -13,9 +14,30 @@ export interface ParcelView extends LotTarget {
   note: string | null;
 }
 
+/** What the city layer knows about the parcel, in plain words: kind and owner, and the size tag when set. Never the parcel id. */
+export const ParcelFacts = ({ parcelId, grade }: { parcelId: string | null; grade: LotGrade | null }) => {
+  const q = trpc.shared.parcelInfo.useQuery({ parcelId: parcelId ?? "" }, { enabled: !!parcelId, staleTime: 3_600_000 });
+  const facts: Array<[string, string]> = [];
+  if (q.data?.kind) facts.push(["Type", q.data.kind]);
+  if (q.data?.owner) facts.push(["Owner", q.data.owner]);
+  if (grade) facts.push(["Size", GRADE_LABEL[grade]]);
+  if (facts.length === 0) return null;
+  return (
+    <dl data-parcel-facts className="flex flex-wrap gap-x-6 gap-y-2">
+      {facts.map(([k, v]) => (
+        <div key={k} className="min-w-0">
+          <dt className="text-xs font-semibold text-muted">{k}</dt>
+          <dd className="text-base font-semibold break-words">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+};
+
 /**
  * The LotSheet for any parcel (SPEC 21): the five statuses, the size tags
- * while Todo, the crew, photos once there is a lot, and the note. `onNote`
+ * while Todo, the crew, Before and After (a photo on a bare parcel makes it
+ * Todo first), and the note. `onNote`
  * makes the note editable (green shirts and admin).
  */
 export const ParcelSheet = ({
@@ -28,6 +50,7 @@ export const ParcelSheet = ({
   errorFor,
   crew,
   onNote,
+  ensureLot,
   children,
 }: {
   parcel: ParcelView | null;
@@ -39,6 +62,8 @@ export const ParcelSheet = ({
   errorFor: string | null;
   crew?: ReactNode;
   onNote?: (t: LotTarget, note: string | null) => void;
+  /** `useSetLot().ensure`: a photo on a bare parcel creates its Todo lot first. */
+  ensureLot?: (t: LotTarget) => Promise<number>;
   children?: ReactNode;
 }) => {
   const [note, setNote] = useState("");
@@ -63,10 +88,13 @@ export const ParcelSheet = ({
               </p>
             )}
             {status === "open" && canGrade && !locked && <GradeTags grade={parcel.grade} onChange={(g) => onSet(parcel, { grade: g })} />}
+            {/* The size reads from the tags while they show; otherwise it is a fact. */}
+            <ParcelFacts parcelId={parcel.parcelId} grade={status === "open" && canGrade && !locked ? null : parcel.grade} />
           </div>
         )
       }
       crew={crew}
+      ensureLot={parcel && ensureLot ? () => ensureLot(parcel) : undefined}
     >
       {parcel && onNote && parcel.lotId !== null ? (
         <form

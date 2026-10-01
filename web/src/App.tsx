@@ -13,6 +13,8 @@ import { CrewRoutes, crewLinks } from "./pages/crew/index.tsx";
 import { DriverRoutes, driverLinks } from "./pages/driver/index.tsx";
 import { GreenRoutes, greenLinks } from "./pages/green/index.tsx";
 import { LoginPage } from "./pages/join/LoginPage.tsx";
+import { PlanLayout } from "./components/plan/PlanLayout.tsx";
+import { PlanRoutes } from "./pages/plan/index.tsx";
 
 const Shell = ({
   scope,
@@ -41,17 +43,27 @@ const Splash = () => (
   </div>
 );
 
-/** Crews name themselves once; the name shows on requests and in green views. */
+const phoneDigits = (v: string): number => v.replace(/\D/g, "").length;
+
+/**
+ * Crews name themselves once and leave a mobile number; the name shows on
+ * requests and in green views, the number lets greens call and text the red shirt.
+ */
 const NamePrompt = ({ me }: { me: SignedIn }) => {
   const [dismissed, setDismissed] = useState(false);
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const utils = trpc.useUtils();
   const [busy, setBusy] = useState(false);
+  const phoneOk = phoneDigits(phone) >= 7 && phoneDigits(phone) <= 15;
   const save = async (): Promise<void> => {
     setBusy(true);
-    const ok = await setDisplayName(name).catch(() => false);
+    const ok = await setDisplayName(name, phone).catch(() => false);
     setBusy(false);
-    if (ok) void utils.shared.me.invalidate();
+    if (ok) {
+      void utils.shared.me.invalidate();
+      void utils.crew.invalidate();
+    }
   };
   const open = me.role === "crew" && !me.displayName && !dismissed;
   return (
@@ -60,12 +72,24 @@ const NamePrompt = ({ me }: { me: SignedIn }) => {
       onClose={() => setDismissed(true)}
       title={me.scope}
       footer={
-        <Button block size="lg" busy={busy} disabled={!name.trim()} onClick={() => void save()}>
+        <Button block size="lg" busy={busy} disabled={!name.trim() || !phoneOk} onClick={() => void save()}>
           Save
         </Button>
       }
     >
-      <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="given-name" maxLength={60} />
+      <div className="space-y-4">
+        <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="given-name" maxLength={60} />
+        <Field
+          label="Mobile"
+          type="tel"
+          inputMode="tel"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          autoComplete="tel"
+          maxLength={40}
+          error={phone.trim() !== "" && !phoneOk && phoneDigits(phone) > 15 ? "Too many digits" : null}
+        />
+      </div>
     </Sheet>
   );
 };
@@ -91,13 +115,22 @@ const AdminGreen = ({ me }: { me: SignedIn }) => {
   );
 };
 
+/** `/login?next=/plan/...`: where an admin sign-in goes back to. Only portal paths are honoured. */
+const planNext = (): string | null => {
+  const next = new URLSearchParams(window.location.search).get("next");
+  return next && /^\/plan(\/[a-z/]*)?$/.test(next) ? next : null;
+};
+
 const SignedInApp = ({ me }: { me: SignedIn }) => {
   const [loc] = useLocation();
   const adminInGreen = me.role === "admin" && (loc === "/green" || loc.startsWith("/green/"));
   usePositionReporter(me.role === "crew" || me.role === "driver");
   useLiveInvalidation(me.role, me.role !== "admin" || (adminInGreen && getCcOverride() !== null));
 
-  if (loc === "/login") return <Redirect to={me.role === "admin" ? "/admin" : "/"} />;
+  const inPlan = loc === "/plan" || loc.startsWith("/plan/");
+  // The portal is for admin sessions; every other role gets the sign-in page, which returns to the portal.
+  if (me.role !== "admin" && (inPlan || (loc === "/login" && planNext() !== null))) return <LoginPage />;
+  if (loc === "/login") return <Redirect to={me.role === "admin" ? (planNext() ?? "/admin") : "/"} />;
 
   switch (me.role) {
     case "crew":
@@ -121,6 +154,13 @@ const SignedInApp = ({ me }: { me: SignedIn }) => {
       );
     case "admin":
       if (adminInGreen) return <AdminGreen me={me} />;
+      if (inPlan) {
+        return (
+          <PlanLayout me={me}>
+            <PlanRoutes />
+          </PlanLayout>
+        );
+      }
       if (!loc.startsWith("/admin")) return <Redirect to="/admin" />;
       return (
         <Shell scope={me.scope} scopeShort={me.scopeShort} links={adminLinks} onSignOut={() => void logout()}>
@@ -139,9 +179,7 @@ export const App = () => {
     return (
       <Switch>
         <Route path="/login" component={LoginPage} />
-        <Route>
-          <Redirect to="/login" />
-        </Route>
+        <Route>{() => <Redirect to={window.location.pathname.startsWith("/plan") ? `/login?next=${encodeURIComponent(window.location.pathname)}` : "/login"} />}</Route>
       </Switch>
     );
   }

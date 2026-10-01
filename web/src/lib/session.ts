@@ -32,12 +32,15 @@ export const logout = async (): Promise<void> => {
   window.location.assign("/login");
 };
 
-/** Names this device's session (`POST /auth/name`). */
-export const setDisplayName = async (displayName: string): Promise<boolean> => {
+/**
+ * Names this device's session (`POST /auth/name`). A crew also sends a mobile
+ * number, which becomes the red shirt's number when the crew has none.
+ */
+export const setDisplayName = async (displayName: string, phone?: string): Promise<boolean> => {
   const res = await fetch("/auth/name", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ displayName }),
+    body: JSON.stringify(phone ? { displayName, phone } : { displayName }),
     credentials: "same-origin",
   });
   return res.ok;

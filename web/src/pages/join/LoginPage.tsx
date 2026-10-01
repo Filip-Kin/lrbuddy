@@ -21,7 +21,9 @@ export const LoginPage = () => {
     setError(null);
     const res = await login(code).catch(() => ({ ok: false as const, error: "No connection" }));
     if (res.ok) {
-      window.location.assign(res.role === "admin" ? "/admin" : "/");
+      const next = search.get("next") ?? (window.location.pathname.startsWith("/plan") ? window.location.pathname : null);
+      const back = next && /^\/plan(\/[a-z/]*)?$/.test(next) ? next : null;
+      window.location.assign(res.role === "admin" ? (back ?? "/admin") : "/");
       return;
     }
     setBusy(false);

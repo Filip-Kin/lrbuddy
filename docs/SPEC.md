@@ -116,7 +116,7 @@ truck_stock       truck_id, type_id, qty, capacity        PK (truck_id, type_id)
 stock_moves       id, truck_id, type_id, delta, reason ('delivery'|'restock'|'adjust'), request_id, at
 positions         id, kind ('crew'|'truck'), ref_id, lat, lng, accuracy, heading, speed, at
                   index (kind, ref_id, at desc)
-lots              id, event_id, parcel_id, address, lat, lng, source ('dlba'|'parcel'|'csv'|'manual'),
+lots              id, event_id, parcel_id, address, lat, lng, source ('dlba'|'parcel'|'csv'|'manual'|'survey'),
                   geometry (nullable text, GeoJSON Polygon or MultiPolygon in WGS84, the parcel outline),
                   cc_id (nullable, stands for the CC's site across days, section 8), crew_id (nullable),
                   status ('open'|'in_progress'|'done'|'skipped'),
@@ -547,14 +547,16 @@ parcels       parcel_id PK, address, lat, lng, geometry (GeoJSON), street_name, 
               cross_street_1, cross_street_2, property_class, property_class_description, taxpayer_1,
               is_improved, pct_pre_claimed, sale_date, fetched_at
               -- cache of the assessor parcel layer for the areas the survey has touched; refreshed per bbox,
-              -- shared by every event. block_side key = street_name + cross streets + parity of street_number.
+              -- shared by every event. block_side key = street_name + cross streets + parity of street_number,
+              -- stored as block_side_key on write ("GARLAND|E CANFIELD ST|MACK AVE|odd", cross streets sorted).
 survey_tags   id, event_id, parcel_id, grade ('high'|'low'|'clear'), side ('left'|'right'|'tap'), note,
               lat, lng (where the tagger stood), heading, by (display name), at
               -- newest tag per parcel wins; 'clear' removes the parcel from the work list.
 block_sides   view or computed: event_id, key, street_name, from_cross, to_cross, parity, parcel_count,
               high, low, work_count (high+low), colour band
 assignments   id, event_id, day_id, cc_id, company_id, crew_id (nullable until crews exist), block_side_key,
-              order
+              order       -- one per block side per event
+company_days  id, company_id, day_id, cc_id (nullable), headcount   -- promised headcount, one per company and day
 crews         + area (nullable GeoJSON Polygon): the rectangle printed on the crew's sheet, computed as the
               bbox of the crew's assigned parcels padded 15 m, editable by dragging corners on the Assignments map
 ```

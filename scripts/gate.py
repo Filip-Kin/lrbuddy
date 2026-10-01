@@ -139,10 +139,24 @@ ROLES = {
     "crew": {"login": {"code": "demo-crew-01", "displayName": "Gate"}, "routes": ["/", "/request", "/requests", "/lots", "/cc", "/settings"]},
     "driver": {"login": {"code": "TRUCK1", "displayName": "Gate"}, "routes": ["/", "/map", "/stock", "/settings"]},
     "green": {"login": {"code": "EAST01", "displayName": "Gate"}, "routes": ["/", "/requests", "/lots", "/photos", "/crews", "/trucks", "/broadcast", "/stats"]},
-    "admin": {"login": {"code": ADMIN}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/print", "/admin/export"]},
+    "admin": {"login": {"code": ADMIN}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export",
+                                                  "/plan/survey", "/plan/blocks", "/plan/assignments", "/plan/print", "/plan/survey/drive"]},
 }
 SIZES = {"phone": (390, 844), "laptop": (1440, 900)}
-NO_NAV = {"/admin/print", "/login"}
+# The planning portal is a laptop surface with one phone screen (drive mode). Other routes run at both sizes.
+ROUTE_SIZES = {
+    "/plan/survey": {"laptop"},
+    "/plan/blocks": {"laptop"},
+    "/plan/assignments": {"laptop"},
+    "/plan/print": {"laptop"},
+    "/plan/survey/drive": {"phone"},
+}
+# Documents, not screens: no hamburger check. Overflow still applies.
+NO_NAV = {"/plan/print", "/login"}
+# Print pages draw maps; the page sets [data-print-ready] once every tile has loaded.
+PRINT_ROUTES = {"/plan/print"}
+# Old paths that must land somewhere else.
+REDIRECTS = {"/admin/print": "/plan/print"}
 
 LUM_JS = """() => {
   const c = getComputedStyle(document.body).backgroundColor.match(/\\d+(\\.\\d+)?/g).map(Number);
@@ -195,17 +209,30 @@ def dynamic_checks() -> None:
                     page.on("pageerror", lambda e: errors.append(str(e)))
                     bad: list[str] = []
                     page.on("response", lambda resp: bad.append(f"{resp.status} {resp.url}") if resp.status >= 400 and BASE in resp.url else None)
+                    if role == "admin" and size == "laptop" and scheme == "light":
+                        for old, new in REDIRECTS.items():
+                            try:
+                                page.goto(BASE + old, wait_until="networkidle", timeout=45000)
+                                landed = page.evaluate("location.pathname")
+                                if landed != new:
+                                    fail(f"admin {old}: landed on {landed}, expected {new}")
+                            except Exception as e:  # noqa: BLE001
+                                fail(f"admin {old}: navigation failed {type(e).__name__}")
                     for route in cfg["routes"]:
+                        if size not in ROUTE_SIZES.get(route, set(SIZES)):
+                            continue
                         tag = f"{role}{route.replace('/', '_') or '_home'}-{size}-{scheme}"
                         errors.clear()
                         bad.clear()
                         try:
                             page.goto(BASE + route, wait_until="networkidle", timeout=45000)
+                            if route in PRINT_ROUTES:
+                                page.wait_for_selector("[data-print-ready]", state="attached", timeout=60000)
                             page.wait_for_timeout(700)
                         except Exception as e:  # noqa: BLE001
                             fail(f"{tag}: navigation failed {type(e).__name__}")
                             continue
-                        page.screenshot(path=str(OUT / f"{tag}.png"), full_page=(route == "/admin/print"))
+                        page.screenshot(path=str(OUT / f"{tag}.png"), full_page=(route in PRINT_ROUTES))
                         over = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
                         if over != 0:
                             fail(f"{tag}: horizontal overflow {over}px")

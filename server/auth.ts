@@ -126,12 +126,35 @@ export const joinWithToken = (token: string, userAgent: string | null, displayNa
   return createSession({ role: "crew", crewId: crew.id, ccId: crew.ccId, displayName: cleanName(displayName), userAgent });
 };
 
-/** Renames the session. Returns the stored name, or null when the session is gone or the name is empty. */
-export const setSessionName = (sessionId: string | null, displayName: string | null | undefined): string | null => {
+/** Digits of a phone number, kept as typed when it has 7 to 15 of them; else null. */
+export const cleanPhone = (v: string | null | undefined): string | null => {
+  const s = v?.trim().slice(0, 40) ?? "";
+  const digits = s.replace(/\D/g, "").length;
+  return digits >= 7 && digits <= 15 ? s : null;
+};
+
+/**
+ * Renames the session. Returns the stored name, or null when the session is
+ * gone or the name is empty. For a crew session, `phone` (and the name) fill
+ * the crew's red shirt contact when the crew has none yet, so an imported
+ * number is never overwritten.
+ */
+export const setSessionName = (sessionId: string | null, displayName: string | null | undefined, phone?: string | null): string | null => {
   const name = cleanName(displayName);
   if (!sessionId || !name) return null;
-  const row = db.update(sessions).set({ displayName: name }).where(eq(sessions.id, sessionId)).returning({ id: sessions.id }).get();
-  return row ? name : null;
+  const row = db.update(sessions).set({ displayName: name }).where(eq(sessions.id, sessionId)).returning().get();
+  if (!row) return null;
+  const tel = cleanPhone(phone);
+  if (row.role === "crew" && row.crewId !== null && tel) {
+    const crew = db.select().from(crews).where(eq(crews.id, row.crewId)).get();
+    if (crew && !crew.leadPhone?.trim()) {
+      db.update(crews)
+        .set({ leadPhone: tel, ...(crew.leadName?.trim() ? {} : { leadName: name }) })
+        .where(eq(crews.id, crew.id))
+        .run();
+    }
+  }
+  return name;
 };
 // #endregion
 

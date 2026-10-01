@@ -23,3 +23,14 @@ none of them owned. All of them were resolved in the integration pass on
 - `ago(null)` reads "Never".
 - Found during integration: `styles.css` set `position: relative` on crew, truck and CC markers,
   which beat Leaflet's `position: absolute` and drew them away from their real place. Removed.
+
+## Planning portal slice (2026-09-30)
+
+The foundation is in. Each slice owns its files; ask here for changes to the shared ones.
+
+- Survey and drive: `web/src/pages/plan/SurveyPage.tsx`, `DrivePage.tsx`, `server/routers/plan/survey.ts`.
+- Blocks and assignments: `web/src/pages/plan/BlocksPage.tsx`, `AssignmentsPage.tsx`, `server/routers/plan/blocks.ts`,
+  `server/routers/plan/assignments.ts`, and the shared `web/src/lib/map/orientedRect.ts` (SPEC 16).
+- Print: `web/src/pages/plan/PrintPage.tsx`, `server/routers/plan/print.ts`.
+- Shared, change through a request here: `server/parcels.ts`, `server/db/schema.ts`, `server/routers/plan/common.ts`,
+  `web/src/components/plan/*`, `web/src/pages/plan/index.tsx`, `scripts/gate.py`, `scripts/sheets.py`, the seed.

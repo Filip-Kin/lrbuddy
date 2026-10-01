@@ -8,7 +8,7 @@ import { siteCcIds } from "./queries.ts";
 
 export const DLBA_URL =
   "https://services2.arcgis.com/qvkbeam7Wirps6zC/arcgis/rest/services/DLBA_Owned_Properties/FeatureServer/0/query";
-const USER_AGENT = "lrbuddy/1.0 (me@filipkin.com)";
+export const USER_AGENT = "lrbuddy/1.0 (me@filipkin.com)";
 const PAGE = 2000;
 
 export interface LotInput {
@@ -164,7 +164,7 @@ const PARCEL_BATCH = 100;
 const PARCEL_PAGE = 1000;
 export const VACANT_WHERE = "property_class_description='RESIDENTIAL-VACANT'";
 
-interface ParcelFeature {
+export interface ParcelFeature {
   geometry?: { type?: unknown; coordinates?: unknown } | null;
   properties?: { parcel_id?: unknown; address?: unknown } | null;
 }
@@ -181,7 +181,7 @@ export interface Parcel {
   geometry: LotGeometry;
 }
 
-const asGeometry = (g: ParcelFeature["geometry"]): LotGeometry | null => {
+export const asGeometry = (g: ParcelFeature["geometry"]): LotGeometry | null => {
   if (!g || !Array.isArray(g.coordinates)) return null;
   if (g.type === "Polygon") return { type: "Polygon", coordinates: g.coordinates as number[][][] };
   if (g.type === "MultiPolygon") return { type: "MultiPolygon", coordinates: g.coordinates as number[][][][] };

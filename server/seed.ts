@@ -28,6 +28,7 @@ import { haversine, type LatLng } from "./geo.ts";
 import { attachOutlines, fetchDlba, upsertLots, type LotInput } from "./lots-import.ts";
 import { sweepPhotoFiles } from "./photos.ts";
 import { seedLotPhotos, type SeedPhotoTarget } from "./seed-photos.ts";
+import { seedPlan } from "./seed-plan.ts";
 import { createCc, createCrew, createEvent, createTruck } from "./setup.ts";
 
 const EVENT_NAME = "Demo 2026";
@@ -188,6 +189,10 @@ const main = async (): Promise<void> => {
   }
   // #endregion
 
+  // #region planning portal: parcel cache, survey tags, assignments, crew areas
+  const plan = await seedPlan({ eventId: ev.id, dayId: day1.id, bbox: BBOX, crews: crewRows });
+  // #endregion
+
   // #region positions
   for (const crew of crewRows) {
     const home = crewHome.get(crew.id) ?? (crew.ccId === east.id ? east : west);
@@ -319,7 +324,8 @@ const main = async (): Promise<void> => {
   ];
   const w0 = Math.max(...rows.map((r) => r[0].length));
   const w1 = Math.max(...rows.map((r) => r[1].length));
-  console.log(`\nSeeded "${EVENT_NAME}": ${allLots.length} lots (${lotSource}), ${crewRows.length} crews, 3 trucks, ${seedReqs.length} requests, ${photographed} photo pairs\n`);
+  console.log(`\nSeeded "${EVENT_NAME}": ${allLots.length} lots (${lotSource}), ${crewRows.length} crews, 3 trucks, ${seedReqs.length} requests, ${photographed} photo pairs`);
+  console.log(`Plan: ${plan.parcels}, ${plan.tags} survey tags, ${plan.assigned} block sides assigned, ${plan.areas} crew areas\n`);
   console.log(`${"role".padEnd(w0)}  ${"who".padEnd(w1)}  code or join link`);
   console.log(`${"-".repeat(w0)}  ${"-".repeat(w1)}  ${"-".repeat(40)}`);
   for (const [role, who, code] of rows) console.log(`${role.padEnd(w0)}  ${who.padEnd(w1)}  ${code}`);

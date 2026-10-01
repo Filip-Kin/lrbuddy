@@ -97,7 +97,7 @@ const server = Bun.serve({
 
     if (path === "/auth/name" && req.method === "POST") {
       const body = await readBody(req);
-      const name = setSessionName(sessionIdFrom(req), body.displayName);
+      const name = setSessionName(sessionIdFrom(req), body.displayName, body.phone);
       if (!name) return json({ ok: false, error: "Name required" }, { status: sessionIdFrom(req) ? 400 : 401 });
       return json({ ok: true, displayName: name });
     }

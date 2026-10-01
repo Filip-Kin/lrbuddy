@@ -30,8 +30,12 @@ ROLES = {
         ("/", "Map"), ("/requests", "Requests"), ("/lots", "Lots"), ("/photos", "Photos"), ("/crews", "Crews"), ("/trucks", "Trucks"), ("/broadcast", "Broadcast"), ("/stats", "Stats")],
         "sizes": ["phone", "laptop"]},
     "admin": {"login": {"code": ADMIN}, "routes": [
-        ("/admin", "Event"), ("/admin/companies", "Companies"), ("/admin/crews", "Crews"), ("/admin/lots", "Lots"), ("/admin/photos", "Photos"), ("/admin/catalog", "Catalog"), ("/admin/print", "Print"), ("/admin/export", "Export")],
+        ("/admin", "Event"), ("/admin/companies", "Companies"), ("/admin/crews", "Crews"), ("/admin/lots", "Lots"), ("/admin/photos", "Photos"), ("/admin/catalog", "Catalog"), ("/admin/export", "Export")],
         "sizes": ["laptop"]},
+    "plan": {"login": {"code": ADMIN}, "routes": [
+        ("/plan/survey", "Survey"), ("/plan/blocks", "Blocks"), ("/plan/assignments", "Assignments"), ("/plan/print", "Print")],
+        "sizes": ["laptop"]},
+    "drive": {"login": {"code": ADMIN}, "routes": [("/plan/survey/drive", "Drive")], "sizes": ["phone"]},
     "login": {"login": None, "routes": [("/login", "Login")], "sizes": ["phone"]},
 }
 SIZES = {"phone": (390, 844, 2), "laptop": (1440, 900, 1)}
@@ -53,6 +57,8 @@ def shoot() -> dict[tuple[str, str, str], list[tuple[str, pathlib.Path]]]:
                     page = ctx.new_page()
                     for route, label in cfg["routes"]:
                         page.goto(BASE + route, wait_until="networkidle", timeout=60000)
+                        if route == "/plan/print":
+                            page.wait_for_selector("[data-print-ready]", state="attached", timeout=60000)
                         page.wait_for_timeout(1200)
                         dest = RAW / f"{role}-{size}-{scheme}-{label.lower().replace(' ', '_')}.png"
                         page.screenshot(path=str(dest))

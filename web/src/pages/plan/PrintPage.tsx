@@ -9,7 +9,7 @@ import { Panel } from "../../components/Panel.tsx";
 import { SkeletonList } from "../../components/Skeleton.tsx";
 import { useMe } from "../../lib/session.ts";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
-import { useDayParam } from "./useDayParam.ts";
+import { useDayParam } from "../admin/useDayParam.ts";
 
 type Sheet = RouterOutputs["admin"]["print"]["sheet"];
 type CrewSheet = Sheet["crewPages"][number];
@@ -168,23 +168,25 @@ export const PrintPage = () => {
   }
   if (noEvent || !day) {
     return (
-      <Page title="Print">
-        <Panel>
-          <EmptyState title={noEvent ? "No active event" : "No days"} />
-        </Panel>
-      </Page>
+      <div data-print-ready="">
+        <Page title="Print">
+          <Panel>
+            <EmptyState title={noEvent ? "No active event" : "No days"} />
+          </Panel>
+        </Page>
+      </div>
     );
   }
 
   return (
-    <>
+    <div data-print-ready={sheet.isLoading ? undefined : ""}>
       <style>{PRINT_CSS}</style>
       <div className="lrb-print-hide">
         <Page
           title="Print"
           wide
           actions={
-            <Button size="lg" onClick={() => window.print()} disabled={pageCount === 0}>
+            <Button size="lg" onClick={() => window.print()} disabled={pageCount === 0 || sheet.isLoading}>
               <PrintIcon />
               {pageCount > 0 ? `Print ${plural(pageCount, "page")}` : "Print"}
             </Button>
@@ -228,6 +230,6 @@ export const PrintPage = () => {
           </div>
         )
       )}
-    </>
+    </div>
   );
 };

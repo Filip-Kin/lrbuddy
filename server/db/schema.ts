@@ -32,7 +32,7 @@ export type StockReason = (typeof STOCK_REASONS)[number];
 export const POSITION_KINDS = ["crew", "truck"] as const;
 export type PositionKind = (typeof POSITION_KINDS)[number];
 
-export const LOT_SOURCES = ["dlba", "parcel", "csv", "manual"] as const;
+export const LOT_SOURCES = ["dlba", "parcel", "csv", "manual", "survey"] as const;
 export type LotSource = (typeof LOT_SOURCES)[number];
 
 export const LOT_STATUSES = ["open", "in_progress", "done", "skipped"] as const;
@@ -40,6 +40,12 @@ export type LotStatus = (typeof LOT_STATUSES)[number];
 
 export const PHOTO_KINDS = ["before", "after"] as const;
 export type PhotoKind = (typeof PHOTO_KINDS)[number];
+
+export const SURVEY_GRADES = ["high", "low", "clear"] as const;
+export type SurveyGrade = (typeof SURVEY_GRADES)[number];
+
+export const SURVEY_SIDES = ["left", "right", "tap"] as const;
+export type SurveySide = (typeof SURVEY_SIDES)[number];
 
 export const ROUTE_ENGINES = ["osrm", "fallback"] as const;
 export type RouteEngine = (typeof ROUTE_ENGINES)[number];
@@ -64,6 +70,8 @@ export interface RouteLeg {
 export type LotGeometry =
   | { type: "Polygon"; coordinates: number[][][] }
   | { type: "MultiPolygon"; coordinates: number[][][][] };
+/** A crew's printed work area: a closed ring in WGS84, possibly rotated. */
+export type AreaPolygon = { type: "Polygon"; coordinates: number[][][] };
 // #endregion
 
 export const events = sqliteTable("events", {
@@ -148,6 +156,8 @@ export const crews = sqliteTable(
     headcount: integer("headcount"),
     notes: text("notes"),
     lastSeenAt: integer("last_seen_at"),
+    /** Rectangle printed on the crew's sheet (SPEC 16); null until Publish or a drag sets it. */
+    area: text("area", { mode: "json" }).$type<AreaPolygon>(),
   },
   (t) => [index("crews_day_idx").on(t.dayId), index("crews_cc_idx").on(t.ccId)],
 );
@@ -409,6 +419,103 @@ export const routes = sqliteTable("routes", {
   originLng: real("origin_lng").notNull(),
 });
 
+// #region planning portal (SPEC 16)
+/**
+ * Cache of the city assessor's parcel layer for the areas the survey has
+ * touched. Shared by every event; refreshed per bbox. `block_side_key` is
+ * derived on write by `blockSideKey()` in server/parcels.ts.
+ */
+export const parcels = sqliteTable(
+  "parcels",
+  {
+    parcelId: text("parcel_id").primaryKey(),
+    address: text("address"),
+    lat: real("lat").notNull(),
+    lng: real("lng").notNull(),
+    geometry: text("geometry", { mode: "json" }).$type<LotGeometry>().notNull(),
+    streetName: text("street_name"),
+    streetNumber: integer("street_number"),
+    streetPrefix: text("street_prefix"),
+    crossStreet1: text("cross_street_1"),
+    crossStreet2: text("cross_street_2"),
+    propertyClass: text("property_class"),
+    propertyClassDescription: text("property_class_description"),
+    taxpayer1: text("taxpayer_1"),
+    isImproved: integer("is_improved", { mode: "boolean" }),
+    pctPreClaimed: real("pct_pre_claimed"),
+    /** YYYY-MM-DD as the layer gives it. */
+    saleDate: text("sale_date"),
+    blockSideKey: text("block_side_key"),
+    fetchedAt: integer("fetched_at").notNull(),
+  },
+  (t) => [index("parcels_lat_lng_idx").on(t.lat, t.lng), index("parcels_block_side_idx").on(t.blockSideKey)],
+);
+
+/** One tag per pass by a surveyor. The newest tag per parcel wins; `clear` takes it off the work list. */
+export const surveyTags = sqliteTable(
+  "survey_tags",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    parcelId: text("parcel_id").notNull(),
+    grade: text("grade", { enum: SURVEY_GRADES }).notNull(),
+    side: text("side", { enum: SURVEY_SIDES }).notNull(),
+    note: text("note"),
+    /** Where the tagger stood. */
+    lat: real("lat"),
+    lng: real("lng"),
+    heading: real("heading"),
+    by: text("by"),
+    at: integer("at").notNull(),
+  },
+  (t) => [index("survey_tags_event_parcel_at").on(t.eventId, t.parcelId, t.at)],
+);
+
+/**
+ * Attendance and promised headcount of a company on one day. Assignments and
+ * Build crews read it; one row per company and day.
+ */
+export const companyDays = sqliteTable(
+  "company_days",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    companyId: integer("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    dayId: integer("day_id")
+      .notNull()
+      .references(() => days.id, { onDelete: "cascade" }),
+    ccId: integer("cc_id").references(() => commandCenters.id, { onDelete: "set null" }),
+    headcount: integer("headcount").notNull().default(0),
+  },
+  (t) => [uniqueIndex("company_days_company_day").on(t.companyId, t.dayId)],
+);
+
+/** A block side handed to a company (and a crew once crews exist) on a day. One per block side per event. */
+export const assignments = sqliteTable(
+  "assignments",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    dayId: integer("day_id")
+      .notNull()
+      .references(() => days.id, { onDelete: "cascade" }),
+    ccId: integer("cc_id")
+      .notNull()
+      .references(() => commandCenters.id, { onDelete: "cascade" }),
+    companyId: integer("company_id").references(() => companies.id, { onDelete: "set null" }),
+    crewId: integer("crew_id").references(() => crews.id, { onDelete: "set null" }),
+    blockSideKey: text("block_side_key").notNull(),
+    order: integer("order").notNull().default(0),
+  },
+  (t) => [uniqueIndex("assignments_event_key").on(t.eventId, t.blockSideKey), index("assignments_day_cc_idx").on(t.dayId, t.ccId)],
+);
+// #endregion
+
 // #region row types
 export type Event = typeof events.$inferSelect;
 export type Day = typeof days.$inferSelect;
@@ -429,4 +536,8 @@ export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type Broadcast = typeof broadcasts.$inferSelect;
 export type Route = typeof routes.$inferSelect;
 export type LotPhoto = typeof lotPhotos.$inferSelect;
+export type ParcelRow = typeof parcels.$inferSelect;
+export type SurveyTag = typeof surveyTags.$inferSelect;
+export type CompanyDay = typeof companyDays.$inferSelect;
+export type Assignment = typeof assignments.$inferSelect;
 // #endregion

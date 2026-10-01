@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation } from "wouter";
 
@@ -7,7 +7,7 @@ export interface NavLink {
   label: string;
 }
 
-const isActive = (loc: string, href: string): boolean => {
+export const isActive = (loc: string, href: string): boolean => {
   const path = href.split("?")[0] ?? href;
   return path === "/" || path === "/admin" || path === "/green" ? loc === path : loc === path || loc.startsWith(`${path}/`);
 };
@@ -34,6 +34,7 @@ export const Nav = ({
   scopeTone = "plain",
   links,
   onSignOut,
+  drawerTop,
 }: {
   scope?: string;
   /** Shown below 860 px instead of `scope`. */
@@ -42,6 +43,8 @@ export const Nav = ({
   scopeTone?: "crew" | "plain";
   links: readonly NavLink[];
   onSignOut?: () => void;
+  /** Controls shown at the top of the phone drawer, above the links (the portal's event picker). */
+  drawerTop?: ReactNode;
 }) => {
   const [open, setOpen] = useState(false);
   const [loc] = useLocation();
@@ -127,6 +130,7 @@ export const Nav = ({
                 </button>
                 <span className="text-lg font-extrabold tracking-tight">LR Buddy</span>
               </div>
+              {drawerTop && <div className="px-3 pb-3">{drawerTop}</div>}
               <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 pb-3">
                 <ul className="flex flex-col gap-1">
                   {links.map((l) => {

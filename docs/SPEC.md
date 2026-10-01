@@ -896,3 +896,8 @@ Status, one set of words everywhere, for every parcel in a CC's day area:
 - Legend on the green map and the print sheets uses these five words.
 - Gate: a parcel with no lot is tappable on the green map at zoom 17 (Playwright: tap, sheet opens,
   Todo, polygon turns red, reload shows it still red).
+- **Who sees which parcels.** Greens and admin see every parcel in the CC area (Not todo as a thin
+  outline) because they mark them. Drivers see only lots: Todo, In progress, Done, Do not touch;
+  never the occupied parcels. Red shirts see only the lots inside their own assigned rectangle (and
+  bare parcels inside it so they can mark one Todo); nothing outside it, unless a green reassigns
+  them to another rectangle, which moves their view with them.

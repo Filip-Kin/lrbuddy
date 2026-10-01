@@ -16,6 +16,7 @@ const areaPoints = (a: AreaPolygon): Array<{ lat: number; lng: number }> => outl
 const lotView = (l: Lot, grade: "high" | "low" | "clear" | null) => ({
   id: l.id,
   address: l.address,
+  parcelId: l.parcelId,
   lat: l.lat,
   lng: l.lng,
   geometry: l.geometry,
@@ -113,6 +114,9 @@ export const printRouter = router({
           ccAddress: cc?.address ?? null,
           cc: cc ? { lat: cc.lat, lng: cc.lng } : null,
           url,
+          /** The crew token, typed at /login when the QR will not scan. */
+          code: crew.token,
+          loginUrl,
           qrSvg: await QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" }),
           area: crew.area,
           lots: mine.map((l) => lotView(l, gradeOf(l))),

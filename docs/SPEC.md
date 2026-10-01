@@ -991,3 +991,12 @@ Flag screen map strip (Filip, 2026-10-01 16:29)
   and a tap on any parcel picks it (replacing Wrong lot's separate mini map, which goes away). A
   **Collapse** button in the same corner brings the strip back down and resumes the camera.
 - The strip remembers its state for the session. Both buttons at least 44 px. Overflow 0 at 390.
+
+Flag screen: Paint on the expanded map (Filip, 2026-10-01 16:54)
+- When the Flag map is expanded, a **Paint** button sits next to Collapse. It opens the same brush
+  bar as the green map (section 23: five status chips, Crew brush, Undo, counter, Done) in place of
+  the Todo / Do not touch / Wrong lot row while painting; Done returns that row. Strokes use the same
+  `green.paint` batch and Undo history. Collapse while painting ends paint mode first.
+- The strip itself never paints; Paint needs the expanded map.
+- Gate: as DURFB1 on /flag, Expand, Paint, drag over three parcels at zoom 18 sets Todo with count 3,
+  Undo returns them, Done brings the flag buttons back, overflow 0 at 390.

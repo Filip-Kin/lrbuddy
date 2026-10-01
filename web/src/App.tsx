@@ -128,8 +128,9 @@ const SignedInApp = ({ me }: { me: SignedIn }) => {
   useLiveInvalidation(me.role, me.role !== "admin" || (adminInGreen && getCcOverride() !== null));
 
   const inPlan = loc === "/plan" || loc.startsWith("/plan/");
-  // The portal is for admin sessions; every other role gets the sign-in page, which returns to the portal.
-  if (me.role !== "admin" && (inPlan || (loc === "/login" && planNext() !== null))) return <LoginPage />;
+  // The portal is for admin sessions; every other role goes to the sign-in page, which returns to the portal.
+  if (me.role !== "admin" && inPlan) return <Redirect to={`/login?next=${encodeURIComponent(loc)}`} />;
+  if (me.role !== "admin" && loc === "/login" && planNext() !== null) return <LoginPage />;
   if (loc === "/login") return <Redirect to={me.role === "admin" ? (planNext() ?? "/admin") : "/"} />;
 
   switch (me.role) {

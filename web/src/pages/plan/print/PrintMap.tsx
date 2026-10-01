@@ -4,7 +4,7 @@ import type { LotGeometry } from "../../../../../server/db/schema.ts";
 import { ESRI_BASE, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM, TILE_ATTRIB } from "../../../lib/map/basemap.ts";
 import { escapeHtml } from "../../../lib/map/markers.ts";
 import { distance } from "../../../lib/format.ts";
-import { INK, PAPER, WORK, YELLOW, GREY } from "./paper.ts";
+import { INK, LOT_FILL, PAPER, WORK, YELLOW, GREY } from "./paper.ts";
 
 // #region types
 export type LatLngPair = [number, number];
@@ -128,11 +128,11 @@ const metres = (a: L.LatLng, b: L.LatLng): number => {
 };
 
 const lotStyle = (tone: "work" | "high" | "low"): L.PathOptions => ({
-  color: tone === "work" ? "#8f1d22" : INK,
+  color: INK,
   weight: tone === "work" ? 1 : 1.5,
-  dashArray: tone === "work" ? "3 2" : "4 3",
+  dashArray: tone === "work" ? undefined : "4 3",
   fillColor: WORK,
-  fillOpacity: tone === "low" ? 0.3 : 0.75,
+  fillOpacity: LOT_FILL[tone],
   interactive: false,
 });
 
@@ -214,6 +214,19 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
   }
 
   // Area names: this crew's first, inside the area where there is room.
+  // Other names keep off this crew's outline (its halo, every few pixels along
+  // each edge) and are dropped when there is no room for them elsewhere.
+  const guard: Box[] = [];
+  for (const a of layers) {
+    if (a.kind !== "area" || a.tone !== "mine" || a.ring.length < 3) continue;
+    const ps = a.ring.map(([lat, lng]) => pt(lat, lng));
+    for (let i = 0; i < ps.length; i++) {
+      const p = ps[i]!;
+      const q = ps[(i + 1) % ps.length]!;
+      const steps = Math.max(1, Math.ceil(p.distanceTo(q) / 4));
+      for (let k = 0; k <= steps; k++) guard.push(around(L.point(p.x + ((q.x - p.x) * k) / steps, p.y + ((q.y - p.y) * k) / steps), 6));
+    }
+  }
   const areas = layers.filter((a): a is Extract<PrintLayer, { kind: "area" }> => a.kind === "area" && !!a.label && a.ring.length >= 3).sort((a, b) => Number(b.tone === "mine") - Number(a.tone === "mine"));
   for (const a of areas) {
     const b = L.latLngBounds(a.ring);
@@ -222,7 +235,9 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
     const area = { x: nw.x, y: nw.y, w: se.x - nw.x, h: se.y - nw.y };
     const at = L.point(nw.x + area.w / 2, nw.y + area.h / 2);
     const text = a.label ?? "";
-    const placed = placeBox(area, labelWidth(text), LABEL_H, taken, size, area);
+    const mine = a.tone === "mine";
+    const placed = placeBox(area, labelWidth(text), LABEL_H, mine ? taken : [...taken, ...guard], size, area);
+    if (!mine && guard.some((g) => overlaps(g, placed.box))) continue;
     taken.push(placed.box);
     if (placed.far) leader(m, area, placed.box).addTo(group);
     labelMarker(m, at, placed.box, labelHtml(text), a.tone === "other" ? "lrb-pm-other" : "lrb-pm-area").addTo(group);

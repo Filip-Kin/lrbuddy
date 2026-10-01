@@ -2,9 +2,9 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../db/index.ts";
-import { assignments, companies, companyDays, crews, lots, type AreaPolygon, type Lot } from "../../db/schema.ts";
+import { assignments, companies, companyDays, crews, lotPhotos, lots, type AreaPolygon, type Lot } from "../../db/schema.ts";
 import { emitLot } from "../../lots-import.ts";
-import { areaAround, outlinePoints, parcelsOnSides, workParcelsOnSides, type BlockSide } from "../../parcels.ts";
+import { areaAround, isWork, newestTags, outlinePoints, parcelsOnSides, workParcelsOnSides, type BlockSide } from "../../parcels.ts";
 import { createCrew } from "../../setup.ts";
 import { adminProcedure, router } from "../../trpc.ts";
 import { blockSideRows } from "./blocks.ts";
@@ -19,6 +19,8 @@ export interface PublishResult {
   updated: number;
   /** Lots a crew already marked done, left as they were. */
   kept: number;
+  /** Open survey lots taken off the work list because the parcel's newest tag is no longer work. */
+  removed: number;
   /** Crews whose area was set. */
   areas: number;
 }
@@ -28,6 +30,12 @@ export interface PublishResult {
  * day, or all), keyed on event and parcel so a second publish updates rather
  * than duplicates. A done lot is left alone. Crews get an area around their
  * parcels, padded 15 m, when they have none yet or `resetAreas` is set.
+ *
+ * A parcel on an assigned side whose newest tag is no longer work (tagged
+ * clear, or its tag undone) leaves the work list: its open survey lot is
+ * deleted, or, when it has photos, taken off its crew and marked skipped so
+ * the photos stay. Lots from other sources and lots in progress or done are
+ * left alone.
  */
 export const publishAssignments = (eventId: number, opts: { dayId?: number | null; resetAreas?: boolean } = {}): PublishResult => {
   const rows = db
@@ -36,7 +44,7 @@ export const publishAssignments = (eventId: number, opts: { dayId?: number | nul
     .where(and(eq(assignments.eventId, eventId), opts.dayId != null ? eq(assignments.dayId, opts.dayId) : undefined))
     .orderBy(assignments.order, assignments.id)
     .all();
-  const res: PublishResult = { added: 0, updated: 0, kept: 0, areas: 0 };
+  const res: PublishResult = { added: 0, updated: 0, kept: 0, removed: 0, areas: 0 };
   const touched = new Map<number, Lot>();
   const crewPoints = new Map<number, Array<{ lat: number; lng: number }>>();
   db.transaction((tx) => {
@@ -62,6 +70,29 @@ export const publishAssignments = (eventId: number, opts: { dayId?: number | nul
         if (existing?.ccId != null && existing.ccId !== a.ccId) touched.set(existing.ccId, { ...lot, ccId: existing.ccId });
       }
     }
+    // #region parcels no longer work
+    const sideIds = parcelsOnSides(rows.map((a) => a.blockSideKey)).map((p) => p.parcelId);
+    const tags = newestTags(eventId, sideIds);
+    const off = sideIds.filter((pid) => !isWork(tags.get(pid)?.grade));
+    for (let i = 0; i < off.length; i += 500) {
+      const stale = tx
+        .select()
+        .from(lots)
+        .where(and(eq(lots.eventId, eventId), eq(lots.source, "survey"), eq(lots.status, "open"), inArray(lots.parcelId, off.slice(i, i + 500))))
+        .all();
+      for (const lot of stale) {
+        // A photo lot from the survey sheet was never published (no CC, no crew); it stays as it is.
+        if (lot.ccId === null && lot.crewId === null) continue;
+        const photo = tx.select({ id: lotPhotos.id }).from(lotPhotos).where(eq(lotPhotos.lotId, lot.id)).limit(1).get();
+        const gone = photo
+          ? tx.update(lots).set({ crewId: null, status: "skipped", statusAt: Date.now(), statusByCrewId: null }).where(eq(lots.id, lot.id)).returning().get()
+          : tx.delete(lots).where(eq(lots.id, lot.id)).returning().get();
+        if (!gone) continue;
+        res.removed++;
+        if (lot.ccId !== null) touched.set(lot.ccId, lot);
+      }
+    }
+    // #endregion
     for (const [crewId, pts] of crewPoints) {
       const area = areaAround(pts, 15);
       if (!area) continue;

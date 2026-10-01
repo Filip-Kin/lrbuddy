@@ -45,7 +45,7 @@ const sortValue = (s: Side, col: Col): string | number => {
     case "street":
       return s.street;
     case "from":
-      return s.fromCross ?? "";
+      return s.fromCross ?? (s.block !== null ? String(s.block).padStart(6, "0") : "");
     case "to":
       return s.toCross ?? "";
     case "side":
@@ -76,14 +76,16 @@ const compare = (a: Side, b: Side, col: Col, dir: 1 | -1): number => {
   return b.workCount - a.workCount || a.street.localeCompare(b.street) || a.key.localeCompare(b.key);
 };
 /** A cross street, cut to one line; the full name is in the title. */
-const CrossCell = ({ name }: { name: string | null }) =>
-  name ? (
-    <td className="max-w-28 truncate px-1.5 py-2 whitespace-nowrap" title={titleCase(name)}>
-      {titleCase(name)}
+const CrossCell = ({ name, block = null }: { name: string | null; block?: number | null }) => {
+  const text = name ? titleCase(name) : block !== null ? `${block} block` : null;
+  return text ? (
+    <td className="max-w-28 truncate px-1.5 py-2 whitespace-nowrap" title={text}>
+      {text}
     </td>
   ) : (
     <td className="px-1.5 py-2 text-muted">None</td>
   );
+};
 // #endregion
 
 export const BlocksPage = () => {
@@ -267,7 +269,7 @@ export const BlocksPage = () => {
                       <td className="max-w-32 truncate py-2 pr-1.5 pl-4 font-semibold whitespace-nowrap" title={titleCase(s.street)}>
                         {titleCase(s.street)}
                       </td>
-                      <CrossCell name={s.fromCross} />
+                      <CrossCell name={s.fromCross} block={s.block} />
                       <CrossCell name={s.toCross} />
                       <td className="px-1.5 py-2">{parityLabel(s.parity)}</td>
                       <td className="px-1.5 py-2 text-right tabular-nums">{s.high}</td>

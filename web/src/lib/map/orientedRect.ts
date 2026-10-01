@@ -195,8 +195,13 @@ interface ToolCallbacks {
   onCancel: () => void;
 }
 
-const handleIcon = (kind: "corner" | "edge" | "rot" | "dot"): L.DivIcon =>
-  L.divIcon({ className: `lrb-orect-h lrb-orect-${kind}`, html: "<span></span>", iconSize: [30, 30], iconAnchor: [15, 15] });
+/** Hit box of a handle: 44 px on a touch screen, 30 px with a mouse. The dot drawn inside stays 14 px. */
+const handleHit = (): number => (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches ? 44 : 30);
+
+const handleIcon = (kind: "corner" | "edge" | "rot" | "dot"): L.DivIcon => {
+  const hit = handleHit();
+  return L.divIcon({ className: `lrb-orect-h lrb-orect-${kind}`, html: "<span></span>", iconSize: [hit, hit], iconAnchor: [hit / 2, hit / 2] });
+};
 
 /** Pixels from the end edge to the rotate handle. */
 const ROTATE_GAP_PX = 30;

@@ -82,37 +82,48 @@ export const parityOf = (n: number | null | undefined): Parity | null =>
 /**
  * One side of one block: street, the two cross streets in name order (the
  * layer lists them either way round), and the parity of the house number.
- * "GARLAND|E CANFIELD ST|MACK AVE|odd". Without cross streets the key falls
- * back to "GARLAND|odd". Null when there is no street or no house number.
+ * "GARLAND|E CANFIELD ST|MACK AVE|odd". Without cross streets the house
+ * number's hundred stands in for the block, "MCCLELLAN|3700|odd", since one
+ * street can run for miles and the layer leaves many cross streets blank.
+ * Null when there is no street or no house number.
  */
 export const blockSideKey = (p: KeyInput): string | null => {
   const m = p.address ? ADDRESS.exec(p.address) : null;
   const street = [norm(p.streetPrefix), norm(p.streetName)].filter((x): x is string => x !== null).join(" ") || norm(m?.[2]);
-  const parity = parityOf(p.streetNumber ?? (m ? Number(m[1]) : null));
-  if (!street || !parity) return null;
+  const number = p.streetNumber ?? (m ? Number(m[1]) : null);
+  const parity = parityOf(number);
+  if (!street || !parity || number === null) return null;
   const crosses = [norm(p.crossStreet1), norm(p.crossStreet2)].filter((x): x is string => x !== null && x !== street).sort();
-  return crosses.length === 0 ? `${street}|${parity}` : [street, ...crosses, parity].join("|");
+  if (crosses.length > 0) return [street, ...crosses, parity].join("|");
+  return [street, String(Math.floor(Math.abs(Math.trunc(number)) / 100) * 100), parity].join("|");
 };
 
 export interface KeyParts {
   street: string;
   fromCross: string | null;
   toCross: string | null;
+  /** Hundred block (3700) when the side has no cross streets, else null. */
+  block: number | null;
   parity: Parity;
 }
+
+const HUNDRED = /^\d+$/;
 
 export const parseKey = (key: string): KeyParts => {
   const parts = key.split("|");
   const parity: Parity = parts[parts.length - 1] === "odd" ? "odd" : "even";
   const mid = parts.slice(1, -1);
-  return { street: parts[0] ?? key, fromCross: mid[0] ?? null, toCross: mid[1] ?? null, parity };
+  const block = mid.length === 1 && HUNDRED.test(mid[0] ?? "") ? Number(mid[0]) : null;
+  if (block !== null) return { street: parts[0] ?? key, fromCross: null, toCross: null, block, parity };
+  return { street: parts[0] ?? key, fromCross: mid[0] ?? null, toCross: mid[1] ?? null, block: null, parity };
 };
 
-/** "Garland, E Canfield St to Mack Ave, odd" for tables and sheets. */
+/** "Garland, E Canfield St to Mack Ave, odd" or "Mcclellan, 3700 block, odd" for tables and sheets. */
 export const blockSideLabel = (key: string): string => {
   const k = parseKey(key);
   const street = titleCase(k.street);
-  const span = k.fromCross && k.toCross ? `${titleCase(k.fromCross)} to ${titleCase(k.toCross)}` : k.fromCross ? `at ${titleCase(k.fromCross)}` : null;
+  const span =
+    k.fromCross && k.toCross ? `${titleCase(k.fromCross)} to ${titleCase(k.toCross)}` : k.fromCross ? `at ${titleCase(k.fromCross)}` : k.block !== null ? `${k.block} block` : null;
   return [street, span, k.parity].filter(Boolean).join(", ");
 };
 // #endregion

@@ -9,6 +9,13 @@ export const GREY = "#5b6b70";
 export const PAPER = "#f2f3f5";
 
 /**
+ * Lot fills on paper. High and low are dashed at two fills; work (another
+ * crew's lot) is a middle fill with a solid thin outline, so the three stay
+ * apart in greyscale.
+ */
+export const LOT_FILL: Record<"work" | "high" | "low", number> = { high: 0.75, work: 0.5, low: 0.3 };
+
+/**
  * Sheet and map rules. On screen a sheet is a Letter page at its real size
  * (8.5 by 11 in, 0.45 in padding), and on paper the page margin is 0 so the
  * sheet is the page: the maps are fitted once and print at the size they drew.

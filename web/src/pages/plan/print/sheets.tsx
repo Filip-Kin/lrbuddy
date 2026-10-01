@@ -3,7 +3,7 @@ import type { AreaPolygon } from "../../../../../server/db/schema.ts";
 import { dayDate, phoneText, plural } from "../../../components/admin/format.ts";
 import { lotTitle } from "../../../lib/format.ts";
 import type { RouterOutputs } from "../../../lib/trpc.ts";
-import { GREY, INK, WORK, YELLOW } from "./paper.ts";
+import { GREY, INK, LOT_FILL, WORK, YELLOW } from "./paper.ts";
 import { PrintMap, type LatLngPair, type PrintLayer } from "./PrintMap.tsx";
 
 // #region types and helpers
@@ -55,7 +55,7 @@ const Caps = ({ children }: { children: ReactNode }) => <div className="text-[10
 
 /** One Letter page. On screen it is drawn at paper size from 640 px up. */
 const Paper = ({ children }: { children: ReactNode }) => (
-  <article className="lrb-sheet lrb-paper mx-auto flex w-full flex-col rounded-xl bg-white p-4 shadow-lg ring-1 ring-black/10 sm:min-h-[11in] sm:w-[8.5in] sm:p-[0.45in]">
+  <article className="lrb-sheet lrb-paper mx-auto flex w-full min-w-0 flex-col overflow-x-auto sm:overflow-x-visible rounded-xl bg-white p-4 shadow-lg ring-1 ring-black/10 sm:min-h-[11in] sm:w-[8.5in] sm:p-[0.45in]">
     {children}
   </article>
 );
@@ -102,7 +102,7 @@ const Shirts = ({ shirts }: { shirts: readonly Shirt[] }) => (
 const Swatch = ({ kind }: { kind: "high" | "low" | "work" | "mine" | "other" | "crew" | "cc" }) => (
   <svg viewBox="0 0 22 14" width="22" height="14" aria-hidden="true" className="shrink-0">
     {kind === "high" || kind === "low" || kind === "work" ? (
-      <rect x="2" y="2" width="18" height="10" fill={WORK} fillOpacity={kind === "low" ? 0.3 : 0.75} stroke={kind === "work" ? "#8f1d22" : INK} strokeWidth="1.5" strokeDasharray="4 3" />
+      <rect x="2" y="2" width="18" height="10" fill={WORK} fillOpacity={LOT_FILL[kind]} stroke={INK} strokeWidth={kind === "work" ? 1 : 1.5} strokeDasharray={kind === "work" ? undefined : "4 3"} />
     ) : kind === "mine" ? (
       <>
         <rect x="4" y="3" width="14" height="8" fill="none" stroke={YELLOW} strokeWidth="5" />
@@ -201,7 +201,7 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
         </div>
         <figure className="flex w-[1.3in] shrink-0 flex-col items-center gap-0.5">
           <Qr svg={page.qrSvg} label={`QR code for ${page.teamName}`} className="aspect-square w-full" />
-          <figcaption className="text-xs font-bold">Scan to join</figcaption>
+          <figcaption className="text-xs font-bold">Join</figcaption>
         </figure>
       </div>
 

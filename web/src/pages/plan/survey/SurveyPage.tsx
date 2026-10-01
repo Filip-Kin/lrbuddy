@@ -48,7 +48,7 @@ const LoadSheet = ({ rect, onClose, onRedraw, notify }: { rect: OrientedRect | n
       notify({ tone: "ok", text: r.fetched === 0 ? "No parcels in that area" : `${plural(r.fetched, "parcel")} loaded` });
       onClose();
     },
-    onError: (e) => notify({ tone: "error", text: errorText(e, "Parcel layer not answering. Try again in a minute.") }),
+    onError: (e) => notify({ tone: "error", text: errorText(e, "Parcels not loaded. Try again.") }),
   });
   if (!rect) return null;
   // The assessor layer takes an envelope, so the load covers the box around the rectangle.

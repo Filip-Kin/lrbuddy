@@ -59,9 +59,10 @@ describe("blockSideKey", () => {
     expect(p.blockSideKey(garland(3965))).toBe(p.blockSideKey(garland(3961)));
   });
 
-  test("missing cross streets fall back to street and parity", () => {
-    expect(p.blockSideKey(garland(3965, { crossStreet1: null, crossStreet2: "" }))).toBe("GARLAND|odd");
-    expect(p.blockSideKey(garland(3964, { crossStreet1: null, crossStreet2: null }))).toBe("GARLAND|even");
+  test("missing cross streets fall back to street, hundred block and parity", () => {
+    expect(p.blockSideKey(garland(3965, { crossStreet1: null, crossStreet2: "" }))).toBe("GARLAND|3900|odd");
+    expect(p.blockSideKey(garland(3964, { crossStreet1: null, crossStreet2: null }))).toBe("GARLAND|3900|even");
+    expect(p.parseKey("GARLAND|3900|odd")).toEqual({ street: "GARLAND", fromCross: null, toCross: null, block: 3900, parity: "odd" });
   });
 
   test("review: two blocks of one street with no cross streets are not one block side", () => {
@@ -77,7 +78,7 @@ describe("blockSideKey", () => {
     expect(p.blockSideKey({ streetName: "Warren", streetPrefix: "E", streetNumber: 12, crossStreet1: "Chalmers", crossStreet2: "Alter" })).toBe(
       "E WARREN|ALTER|CHALMERS|even",
     );
-    expect(p.blockSideKey({ streetName: null, streetNumber: null, address: "4477 Bewick" })).toBe("BEWICK|odd");
+    expect(p.blockSideKey({ streetName: null, streetNumber: null, address: "4477 Bewick" })).toBe("BEWICK|4400|odd");
   });
 
   test("no street or no number is no block side", () => {
@@ -87,7 +88,7 @@ describe("blockSideKey", () => {
 
   test("labels read street, span and side", () => {
     expect(p.blockSideLabel("GARLAND|E CANFIELD ST|MACK AVE|odd")).toBe("Garland, E Canfield St to Mack Ave, odd");
-    expect(p.blockSideLabel("GARLAND|even")).toBe("Garland, even");
+    expect(p.blockSideLabel("GARLAND|3900|even")).toBe("Garland, 3900 block, even");
   });
 });
 
@@ -167,7 +168,7 @@ describe("blockSides from the database", () => {
     p.upsertParcels([garland(3961, { crossStreet1: null, crossStreet2: null })]);
     const rows = db.select().from(s.parcels).all();
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.blockSideKey).toBe("GARLAND|odd");
+    expect(rows[0]!.blockSideKey).toBe("GARLAND|3900|odd");
   });
 
   test("featureToParcel reads the layer's fields", () => {

@@ -176,6 +176,19 @@ describe("assignments and publish", () => {
     expect(lot === undefined || lot.status !== "open" || lot.crewId !== crew.id).toBe(true);
   });
 
+  test("a cleared parcel's lot with photos is kept, off the crew and skipped", async () => {
+    await tagAll();
+    const crew = setup.createCrew({ dayId, ccId, companyId: ford, headcount: 10 });
+    await admin.assignments.set({ dayId, ccId, crewId: crew.id, keys: [ODD, EVEN] });
+    await admin.assignments.publish();
+    const lot = db.select().from(s.lots).where(eq(s.lots.parcelId, "Garland-3963.")).get()!;
+    db.insert(s.lotPhotos).values({ lotId: lot.id, kind: "before", role: "admin", at: Date.now(), width: 10, height: 10, bytes: 100 }).run();
+    await admin.survey.tag({ parcelId: "Garland-3963.", grade: "clear" });
+    expect(await admin.assignments.publish()).toMatchObject({ removed: 1 });
+    expect(db.select().from(s.lots).where(eq(s.lots.id, lot.id)).get()).toMatchObject({ status: "skipped", crewId: null });
+    expect(await admin.assignments.publish()).toMatchObject({ removed: 0 });
+  });
+
   test("assigning a side again moves it; clear removes it", async () => {
     await tagAll();
     await admin.assignments.set({ dayId, ccId, companyId: ford, keys: [ODD] });

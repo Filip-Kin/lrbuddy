@@ -1,13 +1,15 @@
 /**
  * Planning portal demo data for the seed (SPEC 16): the parcel cache for the
  * seed bbox, a survey tag on every seeded lot by "Kelsey" on 2026-07-14,
- * company attendance, and assignments and areas for the day's crews.
+ * company attendance, and assignments for the day's crews, published so the
+ * crews' lots and areas match the plan.
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "./db/index.ts";
 import { assignments, companyDays, crews, lots, parcels, surveyTags, type Crew, type Lot, type LotGeometry } from "./db/schema.ts";
 import { normalizeBBox, type BBox } from "./geo.ts";
 import { areaAround, loadParcelsBBox, outlinePoints, upsertParcels, type ParcelInput } from "./parcels.ts";
+import { publishAssignments } from "./routers/plan/assignments.ts";
 
 /** 2026-07-14 10:00 in Detroit (EDT, UTC-4). */
 const SURVEY_START = Date.UTC(2026, 6, 14, 14, 0, 0);
@@ -77,6 +79,8 @@ export interface SeedPlanResult {
   parcels: string;
   tags: number;
   assigned: number;
+  /** Lots written or updated by the publish. */
+  published: number;
   areas: number;
 }
 
@@ -88,8 +92,8 @@ export const seedPlan = async (input: { eventId: number; dayId: number; bbox: BB
 
   // #region survey tags
   // Every seeded lot: two thirds low, one third high. The other residential
-  // vacant parcels on the block sides those lots sit on were driven too: about
-  // one in five is work, the rest clear, so Blocks shows every band.
+  // vacant parcels on the block sides those lots sit on were driven too: a
+  // few are work, the rest clear (see crewSides below).
   const withParcel = eventLots.filter((l): l is Lot & { parcelId: string } => l.parcelId !== null);
   const lotGrade = new Map(withParcel.map((l, i) => [l.parcelId, i % 3 === 0 ? ("high" as const) : ("low" as const)]));
   const sideKeys = [
@@ -112,6 +116,11 @@ export const seedPlan = async (input: { eventId: number; dayId: number; bbox: BB
         .filter((r) => lotGrade.has(r.parcelId) || r.cls === "RESIDENTIAL-VACANT")
         .sort((a, b) => (a.key ?? "").localeCompare(b.key ?? "") || (a.num ?? 0) - (b.num ?? 0))
     : [];
+  // Sides a seeded crew works on (they are assigned below) stay near the crew's own lots, so its sheet holds a
+  // half day; the other sides are denser, so Blocks shows unassigned work in every band.
+  const crewLotIds = new Set(withParcel.filter((l) => l.crewId !== null).map((l) => l.parcelId));
+  const crewSides = new Set(driven.filter((r) => crewLotIds.has(r.parcelId)).map((r) => r.key).filter((k): k is string => k !== null));
+  const sideOf = new Map<string, string | null>(driven.map((r) => [r.parcelId, r.key]));
   // Lots whose parcel has no block side still get their tag.
   const drivenIds = new Set(driven.map((r) => r.parcelId));
   const rest = withParcel.filter((l) => !drivenIds.has(l.parcelId)).map((l) => ({ parcelId: l.parcelId, lat: l.lat, lng: l.lng }));
@@ -119,7 +128,9 @@ export const seedPlan = async (input: { eventId: number; dayId: number; bbox: BB
   db.transaction((tx) => {
     route.forEach((r, i) => {
       const k = (Number.parseInt(r.parcelId.replace(/\D/g, "").slice(-6) || "0", 10) * 2654435761) % 100;
-      const grade = lotGrade.get(r.parcelId) ?? (k < 6 ? "high" : k < 20 ? "low" : "clear");
+      const key = sideOf.get(r.parcelId) ?? null;
+      const dense = key !== null && !crewSides.has(key);
+      const grade = lotGrade.get(r.parcelId) ?? (dense ? (k < 8 ? "high" : k < 35 ? "low" : "clear") : k < 2 ? "high" : k < 7 ? "low" : "clear");
       tx.insert(surveyTags)
         .values({ eventId, parcelId: r.parcelId, grade, side: i % 2 === 0 ? "left" : "right", lat: r.lat, lng: r.lng, by: "Kelsey", at: SURVEY_START + i * 12_000 })
         .run();
@@ -167,10 +178,24 @@ export const seedPlan = async (input: { eventId: number; dayId: number; bbox: BB
   }
   // #endregion
 
-  // #region areas: the crew's lots, padded 15 m
-  let areas = 0;
+  // #region publish, as the Assignments page does, so lots and crew areas come from the assignments
+  const published = publishAssignments(eventId, { dayId, resetAreas: true });
+  // #endregion
+
+  // #region areas: a crew with no assigned side gets one around its lots, padded 15 m
+  let areas = published.areas;
+  const afterPublish = db.select().from(lots).where(eq(lots.eventId, eventId)).all();
+  const withArea = new Set(
+    db
+      .select({ id: crews.id })
+      .from(crews)
+      .where(and(inArray(crews.id, input.crews.map((c) => c.id)), sql`${crews.area} is not null`))
+      .all()
+      .map((r) => r.id),
+  );
   for (const crew of input.crews) {
-    const mine = eventLots.filter((l) => l.crewId === crew.id);
+    if (withArea.has(crew.id)) continue;
+    const mine = afterPublish.filter((l) => l.crewId === crew.id);
     const area = areaAround(mine.flatMap((l) => (l.geometry ? outlinePoints(l.geometry) : [{ lat: l.lat, lng: l.lng }])), 15);
     if (!area) continue;
     db.update(crews).set({ area }).where(eq(crews.id, crew.id)).run();
@@ -178,5 +203,5 @@ export const seedPlan = async (input: { eventId: number; dayId: number; bbox: BB
   }
   // #endregion
 
-  return { parcels: parcelNote, tags: route.length, assigned, areas };
+  return { parcels: parcelNote, tags: route.length, assigned, published: published.added + published.updated, areas };
 };

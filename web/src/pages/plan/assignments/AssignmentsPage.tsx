@@ -649,6 +649,7 @@ export const AssignmentsPage = () => {
                 setPublishOpen(false);
                 const parts = [`${plural(r.added, "lot")} added`, `${r.updated.toLocaleString("en-US")} updated`];
                 if (r.kept > 0) parts.push(`${r.kept.toLocaleString("en-US")} done kept`);
+                if (r.removed > 0) parts.push(`${r.removed.toLocaleString("en-US")} removed`);
                 if (r.areas > 0) parts.push(plural(r.areas, "area"));
                 setNotice({ tone: "ok", text: parts.join(", ") });
               },

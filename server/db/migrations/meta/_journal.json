@@ -64,6 +64,13 @@
       "when": 1790868446428,
       "tag": "0008_bright_thor_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1790870407787,
+      "tag": "0009_dapper_thunderbolt_ross",
+      "breakpoints": true
     }
   ]
 }

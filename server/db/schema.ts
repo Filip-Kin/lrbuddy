@@ -38,8 +38,16 @@ export type PositionKind = (typeof POSITION_KINDS)[number];
 export const LOT_SOURCES = ["dlba", "parcel", "csv", "manual", "survey"] as const;
 export type LotSource = (typeof LOT_SOURCES)[number];
 
-export const LOT_STATUSES = ["open", "in_progress", "done", "skipped"] as const;
+/**
+ * SPEC 21: open is "Todo"; a parcel with no lot row is "Not todo", and `not_todo`
+ * is a reverted todo that keeps its history (photos, status trail).
+ */
+export const LOT_STATUSES = ["open", "in_progress", "done", "do_not_touch", "not_todo"] as const;
 export type LotStatus = (typeof LOT_STATUSES)[number];
+
+/** Optional work size on a todo lot (SPEC 21): high is "Full day", low is "Light". */
+export const LOT_GRADES = ["high", "low"] as const;
+export type LotGrade = (typeof LOT_GRADES)[number];
 
 export const PHOTO_KINDS = ["before", "after"] as const;
 export type PhotoKind = (typeof PHOTO_KINDS)[number];
@@ -424,6 +432,7 @@ export const lots = sqliteTable(
     ccId: integer("cc_id").references(() => commandCenters.id, { onDelete: "set null" }),
     crewId: integer("crew_id").references(() => crews.id, { onDelete: "set null" }),
     status: text("status", { enum: LOT_STATUSES }).notNull().default("open"),
+    grade: text("grade", { enum: LOT_GRADES }),
     statusByCrewId: integer("status_by_crew_id").references(() => crews.id, { onDelete: "set null" }),
     statusAt: integer("status_at"),
     note: text("note"),

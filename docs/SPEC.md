@@ -524,3 +524,104 @@ Seed
 Gate and sheets
 - Add `/photos` to the green routes and `/admin/photos` to the admin routes in `scripts/gate.py` and
   `scripts/sheets.py`. Camera buttons are at least 44 px. The viewer is `100dvh` with safe-area padding.
+
+## 16. Planning portal (`/plan`)
+
+One platform, two surfaces. The field app (sections 5 to 15) is for the day. The portal is for the
+months before it and the recap after, used by Life Remodeled staff on a laptop, with one phone screen
+(Survey drive mode). Same repo, same database, same admin login. The admin screens from section 5
+move under `/plan` over time; this slice moves **Print** and adds **Survey**, **Blocks** and
+**Assignments**. Companies, Recap and the "changed since survey" flags are the next slice.
+
+Portal shell
+- Route prefix `/plan`. Admin session only; anyone else gets `/login`. Laptop layout: a left rail
+  with Survey, Blocks, Assignments, Print, and a link back to the field app's admin pages; on a phone
+  the rail is the same hamburger as everywhere else (left, `aria-expanded`, `[data-menu]`,
+  `[data-scrim]`). Portal pages keep the palette from section 13.
+- The event picker sits in the rail; every portal page is scoped to the active event.
+
+Data
+```
+parcels       parcel_id PK, address, lat, lng, geometry (GeoJSON), street_name, street_number, street_prefix,
+              cross_street_1, cross_street_2, property_class, property_class_description, taxpayer_1,
+              is_improved, pct_pre_claimed, sale_date, fetched_at
+              -- cache of the assessor parcel layer for the areas the survey has touched; refreshed per bbox,
+              -- shared by every event. block_side key = street_name + cross streets + parity of street_number.
+survey_tags   id, event_id, parcel_id, grade ('high'|'low'|'clear'), side ('left'|'right'|'tap'), note,
+              lat, lng (where the tagger stood), heading, by (display name), at
+              -- newest tag per parcel wins; 'clear' removes the parcel from the work list.
+block_sides   view or computed: event_id, key, street_name, from_cross, to_cross, parity, parcel_count,
+              high, low, work_count (high+low), colour band
+assignments   id, event_id, day_id, cc_id, company_id, crew_id (nullable until crews exist), block_side_key,
+              order
+crews         + area (nullable GeoJSON Polygon): the rectangle printed on the crew's sheet, computed as the
+              bbox of the crew's assigned parcels padded 15 m, editable by dragging corners on the Assignments map
+```
+
+Survey (phone and laptop)
+- `/plan/survey` on a laptop: the map of the event area with every surveyed parcel coloured by grade,
+  block sides outlined, counts, a Day filter, and a table (address, grade, by, when). Tap a parcel to
+  change its grade or add a note. **Load parcels** button: draw a rectangle, pulls that bbox from the
+  assessor layer into `parcels` (envelope query, pages of 2000, geometry included) so the drive mode
+  has outlines offline-ish.
+- `/plan/survey/drive` on a phone: Drive mode. Full-screen map following the GPS dot, rotated to the
+  heading (heading from GPS when speed is over 2 m/s, else the bearing of the last two fixes). The
+  parcels on the left and right of the road ahead are drawn; the two nearest on each side within 40 m
+  of the road centreline are highlighted. Two tall buttons fill the bottom third: **Left** and
+  **Right**. One tap tags the nearest highlighted parcel on that side as `low`; a second tap on the
+  same parcel within 3 s makes it `high`; a long press opens the grade sheet (High, Low, Clear, note,
+  photo via section 15 with kind `before`). A toast shows the address tagged, with **Undo** for 5 s.
+  Tagging works with the screen awake (the existing Keep screen on toggle applies). Tags queue in
+  memory and post in order; a lost connection shows a queued count, not an error.
+- The B&B lead's rule set lives here as constants with labels: `high` = a crew for the whole half day,
+  `low` = light work, 10 or more work parcels on one block side = the dark band.
+
+Blocks (laptop)
+- `/plan/blocks`: the map coloured per block side by `work_count`: 0 grey, 1 to 4 light, 5 to 9 mid,
+  10 and up dark red. A table of block sides sorted by work_count with street, from, to, side (odd or
+  even), high, low, total parcels, assigned to. Clicking a row pans the map; clicking the map selects
+  the row. Multi-select with shift.
+- Totals bar: work parcels, high, low, block sides over 10, crews needed (work parcels divided by the
+  per-crew capacity, default 10 parcels or 5 high, editable).
+
+Assignments (laptop)
+- `/plan/assignments`: pick a Day and a CC. Left: the companies attending that day with promised
+  headcount and the crews that exist for them. Right: the Blocks map. Select block sides, then
+  **Assign to** a company (and a crew when crews exist). Capacity math per company: headcount divided
+  by 10 = crews; parcels assigned versus capacity shown as a bar that turns `--warn` when over.
+- **Build crews** creates crew rows for a company from its headcount (one per 10, names "Ford 1",
+  "Ford 2") when none exist. **Publish to field app** writes `lots` for the event from the tagged
+  parcels of the assigned block sides (status open, `source: 'survey'`, cc, crew), and sets each
+  crew's `area`. Re-publishing updates, never duplicates (keyed on event + parcel). Lots a crew already
+  marked done are left alone.
+- Drag a crew's area corners on the map to adjust the printed rectangle.
+
+Print (laptop), moved from `/admin/print` to `/plan/print`
+- One sheet per crew, Letter portrait, `@media print` with `break-after: page`. Header: crew name,
+  company, day, CC name and address, red shirt name and phone. A QR to `/j/<token>` top right.
+- **Overview map**, the full area the CC covers that day: every lot in need of work highlighted in
+  `--crew` fill, this crew's rectangle drawn as a thick `--ink` outline with a yellow halo, the CC as
+  a star marker, other crews' rectangles as thin grey outlines with their names. Fit to the CC's area.
+- **Detail map** below it, fit to this crew's rectangle: each of the crew's lots with its address
+  label, the parcel outline, and the lot's grade; CC star if it falls inside, else an arrow at the
+  map edge with the distance.
+- Under the maps: the lot list (address, grade), the CC's green shirts with phones, and the request
+  codes block (how to scan in).
+- One sheet per CC follows: the overview map, the green code, every truck with its code, and the
+  crews table.
+- Maps are Leaflet on the printed page with the Esri Canvas tiles; the page waits for every tile
+  (`load` on each layer) before it enables the **Print** button, and the gate's print check waits for
+  `[data-print-ready]`. Markers and outlines are SVG so they print crisp. Colours must survive
+  greyscale: the crew rectangle is thick, lots use fill plus a dashed outline, the CC star is black
+  with a white stroke.
+- `/admin/print` redirects to `/plan/print`.
+
+Seed
+- Survey tags for the seed bbox: every seeded lot gets a tag (two thirds `low`, one third `high`) by
+  "Kelsey" dated 2026-07-14, parcels cached for the bbox, block sides derived, and the twelve crews
+  get assignments and areas so Blocks, Assignments and Print show real content.
+
+Gate and sheets
+- Add `/plan/survey`, `/plan/blocks`, `/plan/assignments`, `/plan/print` to the admin routes in
+  `scripts/gate.py` and `scripts/sheets.py`, and `/plan/survey/drive` as an admin phone route. The
+  print page is exempt from the hamburger check (it is a document) but not from overflow.

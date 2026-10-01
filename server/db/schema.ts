@@ -580,6 +580,43 @@ export const onewayWays = sqliteTable(
   (t) => [index("oneway_ways_bbox_key_idx").on(t.bboxKey), index("oneway_ways_bounds_idx").on(t.minLat, t.maxLat)],
 );
 
+export const ALLEY_STATUSES = ["open", "in_progress", "done", "do_not_touch"] as const;
+export type AlleyStatus = (typeof ALLEY_STATUSES)[number];
+
+/**
+ * Alleys as work units (SPEC 19), from OpenStreetMap (`highway=service`, `service=alley`) for a
+ * CC's day area. `polygon` is the centreline buffered 3 m each side; `centerline` keeps the line.
+ * One row per CC and OSM way, so a refetch keeps the status and crew.
+ */
+export const alleys = sqliteTable(
+  "alleys",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    dayId: integer("day_id")
+      .notNull()
+      .references(() => days.id, { onDelete: "cascade" }),
+    ccId: integer("cc_id")
+      .notNull()
+      .references(() => commandCenters.id, { onDelete: "cascade" }),
+    osmId: integer("osm_id").notNull(),
+    polygon: text("polygon", { mode: "json" }).$type<AreaPolygon>().notNull(),
+    /** [[lat, lng], ...] in node order. */
+    centerline: text("centerline", { mode: "json" }).$type<Array<[number, number]>>().notNull(),
+    betweenStreet1: text("between_street_1"),
+    betweenStreet2: text("between_street_2"),
+    fromCross: text("from_cross"),
+    toCross: text("to_cross"),
+    status: text("status", { enum: ALLEY_STATUSES }).notNull().default("open"),
+    crewId: integer("crew_id").references(() => crews.id, { onDelete: "set null" }),
+    statusAt: integer("status_at"),
+    fetchedAt: integer("fetched_at").notNull(),
+  },
+  (t) => [uniqueIndex("alleys_cc_osm_idx").on(t.ccId, t.osmId), index("alleys_day_idx").on(t.dayId)],
+);
+
 /** One tag per pass by a surveyor. The newest tag per parcel wins; `clear` takes it off the work list. */
 export const surveyTags = sqliteTable(
   "survey_tags",
@@ -675,4 +712,5 @@ export type CompanyDay = typeof companyDays.$inferSelect;
 export type Assignment = typeof assignments.$inferSelect;
 export type CrewArea = typeof crewAreas.$inferSelect;
 export type OnewayWay = typeof onewayWays.$inferSelect;
+export type Alley = typeof alleys.$inferSelect;
 // #endregion

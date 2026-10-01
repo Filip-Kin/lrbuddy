@@ -28,6 +28,7 @@ import { haversine, type LatLng } from "./geo.ts";
 import { attachOutlines, fetchDlba, upsertLots, type LotInput } from "./lots-import.ts";
 import { sweepPhotoFiles } from "./photos.ts";
 import { seedLotPhotos, type SeedPhotoTarget } from "./seed-photos.ts";
+import { ccbCompanies, seedCcB } from "./seed-ccb.ts";
 import { seedPlan } from "./seed-plan.ts";
 import { createCc, createCrew, createEvent, createTruck } from "./setup.ts";
 
@@ -133,7 +134,7 @@ const main = async (): Promise<void> => {
     ["Rocket", "ROCKET"],
     ["DTE", "DTE"],
     ["Henry Ford Health", "HFH"],
-    ["GM", "GM"],
+    ["General Motors", "GM"],
   ];
   const companyIds = companyNames.map(([name, short]) => db.insert(companies).values({ eventId: ev.id, name, short }).returning().get().id);
   const leads = [
@@ -197,6 +198,11 @@ const main = async (): Promise<void> => {
 
   // #region planning portal: parcel cache, survey tags, assignments, crew areas
   const plan = await seedPlan({ eventId: ev.id, dayId: day1.id, bbox: BBOX, crews: crewRows });
+  // #endregion
+
+  // #region Day 4: the real Thursday CC B (SPEC 19)
+  const day4 = db.select().from(days).where(and(eq(days.eventId, ev.id), eq(days.sort, 4))).get()!;
+  const ccb = await seedCcB({ eventId: ev.id, day: day4, ...ccbCompanies(ev.id) });
   // #endregion
 
   // #region positions
@@ -322,6 +328,9 @@ const main = async (): Promise<void> => {
     ["driver", "Truck 1 (East)", `TRUCK1  ${base}/t/TRUCK1`],
     ["driver", "Truck 2 (East)", `TRUCK2  ${base}/t/TRUCK2`],
     ["driver", "Truck 3 (West)", `TRUCK3  ${base}/t/TRUCK3`],
+    ["green", "Day 4 CC B (Webb)", `DURFB1  ${base}/g/DURFB1`],
+    ["driver", "Truck B1 (Webb)", `TRUCKB1  ${base}/t/TRUCKB1`],
+    ["driver", "Truck B2 (Webb)", `TRUCKB2  ${base}/t/TRUCKB2`],
     ...crewRows.map((cr): [string, string, string] => [
       "crew",
       `Crew ${cr.number} (${companyNames[(cr.number - 1) % companyNames.length]?.[0] ?? ""}, ${cr.ccId === east.id ? "East" : "West"})`,
@@ -332,6 +341,7 @@ const main = async (): Promise<void> => {
   const w1 = Math.max(...rows.map((r) => r[1].length));
   console.log(`\nSeeded "${EVENT_NAME}": ${allLots.length} lots (${lotSource}), ${crewRows.length} crews, 3 trucks, ${seedReqs.length} requests, ${photographed} photo pairs`);
   console.log(`Plan: ${plan.parcels}, ${plan.tags} survey tags, ${plan.assigned} block sides assigned, ${plan.shared} shared areas, ${plan.published} lots published, ${plan.areas} crew areas\n`);
+  console.log(`Day 4 CC B: ${ccb.parcels}, ${ccb.tags} survey tags, ${ccb.sides} block sides, ${ccb.areas} rectangles, ${ccb.lots} lots, ${ccb.crews.length} crews\n`);
   console.log(`${"role".padEnd(w0)}  ${"who".padEnd(w1)}  code or join link`);
   console.log(`${"-".repeat(w0)}  ${"-".repeat(w1)}  ${"-".repeat(40)}`);
   for (const [role, who, code] of rows) console.log(`${role.padEnd(w0)}  ${who.padEnd(w1)}  ${code}`);

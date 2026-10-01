@@ -467,3 +467,83 @@ export const outlinePoints = (g: LotGeometry): LatLng[] => {
   return out;
 };
 // #endregion
+
+// #region oriented areas
+/**
+ * Direction of the main axis the points spread along, in radians from east
+ * toward north (local metres). Points along one street give the street's
+ * direction, which on a turned street grid is not east-west.
+ */
+export const mainAxis = (pts: readonly LatLng[]): number => {
+  if (pts.length < 2) return 0;
+  const lat0 = pts.reduce((n, p) => n + p.lat, 0) / pts.length;
+  const lng0 = pts.reduce((n, p) => n + p.lng, 0) / pts.length;
+  const kx = 111320 * Math.cos((lat0 * Math.PI) / 180);
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+  for (const p of pts) {
+    const x = (p.lng - lng0) * kx;
+    const y = (p.lat - lat0) * 111320;
+    sxx += x * x;
+    syy += y * y;
+    sxy += x * y;
+  }
+  return 0.5 * Math.atan2(2 * sxy, sxx - syy);
+};
+
+/**
+ * The parallelogram around the points with sides along two grid directions
+ * (radians from east toward north, see `mainAxis`), padded `padM` metres
+ * along the first direction and `padAcrossM` (default the same) along the
+ * second, as a closed GeoJSON ring. With `across` a right angle off `along`
+ * it is a turned rectangle; Detroit's avenues cross its streets at less than
+ * a right angle, and a block there is a parallelogram.
+ */
+export const gridAreaAround = (
+  pts: readonly LatLng[],
+  along: number,
+  across: number,
+  padM = 15,
+  padAcrossM = padM,
+): { type: "Polygon"; coordinates: number[][][] } | null => {
+  if (pts.length === 0) return null;
+  const lat0 = pts.reduce((n, p) => n + p.lat, 0) / pts.length;
+  const lng0 = pts.reduce((n, p) => n + p.lng, 0) / pts.length;
+  const kx = 111320 * Math.cos((lat0 * Math.PI) / 180);
+  const ux = Math.cos(along);
+  const uy = Math.sin(along);
+  const wx = Math.cos(across);
+  const wy = Math.sin(across);
+  const det = ux * wy - uy * wx;
+  if (Math.abs(det) < 0.2) return null;
+  // Distance between parallel sides is the coordinate times |det|, so a pad in coordinates is metres / |det|.
+  const padA = padM / Math.abs(det);
+  const padB = padAcrossM / Math.abs(det);
+  let a0 = Infinity;
+  let a1 = -Infinity;
+  let b0 = Infinity;
+  let b1 = -Infinity;
+  for (const p of pts) {
+    const x = (p.lng - lng0) * kx;
+    const y = (p.lat - lat0) * 111320;
+    const a = (x * wy - y * wx) / det;
+    const b = (ux * y - uy * x) / det;
+    a0 = Math.min(a0, a);
+    a1 = Math.max(a1, a);
+    b0 = Math.min(b0, b);
+    b1 = Math.max(b1, b);
+  }
+  a0 -= padA;
+  a1 += padA;
+  b0 -= padB;
+  b1 += padB;
+  const back = (a: number, b: number): number[] => [lng0 + (a * ux + b * wx) / kx, lat0 + (a * uy + b * wy) / 111320];
+  const ring = [back(a0, b0), back(a1, b0), back(a1, b1), back(a0, b1)];
+  return { type: "Polygon", coordinates: [[...ring, ring[0]!]] };
+};
+
+/** The rectangle around the points with its long sides at `theta`, padded `padM` metres. */
+export const orientedAreaAround = (pts: readonly LatLng[], theta: number, padM = 15): { type: "Polygon"; coordinates: number[][][] } | null =>
+  gridAreaAround(pts, theta, theta + Math.PI / 2, padM);
+// #endregion

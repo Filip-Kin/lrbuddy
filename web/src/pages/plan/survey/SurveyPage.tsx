@@ -167,7 +167,7 @@ export const SurveyPage = () => {
 
   if (noEvent(list.error)) {
     return (
-      <Page title="Survey" wide>
+      <Page title="Survey" full>
         <Panel>
           <EmptyState title="No active event" />
         </Panel>
@@ -180,7 +180,7 @@ export const SurveyPage = () => {
   return (
     <Page
       title="Survey"
-      wide
+      full
       actions={
         <>
           <Button size="sm" variant={drawing ? "primary" : "secondary"} onClick={() => (drawing ? stopDrawing() : (setSheetRect(null), setDrawing(true)))}>
@@ -198,13 +198,13 @@ export const SurveyPage = () => {
         {list.isLoading ? (
           <SkeletonList rows={1} className="h-16" />
         ) : (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-7">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
             <Stat value={rows.length} label="Surveyed" />
             <Stat value={count("high")} label="High" tone="crew" />
             <Stat value={count("low")} label="Low" tone="warn" />
             <Stat value={count("clear")} label="Clear" tone="muted" />
             <Stat value={sides.length} label="Block sides" />
-            <Stat value={darkSides} label={`Sides with ${rules?.darkAt ?? 10}+`} tone="crew" />
+            <Stat value={darkSides} label={`Sides ${rules?.darkAt ?? 10}+`} tone="crew" />
             <Stat value={cache.data?.count ?? 0} label="Parcels loaded" />
           </div>
         )}

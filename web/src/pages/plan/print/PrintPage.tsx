@@ -57,7 +57,7 @@ export const PrintPage = () => {
 
   if (loading) {
     return (
-      <Page title="Print" wide>
+      <Page title="Print" full>
         <SkeletonList rows={3} className="h-14" />
       </Page>
     );
@@ -65,7 +65,7 @@ export const PrintPage = () => {
   if (noEvent || !day) {
     return (
       <div data-print-ready="">
-        <Page title="Print">
+        <Page title="Print" full>
           <Panel>
             <EmptyState title={noEvent ? "No active event" : "No days"} />
           </Panel>
@@ -80,7 +80,7 @@ export const PrintPage = () => {
       <div className="lrb-print-hide">
         <Page
           title="Print"
-          wide
+          full
           actions={
             <Button size="lg" onClick={() => window.print()} disabled={pageCount === 0 || !allReady} busy={!!data && pageCount > 0 && !allReady}>
               <PrintIcon />

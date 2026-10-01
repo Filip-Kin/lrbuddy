@@ -40,7 +40,7 @@ export const BAND_LABELS: Record<Band, string> = {
   none: "0",
   light: "1 to 4",
   mid: "5 to 9",
-  dark: "10 and up",
+  dark: "10+",
 };
 
 /** Colour band of a block side by its work count: 0 grey, 1 to 4 light, 5 to 9 mid, 10 and up dark. */

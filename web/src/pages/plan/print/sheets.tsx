@@ -266,11 +266,13 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
           <Shirts shirts={page.greenShirts} />
           <section className="rounded-md border-2 border-[#0e3038] px-2 py-1.5 text-xs">
             <Caps>Join</Caps>
-            <dl className="mt-0.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
-              <dt className="font-semibold">Sign in</dt>
-              <dd className="font-mono break-all">{bareUrl(page.loginUrl)}</dd>
+            <dl className="mt-0.5 space-y-0.5">
+              <div className="flex gap-2">
+                <dt className="font-semibold">Sign in</dt>
+                <dd className="min-w-0 font-mono break-all">{bareUrl(page.loginUrl)}</dd>
+              </div>
               <dt className="font-semibold">Code</dt>
-              <dd className="font-mono text-sm font-black break-all">{page.code}</dd>
+              <dd className="font-mono text-sm font-black whitespace-nowrap">{page.code}</dd>
             </dl>
           </section>
         </div>

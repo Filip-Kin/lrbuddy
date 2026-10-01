@@ -168,7 +168,7 @@ export const LotsPage = () => {
               ) : (
                 <Button className="pointer-events-auto shadow-lg" onClick={() => setDrawing(true)}>
                   <RectIcon />
-                  Rectangle
+                  Select area
                 </Button>
               )}
             </div>

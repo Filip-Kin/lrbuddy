@@ -231,8 +231,10 @@ with sync_playwright() as pw:
         adm.get_by_role("button", name="Import DLBA").click()
         box = adm.locator(".leaflet-container").bounding_box()
         cx, cy = box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5
-        adm.mouse.click(cx - 45, cy - 28)
-        adm.mouse.click(cx + 45, cy + 28)
+        # Oriented rectangle: two clicks along the street, a third for the width.
+        adm.mouse.click(cx - 60, cy)
+        adm.mouse.click(cx + 60, cy)
+        adm.mouse.click(cx, cy + 45)
         sheet = adm.get_by_role("dialog")
         sheet.get_by_label("Command center").select_option(label="Day 1, CC East")
         shot(adm, "7-admin-import-sheet")

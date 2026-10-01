@@ -63,13 +63,19 @@ export const preparePhoto = async (file: Blob): Promise<{ photo: Blob; thumb: Bl
     img.close();
   }
 };
+
+/** The photo and thumb from a frame already on screen (the Flag screen's camera). */
+export const prepareFrame = async (source: CanvasImageSource, width: number, height: number): Promise<{ photo: Blob; thumb: Blob }> => ({
+  photo: await toJpeg(source, width, height, LONG_EDGE),
+  thumb: await toJpeg(source, width, height, THUMB_EDGE),
+});
 // #endregion
 
 // #region upload
-type PostResult = { ok: true; id: number } | { ok: false; message: string };
+export type PostResult = { ok: true; id: number } | { ok: false; message: string };
 
 /** `POST /photos` through XHR, the one browser API that reports upload progress. */
-const postPhoto = (form: FormData, onProgress: (f: number) => void): Promise<PostResult> =>
+export const postPhoto = (form: FormData, onProgress: (f: number) => void): Promise<PostResult> =>
   new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/photos");

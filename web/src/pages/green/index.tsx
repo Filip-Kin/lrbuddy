@@ -4,6 +4,7 @@ import { trpc } from "../../lib/trpc.ts";
 import { GreenAccessPage } from "../access/AccessQueue.tsx";
 import { BroadcastPage } from "./BroadcastPage.tsx";
 import { CrewsPage } from "./CrewsPage.tsx";
+import { FlagPage } from "./flag/FlagPage.tsx";
 import { LotsPage } from "./LotsPage.tsx";
 import { MapPage } from "./MapPage.tsx";
 import { PhotosPage } from "./PhotosPage.tsx";
@@ -19,6 +20,7 @@ import { TrucksPage } from "./TrucksPage.tsx";
 export const greenLinks = (base = "", search = ""): NavLink[] =>
   [
     { href: "/", label: "Map" },
+    { href: "/flag", label: "Flag" },
     { href: "/requests", label: "Requests" },
     { href: "/lots", label: "Lots" },
     { href: "/photos", label: "Photos" },
@@ -39,6 +41,7 @@ export const useGreenLinks = (base = "", search = ""): NavLink[] => {
 export const GreenRoutes = () => (
   <Switch>
     <Route path="/" component={MapPage} />
+    <Route path="/flag" component={FlagPage} />
     <Route path="/requests" component={RequestsPage} />
     <Route path="/lots" component={LotsPage} />
     <Route path="/photos" component={PhotosPage} />

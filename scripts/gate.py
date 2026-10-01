@@ -7,6 +7,7 @@ Static checks read the tree; dynamic checks log in as each role and walk every r
 at phone and laptop widths, light and dark. Screenshots land in
 /home/filip/preview-shots/lrbuddy-gate/.
 """
+import gzip
 import json
 import urllib.parse
 import os
@@ -132,6 +133,37 @@ def static_checks() -> None:
             fail(f"{name} missing")
 
 
+# First paint (Filip, 2026-10-01, on 5G): the entry script and everything index.html preloads with it
+# stay under this gzipped, and none of it is Leaflet; the maps load in their role's chunk.
+ENTRY_MAX_GZ_KB = 150
+
+
+def bundle_checks() -> None:
+    dist = ROOT / "web/dist"
+    html_path = dist / "index.html"
+    if not html_path.exists():
+        fail("web/dist/index.html missing; run bun run build")
+        return
+    html = html_path.read_text(errors="ignore")
+    entry = re.findall(r'<script type="module"[^>]*src="(/assets/[^"]+\.js)"', html)
+    preloads = re.findall(r'<link rel="modulepreload"[^>]*href="(/assets/[^"]+\.js)"', html)
+    if not entry:
+        fail("web/dist/index.html has no module entry script")
+        return
+    total = 0
+    for rel in entry + preloads:
+        data = (dist / rel.lstrip("/")).read_bytes()
+        total += len(gzip.compress(data, 9))
+        if b"leaflet-pane" in data:
+            fail(f"{rel}: Leaflet is in the entry chunk's critical path")
+    kb = total / 1024
+    print(f"entry chunk {', '.join(r.rsplit('/', 1)[-1] for r in entry + preloads)}: {kb:.1f} KB gzipped")
+    if kb >= ENTRY_MAX_GZ_KB:
+        fail(f"entry chunk is {kb:.1f} KB gzipped (>= {ENTRY_MAX_GZ_KB} KB)")
+    if 'data-error-panel' not in html:
+        fail("web/index.html has no boot error panel; a module that throws on load leaves a blank page")
+
+
 # endregion
 
 # region Dynamic checks
@@ -142,7 +174,7 @@ ROLES = {
     "driver": {"login": {"code": "TRUCK1", "displayName": "Gate"}, "routes": ["/", "/stock", "/settings"]},
     "green": {"login": {"code": "EAST01", "displayName": "Gate"}, "routes": ["/", "/flag", "/requests", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access"]},
     "admin": {"login": {"code": ADMIN}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export",
-                                                  "/admin/access", "/plan/survey", "/plan/blocks", "/plan/assignments", "/plan/print", "/plan/survey/drive"]},
+                                                  "/admin/access", "/admin/client-errors", "/plan/survey", "/plan/blocks", "/plan/assignments", "/plan/print", "/plan/survey/drive"]},
 }
 SIZES = {"phone": (390, 844), "laptop": (1440, 900)}
 # The planning portal is a laptop surface with one phone screen (drive mode). Other routes run at both sizes.
@@ -1294,9 +1326,73 @@ def draw_lot_checks() -> None:
         browser.close()
 
 
+# Crash visibility: a screen that throws shows the error panel (title, the error, Reload and Back at
+# 44 px), not a blank page, and the report reaches /admin/client-errors.
+def crash_checks() -> None:
+    if not ADMIN:
+        warn("no admin password given, crash checks skipped")
+        return
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
+        for scheme in ("light", "dark"):
+            tag = f"crash-test-phone-{scheme}"
+            ctx = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme, is_mobile=True, has_touch=True, device_scale_factor=1)
+            r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps({"code": ADMIN}), headers={"content-type": "application/json"})
+            if r.status >= 400:
+                fail(f"{tag}: admin login returned {r.status}")
+                ctx.close()
+                continue
+            page = ctx.new_page()
+            try:
+                page.goto(BASE + "/admin/client-errors", wait_until="networkidle", timeout=45000)
+                page.goto(BASE + "/admin/client-errors/test", wait_until="networkidle", timeout=45000)
+                page.wait_for_selector("[data-error-panel]", timeout=10000)
+                info = page.evaluate("""() => {
+                  const p = document.querySelector('[data-error-panel]');
+                  const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { w: r.width, h: r.height }; };
+                  const btn = (name) => [...p.querySelectorAll('button')].find((b) => b.textContent.trim() === name);
+                  return { title: p.querySelector('h2')?.textContent, msg: p.querySelector('[data-error-message]')?.textContent,
+                           reload: box(btn('Reload')), back: box(btn('Back')), nav: !!document.querySelector('button[aria-expanded]'),
+                           over: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+                }""")
+                if info["title"] != "Screen failed":
+                    fail(f"{tag}: panel title is {info['title']!r}")
+                if "Crash test" not in (info["msg"] or ""):
+                    fail(f"{tag}: panel does not show the error ({info['msg']!r})")
+                for name in ("reload", "back"):
+                    if not info[name] or info[name]["h"] < 44:
+                        fail(f"{tag}: {name} button is {info[name]} (<44px)")
+                if not info["nav"]:
+                    fail(f"{tag}: the nav is gone with the crashed screen")
+                if info["over"] != 0:
+                    fail(f"{tag}: horizontal overflow {info['over']}px")
+                page.screenshot(path=str(OUT / f"{tag}.png"))
+                found = False
+                for _ in range(20):
+                    page.wait_for_timeout(250)
+                    rows = trpc_get(ctx, "admin.clientErrors")
+                    if any("Crash test" in r["message"] and r["role"] == "admin" and r["url"] == "/admin/client-errors/test" for r in rows):
+                        found = True
+                        break
+                if not found:
+                    fail(f"{tag}: the crash never reached admin.clientErrors")
+                page.locator("[data-error-panel] button", has_text="Back").click()
+                page.wait_for_timeout(800)
+                if page.evaluate("location.pathname") != "/admin/client-errors" or page.locator("[data-error-panel]").count() != 0:
+                    fail(f"{tag}: Back did not return to a working screen")
+                elif page.locator("[data-client-error]").count() == 0:
+                    fail(f"{tag}: /admin/client-errors lists no report")
+                page.screenshot(path=str(OUT / f"admin_client-errors-list-phone-{scheme}.png"))
+            except Exception as e:  # noqa: BLE001
+                fail(f"{tag}: {type(e).__name__} {str(e)[:160]}")
+            finally:
+                ctx.close()
+        browser.close()
+
+
 # endregion
 
-CHECKS = [static_checks, dynamic_checks, stock_expected_checks, parcel_status_checks, flag_checks, paint_checks, flag_paint_checks, draw_lot_checks]
+CHECKS = [static_checks, bundle_checks, crash_checks, dynamic_checks, stock_expected_checks, parcel_status_checks, flag_checks, paint_checks, flag_paint_checks, draw_lot_checks]
 # GATE_ONLY=paint_checks,flag_checks runs just those groups while working on one screen; the release gate runs all.
 _only = {c for c in os.environ.get("GATE_ONLY", "").split(",") if c}
 for check in CHECKS:

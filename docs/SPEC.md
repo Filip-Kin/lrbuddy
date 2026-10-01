@@ -754,3 +754,44 @@ The calls the build made (details in DECISIONS.md):
   sign-in page shows the Staff password field and `/j`, `/t`, `/g` sign in on the spot.
 - The CC sheet carries the green QR top right and one QR per truck; the overview map gives up
   0.45 in per truck so the sheet stays one page.
+
+## 19. Company map sheet (from the real 2026 printout)
+
+Filip photographed the sheet Life Remodeled hands out today: "THURSDAY GROUP MAPS - B", header
+"CC - 3201 Webb St", a legend down the left ("ROCKET - 100", then "GM 1-20" ... "GM 15-20": group name
+and headcount), and one map of the CC's area with every group's rectangle outlined in blue over whole
+blocks, labelled with the group name on its top edge ("GM 2"), several groups sharing one rectangle
+("GM 9, GM 10 & GM 11"), street names readable inside each rectangle, the CC as a lettered circle
+("B") on its street, and the rest of the day's area tinted. The print page gets this sheet.
+
+Data
+- `command_centers.letter` (text, 1 char, nullable): the CC's letter for the day ("A", "B"). Shown
+  in the CC marker on every map and sheet, and in the sheet title.
+- `companies.short` (text, nullable): the abbreviation used for crew names ("GM" for General Motors,
+  "ROCKET"). Build crews names crews "<short> <n>". Falls back to the first word of the name.
+- Crew areas may be shared: `crew_areas` (id, event_id, day_id, polygon GeoJSON, label) with
+  `crews.area_id` (nullable) replacing `crews.area`. Assign one rectangle to several crews and the
+  sheet labels it "GM 9, GM 10 & GM 11". Publish keeps working per crew (lots inside the area are
+  split evenly between the crews sharing it, by block side, so each crew still has its own list).
+
+Print (`/plan/print`)
+- New first section, **Company maps**: one Letter landscape sheet per company per CC per day. Title
+  "<Weekday> group maps, <letter>"; header right "CC, <address>"; legend left: company name and total
+  headcount, then each crew name with its headcount; the map fills the rest: the CC's day area tinted
+  (the union of all areas at the CC, or the lots bbox, padded 60 m) in `--brand` at 15 %, every
+  rectangle of this company in a thick blue (`#1f6fe5`) outline with its label centred on the top
+  edge in the same blue on a white pill, other companies' rectangles thin grey, the CC as a 28 px
+  circle in the same blue with the letter in white, street names from the basemap labels layer.
+- Then the existing per-crew sheets (overview + detail) and the per-CC sheets. A toggle row at the
+  top picks which sections print: Company maps, Crew sheets, CC sheets (all on by default).
+- The gate's print check waits for `[data-print-ready]` as before; the company sheet must also pass
+  the label-overlap check (no two labels overlap, none clipped).
+
+Assignments
+- The rectangle tool's **Assign to** picks one or several crews; picking several makes a shared area.
+- The Assignments map shows areas labelled like the sheet ("GM 2", "GM 9, GM 10 & GM 11").
+
+Seed
+- CC East letter "A", CC West letter "B". Companies get shorts (Ford "FORD", Rocket "ROCKET",
+  DTE "DTE", Henry Ford Health "HFH", GM "GM"). One shared area for two crews at each CC so the
+  company sheet shows the "&" label.

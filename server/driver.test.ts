@@ -201,14 +201,14 @@ describe("driver actions", () => {
     expect(stockOf(t.id, water).qty).toBe(cap);
   });
 
-  test("stock plus and minus stay between 0 and capacity", async () => {
+  test("stock plus goes past capacity, minus floors at zero", async () => {
     const now = Date.now();
     const t = addTruck(w, "Truck 1", CC, now);
     const snacks = w.typeId("snacks");
     const caller = driverOf(t.id, w.ccId);
     const cap = stockOf(t.id, snacks).capacity;
     await caller.adjustStock({ typeId: snacks, delta: 5 });
-    expect(stockOf(t.id, snacks).qty).toBe(cap);
+    expect(stockOf(t.id, snacks).qty).toBe(cap + 5);
     await caller.adjustStock({ typeId: snacks, delta: -100 });
     expect(stockOf(t.id, snacks).qty).toBe(0);
   });

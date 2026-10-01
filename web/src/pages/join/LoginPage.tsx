@@ -54,9 +54,11 @@ const Brand = () => (
  */
 export const LoginPage = () => {
   const search = new URLSearchParams(useSearch());
-  const authConfig = trpc.shared.authConfig.useQuery(undefined, { staleTime: Infinity });
+  const authConfig = trpc.shared.authConfig.useQuery(undefined, { staleTime: Infinity, retry: 5, refetchOnReconnect: true });
   const link = trpc.access.link.useQuery(undefined, { staleTime: Infinity });
-  const firebaseOn = firebaseOptions !== null && authConfig.data?.firebase === true;
+  // A built-in config means the project exists; only an explicit "off" from the server hides the
+  // phone form. A slow or failed config request must not strand an installed app on Staff password.
+  const firebaseOn = firebaseOptions !== null && authConfig.data?.firebase !== false;
   const decided = authConfig.data !== undefined || authConfig.isError;
 
   const [name, setName] = useState("");

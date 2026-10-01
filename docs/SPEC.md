@@ -97,7 +97,7 @@ days              id, event_id, date (YYYY-MM-DD), label ("Day 1"), sort
 command_centers   id, day_id, name, lat, lng, address, notes, letter (section 19)
 green_shirts      id, cc_id, name, phone, role_label ("Site lead")
 companies         id, event_id, name, short (section 19)
-crews             id, day_id, cc_id, company_id, number (per day, shown as "Crew 7"), lead_name, lead_phone,
+crews             id, day_id, cc_id, company_id, number (per day), name ("GM 2", or "Crew 7" without a company; section 19), lead_name, lead_phone,
                   token (unique, 20 chars url-safe), headcount, notes, last_seen_at
 trucks            id, day_id, cc_id, name, driver_name, driver_phone, code (unique 6 chars, uppercase),
                   status ('idle'|'delivering'|'returning'|'offline'), last_seen_at,
@@ -182,7 +182,7 @@ and a scope.
 
 ## 5. Screens
 
-Every role gets the same shell: a top bar with the app name and the role's scope ("Crew 7, Ford, CC East"),
+Every role gets the same shell: a top bar with the app name and the role's scope ("FORD 2, Ford, CC East"),
 a hamburger at the left end of the bar below 860 px with `aria-expanded`, panel sliding in from the left,
 closes on route change, Escape and scrim tap.
 Above 860 px the links sit in the bar. Light and dark follow `prefers-color-scheme`. All copy follows
@@ -282,7 +282,7 @@ Assignment on request creation:
    (or the crew's last position, or the CC if none) into the truck's current stop order at the best
    index. Pick the minimum. Tie: fewer stops.
 3. Set `assigned`, `truck_id`, `assigned_at`. Emit `request.changed`. Push to the driver:
-   title "New stop", body "Water x2, Crew 7 Ford".
+   title "New stop", body "Water x2, FORD 2".
 
 Route computation per truck, debounced 3 s, triggered by any change to its stops, a restock toggle,
 or the truck moving more than 250 m since the last computation:
@@ -691,7 +691,7 @@ Replaces the Driver rows in section 5. The driver has one screen while driving.
 - Work on the map (built 2026-10-01): under the route line the map draws every lot at the truck's CC
   site as its parcel outline in the status colour (the shared `lotShape`, squares for lots without an
   outline), every crew area rectangle of the CC on the truck's day with its name pill (the green map's
-  `useDayOfLayer`, block sides left out), and each crew's red dot with "Crew 7". Lots sit in their own
+  `useDayOfLayer`, block sides left out), and each crew's red dot with its name ("GM 2"). Lots sit in their own
   SVG pane under the route; rectangles sit under the route too; pills and crew names stay upright on the
   heading-up map. A **Lots** toggle (at least 44 px, `data-lots-toggle`) sits bottom left above
   Recenter and hides the lots and rectangles; on by default. Crew dots always show.
@@ -738,7 +738,7 @@ Access
   their CC with name, phone, role, the chosen crew or truck, and **Approve** / **Deny**; approving a
   red shirt for a crew that already has a lead asks "Replace lead" or "Add". Admin sees all CCs under
   `/admin/access`. A pending request pushes the CC's green shirts ("Access request, Jordan Reed,
-  Red shirt, Crew 7 Ford").
+  Red shirt, FORD 2").
 - Roles map to the existing scopes unchanged. Switching role or day = a new membership; the session
   picks the approved membership for today, and a user with several gets a chooser.
 - Codes: truck and CC codes stay for the QR links and as a fallback staff can read out, but no screen
@@ -786,7 +786,11 @@ Data
 - `command_centers.letter` (text, 1 char, nullable): the CC's letter for the day ("A", "B"). Shown
   in the CC marker on every map and sheet, and in the sheet title.
 - `companies.short` (text, nullable): the abbreviation used for crew names ("GM" for General Motors,
-  "ROCKET"). Build crews names crews "<short> <n>". Falls back to the first word of the name.
+  "ROCKET"). Falls back to the first word of the name.
+- `crews.name` (text, not null): the one name a crew has on every screen, push, export and sheet.
+  "<short> <n>", n counting the company's crews that day, or "Crew <number>" without a company. Set
+  when the crew is made (Build crews, admin add, CSV import, seed); a company or day change renames a
+  crew still named by the rule; an admin can type a custom name.
 - Crew areas may be shared: `crew_areas` (id, event_id, day_id, polygon GeoJSON, label) with
   `crews.area_id` (nullable) replacing `crews.area`. Assign one rectangle to several crews and the
   sheet labels it "GM 9, GM 10 & GM 11". Publish keeps working per crew (lots inside the area are

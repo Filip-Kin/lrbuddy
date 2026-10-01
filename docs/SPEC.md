@@ -861,3 +861,38 @@ Marks (from the photos of the same sheet during the day; legend confirmed by Fil
   per row (tap the "of 30 cases" text) that sets the truck's capacity for that item; admin keeps the
   Day page capacity sheet. Gas cans are not tracked by default: `gas_mower` and `gas_trimmer` seed
   with `tracks_stock = false` (requests for gas still work, nothing is decremented).
+
+## 21. One parcel status, edited on the green map (Filip, 2026-10-01, in the field)
+
+The final survey happens the morning of, and the green shirts change things during the day. The
+green map is where that happens; the portal is for the weeks before.
+
+Status, one set of words everywhere, for every parcel in a CC's day area:
+
+| Status | Stored as | Meaning | Colour |
+|---|---|---|---|
+| Not todo | no lot row (or status `not_todo` when a todo is reverted) | occupied or nothing needed; most parcels | `--line` outline only |
+| Todo | lot `open` | marked for work | `--crew` fill 30 % |
+| In progress | lot `in_progress` | a crew is on it | `--brand` |
+| Done | lot `done` | | `--brand-green` |
+| Do not touch | lot `do_not_touch` | explicit, always visible as such | `--warn` hatched |
+
+- `skipped` is gone; migrate existing `skipped` rows to `do_not_touch`. Survey grade (`high`/`low`)
+  becomes an optional field on a todo lot ("Full day" / "Light"), shown as a small tag, never a
+  separate status.
+- Every parcel on the green map and the driver map is tappable, not only lots. The LotSheet opens
+  for any parcel with the five statuses as a segmented control in the words above, the grade tags
+  when Todo, the crew, photos, and a note. Choosing Todo on a bare parcel creates the lot for the
+  day's CC on the spot, with the crew whose rectangle contains it. Choosing Not todo on a lot that
+  was never touched deletes the row; on one with history it sets `not_todo` and keeps the history.
+- Crews can set Todo, In progress, Done and Not todo on parcels inside their own rectangle (the
+  crew map draws bare parcels inside the rectangle too). Drivers and greens anywhere at the CC.
+  Do not touch: greens and admin only.
+- Green map, on-the-fly assignment: the oriented rectangle tool from Assignments lives here too.
+  **Draw area** button next to Add stop: draw, then a sheet to pick one or several crews at this CC
+  (or Build crews for a company from its headcount) and **Assign**; the parcels inside that are Todo
+  move to those crews. Rectangle label sheet gains **Edit corners** (drag handles) and **Delete area**
+  (lots stay, unassigned). Everything emits lot.changed and the portal Assignments page follows live.
+- Legend on the green map and the print sheets uses these five words.
+- Gate: a parcel with no lot is tappable on the green map at zoom 17 (Playwright: tap, sheet opens,
+  Todo, polygon turns red, reload shows it still red).

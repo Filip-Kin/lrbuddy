@@ -94,9 +94,9 @@ Coordinates are `lat`, `lng` REAL in WGS84.
 ```
 events            id, name, year, active (bool, exactly one active)
 days              id, event_id, date (YYYY-MM-DD), label ("Day 1"), sort
-command_centers   id, day_id, name, lat, lng, address, notes
+command_centers   id, day_id, name, lat, lng, address, notes, letter (section 19)
 green_shirts      id, cc_id, name, phone, role_label ("Site lead")
-companies         id, event_id, name
+companies         id, event_id, name, short (section 19)
 crews             id, day_id, cc_id, company_id, number (per day, shown as "Crew 7"), lead_name, lead_phone,
                   token (unique, 20 chars url-safe), headcount, notes, last_seen_at
 trucks            id, day_id, cc_id, name, driver_name, driver_phone, code (unique 6 chars, uppercase),
@@ -569,11 +569,13 @@ survey_tags   id, event_id, parcel_id, grade ('high'|'low'|'clear'), side ('left
               -- newest tag per parcel wins; 'clear' removes the parcel from the work list.
 block_sides   view or computed: event_id, key, street_name, from_cross, to_cross, parity, parcel_count,
               high, low, work_count (high+low), colour band
-assignments   id, event_id, day_id, cc_id, company_id, crew_id (nullable until crews exist), block_side_key,
-              order       -- one per block side per event
+assignments   id, event_id, day_id, cc_id, company_id, crew_id (nullable until crews exist),
+              area_id (nullable, set when the side went to several crews sharing one area, section 19),
+              block_side_key, order       -- one per block side per event
 company_days  id, company_id, day_id, cc_id (nullable), headcount   -- promised headcount, one per company and day
-crews         + area (nullable GeoJSON Polygon): the rectangle printed on the crew's sheet, computed as the
-              bbox of the crew's assigned parcels padded 15 m, editable by dragging corners on the Assignments map
+crews         + area_id (nullable, crew_areas from section 19): the rectangle printed on the crew's sheet,
+              computed as the bbox of the crew's assigned parcels padded 15 m (all the crews' parcels for a
+              shared area), editable by dragging corners on the Assignments map
 ```
 
 Survey (phone and laptop)

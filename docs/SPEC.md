@@ -154,7 +154,7 @@ No accounts, no Firebase. A session cookie names a role and a scope.
 
 | Role | How they get in | Scope |
 |---|---|---|
-| crew | Open `/j/<token>` (printed as a QR on the crew's sheet). Enter a display name once. | That crew, its CC, its day |
+| crew | Open `/j/<token>` (printed as a QR on the crew's sheet). Enter a display name and a mobile number once; the number is stored on the crew (`lead_phone`, overwriting an import only when that field was blank) so greens can call and text the red shirt. | That crew, its CC, its day |
 | driver | `/login`, enter the truck code | That truck, its CC, its day |
 | green | `/login`, enter the CC code | That CC and day |
 | admin | `/login`, enter the admin password (`ADMIN_PASSWORD`) | Everything |

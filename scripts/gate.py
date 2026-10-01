@@ -138,9 +138,9 @@ ROLES = {
     "anon": {"login": None, "routes": ["/login"]},
     "crew": {"login": {"code": "demo-crew-01", "displayName": "Gate"}, "routes": ["/", "/request", "/requests", "/lots", "/cc", "/settings"]},
     "driver": {"login": {"code": "TRUCK1", "displayName": "Gate"}, "routes": ["/", "/map", "/stock", "/settings"]},
-    "green": {"login": {"code": "EAST01", "displayName": "Gate"}, "routes": ["/", "/requests", "/lots", "/photos", "/crews", "/trucks", "/broadcast", "/stats"]},
+    "green": {"login": {"code": "EAST01", "displayName": "Gate"}, "routes": ["/", "/requests", "/lots", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access"]},
     "admin": {"login": {"code": ADMIN}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export",
-                                                  "/plan/survey", "/plan/blocks", "/plan/assignments", "/plan/print", "/plan/survey/drive"]},
+                                                  "/admin/access", "/plan/survey", "/plan/blocks", "/plan/assignments", "/plan/print", "/plan/survey/drive"]},
 }
 SIZES = {"phone": (390, 844), "laptop": (1440, 900)}
 # The planning portal is a laptop surface with one phone screen (drive mode). Other routes run at both sizes.
@@ -184,9 +184,71 @@ INPUTS_JS = """() => [...document.querySelectorAll('input:not([type=checkbox]):n
   .map(i => ({ fs: parseFloat(getComputedStyle(i).fontSize), n: i.name || i.id || i.placeholder || i.type }))"""
 
 
+LOGIN_JS = """() => {
+  const visible = (el) => el.offsetParent !== null;
+  const labels = [...document.querySelectorAll('label')].filter(visible).map(l => l.innerText.trim());
+  const pick = (sel) => { const el = document.querySelector(sel); return el ? { visible: visible(el), fs: parseFloat(getComputedStyle(el).fontSize) } : null; };
+  return {
+    labels,
+    phoneForm: !!document.querySelector('[data-phone-signin]'),
+    tel: pick('input[type=tel][autocomplete=tel]'),
+    otp: pick('input[inputmode=numeric][autocomplete="one-time-code"]'),
+    staffLink: [...document.querySelectorAll('button')].some(b => b.innerText.trim() === 'Staff password'),
+  };
+}"""
+
+
+def login_checks(browser) -> None:
+    """SPEC 18: nobody faces a Code box. Reads the page; never presses Continue, so no SMS is sent."""
+    for scheme in ("light", "dark"):
+        ctx = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme, is_mobile=True, has_touch=True)
+        page = ctx.new_page()
+        try:
+            page.goto(BASE + "/login", wait_until="networkidle", timeout=45000)
+            page.wait_for_timeout(500)
+        except Exception as e:  # noqa: BLE001
+            fail(f"login-{scheme}: navigation failed {type(e).__name__}")
+            ctx.close()
+            continue
+        info = page.evaluate(LOGIN_JS)
+        for label in info["labels"]:
+            if re.search(r"\bcode\b", label, re.I):
+                fail(f"login-{scheme}: field labelled '{label}' on first paint")
+        if not info["staffLink"]:
+            fail(f"login-{scheme}: no Staff password link")
+        if info["phoneForm"]:
+            tel, otp = info["tel"], info["otp"]
+            if not tel or not tel["visible"]:
+                fail(f"login-{scheme}: no visible input type=tel autocomplete=tel")
+            elif tel["fs"] < 16:
+                fail(f"login-{scheme}: phone field font-size {tel['fs']}px (<16)")
+            if not otp:
+                fail(f"login-{scheme}: no inputmode=numeric autocomplete=one-time-code field")
+            else:
+                if otp["visible"]:
+                    fail(f"login-{scheme}: code field shows before Continue")
+                if otp["fs"] < 16:
+                    fail(f"login-{scheme}: code field font-size {otp['fs']}px (<16)")
+        elif scheme == "light":
+            warn("login: Firebase sign-in is off on this server (no phone form); phone field checks skipped")
+        over = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+        if over != 0:
+            fail(f"login-{scheme}: horizontal overflow {over}px")
+        page.screenshot(path=str(OUT / f"login-sign-in-phone-{scheme}.png"))
+        if info["staffLink"]:
+            page.get_by_role("button", name="Staff password").click()
+            page.wait_for_timeout(200)
+            field = page.locator("input[type=password]")
+            if field.count() == 0 or not field.first.is_visible():
+                fail(f"login-{scheme}: Staff password does not reveal a password field")
+            page.screenshot(path=str(OUT / f"login-staff-password-phone-{scheme}.png"))
+        ctx.close()
+
+
 def dynamic_checks() -> None:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
+        login_checks(browser)
         for role, cfg in ROLES.items():
             if role == "admin" and not ADMIN:
                 warn("no admin password given, admin routes skipped")

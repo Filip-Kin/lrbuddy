@@ -22,6 +22,7 @@ import {
   type Truck,
 } from "../db/schema.ts";
 import { crewLabel, markTruckSeen, onCrewMoved, onTruckMoved } from "../dispatch.ts";
+import { firebaseEnabled } from "../firebase.ts";
 import { subscribe, unsubscribe, vapidPublicKey } from "../push.ts";
 import { canViewLot, deletePhoto, lotPhotoList, photoScope } from "../photos.ts";
 import { activeEvent, catalogFor, ccCard } from "../queries.ts";
@@ -30,9 +31,13 @@ import { authedProcedure, ccProcedure, liveFor, publicProcedure, readCcScope, ro
 // #region me
 export type Me =
   | { role: "anon" }
+  /** Signed in through Firebase with no role yet: the access screen. */
+  | { role: "none"; displayName: string | null }
   | {
       role: Role;
       displayName: string | null;
+      /** True when the session belongs to a signed-in user, who leaves a role without signing out. */
+      user: boolean;
       /** Scope line for the top bar, e.g. "Crew 7, Ford, CC East". */
       scope: string;
       /** The same line for a phone's bar: "Crew 7, CC East". The CC outranks the company. */
@@ -85,11 +90,14 @@ export const sharedRouter = router({
   me: publicProcedure.query(({ ctx }): Me => {
     const s = ctx.session;
     if (!s) return { role: "anon" };
+    if (s.role === "none") return s.userId !== null ? { role: "none", displayName: s.displayName } : { role: "anon" };
+    const user = s.userId !== null;
     if (s.role === "admin") {
       const override = ctx.ccOverride !== null ? ccScope(ctx.ccOverride) : null;
       return {
         role: "admin",
         displayName: s.displayName,
+        user,
         scope: override?.cc ? `Admin, CC ${override.cc.name}` : "Admin",
         scopeShort: override?.cc ? `Admin, CC ${override.cc.name}` : "Admin",
         crew: null,
@@ -112,6 +120,7 @@ export const sharedRouter = router({
       return {
         role: "crew",
         displayName: s.displayName,
+        user,
         scope: parts.join(", "),
         scopeShort: short.join(", "),
         crew: { ...crew, company: row.company },
@@ -124,16 +133,19 @@ export const sharedRouter = router({
       if (!truck) return { role: "anon" };
       const scope = ccScope(truck.ccId);
       const parts = [truck.name, scope.cc ? `CC ${scope.cc.name}` : null].filter(Boolean);
-      return { role: "driver", displayName: s.displayName ?? truck.driverName, scope: parts.join(", "), scopeShort: parts.join(", "), crew: null, truck, ...scope };
+      return { role: "driver", displayName: s.displayName ?? truck.driverName, user, scope: parts.join(", "), scopeShort: parts.join(", "), crew: null, truck, ...scope };
     }
     if (s.role === "green") {
       const scope = ccScope(s.ccId);
       if (!scope.cc) return { role: "anon" };
       const parts = [`CC ${scope.cc.name}`, scope.day?.label].filter(Boolean);
-      return { role: "green", displayName: s.displayName, scope: parts.join(", "), scopeShort: parts.join(", "), crew: null, truck: null, ...scope };
+      return { role: "green", displayName: s.displayName, user, scope: parts.join(", "), scopeShort: parts.join(", "), crew: null, truck: null, ...scope };
     }
     return { role: "anon" };
   }),
+
+  /** Which sign-in methods this server accepts. */
+  authConfig: publicProcedure.query(() => ({ firebase: firebaseEnabled() })),
 
   position: authedProcedure
     .input(

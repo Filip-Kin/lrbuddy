@@ -3,7 +3,7 @@ import { trpc } from "./trpc.ts";
 import type { Role } from "./session.ts";
 
 type Utils = ReturnType<typeof trpc.useUtils>;
-type Kind = "requests" | "positions" | "route" | "lots" | "stock" | "broadcast";
+type Kind = "requests" | "positions" | "route" | "lots" | "stock" | "broadcast" | "access";
 
 const COALESCE_MS = 1500;
 
@@ -93,6 +93,10 @@ const invalidate = (utils: Utils, kind: Kind): void => {
       void utils.shared.latestBroadcast.invalidate();
       void utils.green.broadcasts.invalidate();
       break;
+    case "access":
+      void utils.access.pending.invalidate();
+      void utils.access.pendingCount.invalidate();
+      break;
   }
 };
 
@@ -104,6 +108,7 @@ const KIND: Record<string, Kind> = {
   "lot.changed": "lots",
   "stock.changed": "stock",
   broadcast: "broadcast",
+  "membership.changed": "access",
 };
 
 /**

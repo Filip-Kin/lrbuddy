@@ -2,7 +2,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import { eq } from "drizzle-orm";
 import superjson from "superjson";
-import { getSession, sessionIdFrom } from "./auth.ts";
+import { getSession, JOIN_COOKIE, parseCookies, sessionIdFrom } from "./auth.ts";
 import { bus, type BusMessage } from "./bus.ts";
 import { markTruckSeen } from "./dispatch.ts";
 import { db } from "./db/index.ts";
@@ -13,6 +13,7 @@ import {
   events,
   sessions,
   trucks,
+  users,
   type CommandCenter,
   type Crew,
   type Day,
@@ -26,6 +27,8 @@ export interface Context {
   ip: string;
   /** CC an admin asked for with `?cc=` (header `x-lrb-cc` or SSE connection param `cc`). */
   ccOverride: number | null;
+  /** A scanned QR link waiting for sign-in (`lrb_join` cookie), e.g. `crew:<token>`. */
+  joinLink?: string | null;
 }
 
 const parseCc = (v: string | null | undefined): number | null => {
@@ -40,6 +43,7 @@ export const createContextFor =
     session: getSession(sessionIdFrom(req)),
     ip,
     ccOverride: parseCc(req.headers.get("x-lrb-cc")) ?? parseCc(info.connectionParams?.cc),
+    joinLink: parseCookies(req.headers.get("cookie"))[JOIN_COOKIE] ?? null,
   });
 
 const t = initTRPC.context<Context>().create({
@@ -164,6 +168,15 @@ const forbidden = (): TRPCError => new TRPCError({ code: "FORBIDDEN", message: "
 export const authedProcedure = t.procedure.use(({ ctx, next }) => {
   if (!ctx.session) throw unauthorized();
   return next({ ctx: { ...ctx, session: ctx.session } });
+});
+
+/** A session that belongs to a Firebase user (SPEC 18), in a role or not. */
+export const userProcedure = authedProcedure.use(({ ctx, next }) => {
+  const userId = ctx.session.userId;
+  if (userId === null) throw forbidden();
+  const user = db.select().from(users).where(eq(users.id, userId)).get();
+  if (!user) throw unauthorized();
+  return next({ ctx: { ...ctx, user } });
 });
 
 export const crewProcedure = authedProcedure.use(({ ctx, next }) => {

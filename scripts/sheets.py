@@ -27,10 +27,10 @@ ROLES = {
         ("/", "Queue"), ("/map", "Map"), ("/stock", "Stock"), ("/settings", "Settings")],
         "sizes": ["phone"]},
     "green": {"login": {"code": "EAST01", "displayName": "Filip"}, "routes": [
-        ("/", "Map"), ("/requests", "Requests"), ("/lots", "Lots"), ("/photos", "Photos"), ("/crews", "Crews"), ("/trucks", "Trucks"), ("/broadcast", "Broadcast"), ("/stats", "Stats")],
+        ("/", "Map"), ("/requests", "Requests"), ("/lots", "Lots"), ("/photos", "Photos"), ("/crews", "Crews"), ("/trucks", "Trucks"), ("/broadcast", "Broadcast"), ("/stats", "Stats"), ("/access", "Access")],
         "sizes": ["phone", "laptop"]},
     "admin": {"login": {"code": ADMIN}, "routes": [
-        ("/admin", "Event"), ("/admin/companies", "Companies"), ("/admin/crews", "Crews"), ("/admin/lots", "Lots"), ("/admin/photos", "Photos"), ("/admin/catalog", "Catalog"), ("/admin/export", "Export")],
+        ("/admin", "Event"), ("/admin/companies", "Companies"), ("/admin/crews", "Crews"), ("/admin/lots", "Lots"), ("/admin/photos", "Photos"), ("/admin/catalog", "Catalog"), ("/admin/export", "Export"), ("/admin/access", "Access")],
         "sizes": ["laptop"]},
     "plan": {"login": {"code": ADMIN}, "routes": [
         ("/plan/survey", "Survey"), ("/plan/blocks", "Blocks"), ("/plan/assignments", "Assignments"), ("/plan/print", "Print")],

@@ -12,6 +12,9 @@ import {
 // #region enums
 export const ROLES = ["admin", "green", "driver", "crew"] as const;
 export type Role = (typeof ROLES)[number];
+/** A session's role: one of ROLES, or `none` for a signed-in user with no role yet (SPEC 18). */
+export const SESSION_ROLES = [...ROLES, "none"] as const;
+export type SessionRole = (typeof SESSION_ROLES)[number];
 
 export const TRUCK_STATUSES = ["idle", "delivering", "returning", "offline"] as const;
 export type TruckStatus = (typeof TRUCK_STATUSES)[number];
@@ -46,6 +49,9 @@ export type SurveyGrade = (typeof SURVEY_GRADES)[number];
 
 export const SURVEY_SIDES = ["left", "right", "tap"] as const;
 export type SurveySide = (typeof SURVEY_SIDES)[number];
+
+export const MEMBERSHIP_STATUSES = ["pending", "approved", "denied"] as const;
+export type MembershipStatus = (typeof MEMBERSHIP_STATUSES)[number];
 
 export const ROUTE_ENGINES = ["osrm", "fallback"] as const;
 export type RouteEngine = (typeof ROUTE_ENGINES)[number];
@@ -191,9 +197,52 @@ export const greenCodes = sqliteTable("green_codes", {
   code: text("code").notNull().unique(),
 });
 
+/** A person signed in through Firebase (SPEC 18). Code and password sessions have no user. */
+export const users = sqliteTable("users", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  firebaseUid: text("firebase_uid").notNull().unique(),
+  name: text("name"),
+  /** E.164, from the phone sign-in. */
+  phone: text("phone"),
+  email: text("email"),
+  createdAt: integer("created_at").notNull(),
+  lastSeenAt: integer("last_seen_at").notNull(),
+});
+
+/**
+ * What a user may be: one role at one scope on one day. A QR scan creates it
+ * approved; a request creates it pending until a green shirt or admin decides.
+ */
+export const memberships = sqliteTable(
+  "memberships",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ROLES }).notNull(),
+    dayId: integer("day_id").references(() => days.id, { onDelete: "cascade" }),
+    ccId: integer("cc_id").references(() => commandCenters.id, { onDelete: "cascade" }),
+    crewId: integer("crew_id").references(() => crews.id, { onDelete: "cascade" }),
+    truckId: integer("truck_id").references(() => trucks.id, { onDelete: "cascade" }),
+    status: text("status", { enum: MEMBERSHIP_STATUSES }).notNull().default("pending"),
+    requestedAt: integer("requested_at").notNull(),
+    decidedAt: integer("decided_at"),
+    decidedByUserId: integer("decided_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    note: text("note"),
+  },
+  (t) => [index("memberships_user_idx").on(t.userId), index("memberships_cc_status_idx").on(t.ccId, t.status)],
+);
+
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),
-  role: text("role", { enum: ROLES }).notNull(),
+  role: text("role", { enum: SESSION_ROLES }).notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }),
+  /** The membership this session is acting under; null for code and password sessions. */
+  membershipId: integer("membership_id").references(() => memberships.id, { onDelete: "set null" }),
   crewId: integer("crew_id").references(() => crews.id, { onDelete: "cascade" }),
   truckId: integer("truck_id").references(() => trucks.id, { onDelete: "cascade" }),
   ccId: integer("cc_id").references(() => commandCenters.id, { onDelete: "cascade" }),
@@ -526,6 +575,8 @@ export type Crew = typeof crews.$inferSelect;
 export type Truck = typeof trucks.$inferSelect;
 export type GreenCode = typeof greenCodes.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
+export type User = typeof users.$inferSelect;
+export type Membership = typeof memberships.$inferSelect;
 export type RequestType = typeof requestTypes.$inferSelect;
 export type Request = typeof requests.$inferSelect;
 export type TruckStock = typeof truckStock.$inferSelect;

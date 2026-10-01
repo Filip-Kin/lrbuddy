@@ -283,6 +283,9 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
 // #endregion
 
 // #region cc sheet
+/** The overview map gives up height for each truck's QR row, so the sheet stays one page. */
+const CC_MAP_HEIGHT = ["h-[4.2in]", "h-[3.75in]", "h-[3.3in]", "h-[2.85in]", "h-[2.6in]"] as const;
+
 export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: string; day: Sheets["day"]; onReady: OnReady }) => {
   const overview = useMemo(
     () => ({
@@ -305,8 +308,11 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
           </div>
         </div>
         <figure className="flex w-[1.6in] shrink-0 flex-col items-center gap-0.5">
-          <Qr svg={page.loginQrSvg} label="QR code for the sign-in page" className="aspect-square w-[1.2in]" />
-          <figcaption className="text-center font-mono text-[10px] whitespace-nowrap">{bareUrl(page.loginUrl)}</figcaption>
+          <Qr svg={page.greenQrSvg ?? page.loginQrSvg} label={`QR code for green shirts at CC ${page.name}`} className="aspect-square w-[1.2in]" />
+          <figcaption className="text-center">
+            <span className="block text-xs font-bold">Green shirts, scan to join</span>
+            <span className="block font-mono text-[10px] whitespace-nowrap">{bareUrl(page.loginUrl)}</span>
+          </figcaption>
         </figure>
       </div>
 
@@ -318,7 +324,7 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
           layers={overview.layers}
           cc={overview.cc}
           padding={16}
-          className="h-[4.2in] w-full"
+          className={`${CC_MAP_HEIGHT[Math.min(page.trucks.length, CC_MAP_HEIGHT.length - 1)]} w-full`}
           label={`Overview map for CC ${page.name}`}
         />
       </MapBlock>
@@ -340,14 +346,21 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
           <tbody>
             {page.trucks.length === 0 ? (
               <tr className="border-t border-[#d1d3d4]">
-                <td className="py-1">None</td>
+                <td className="py-1" colSpan={3}>
+                  None
+                </td>
               </tr>
             ) : (
               page.trucks.map((t) => (
                 <tr key={t.code} className="border-t border-[#d1d3d4]">
-                  <td className="py-1 pr-2 font-semibold">{t.name}</td>
-                  <td className="py-1 pr-2">{t.driverName ?? ""}</td>
-                  <td className="py-1 text-right font-mono text-base font-black tracking-[0.2em]">{t.code}</td>
+                  <td className="py-1 pr-2 align-middle">
+                    {t.qrSvg && <Qr svg={t.qrSvg} label={`QR code for ${t.name}`} className="aspect-square w-[0.65in]" />}
+                  </td>
+                  <td className="py-1 pr-2 align-middle">
+                    <div className="font-semibold">{t.name}</div>
+                    <div>{t.driverName ?? ""}</div>
+                  </td>
+                  <td className="py-1 text-right align-middle font-mono text-base font-black tracking-[0.2em]">{t.code}</td>
                 </tr>
               ))
             )}

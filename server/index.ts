@@ -1,7 +1,23 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { existsSync } from "node:fs";
 import { join, normalize } from "node:path";
-import { allowLogin, clearCookie, deleteSession, getSession, joinWithToken, loginWithCode, sessionCookie, sessionIdFrom, setSessionName } from "./auth.ts";
+import { clearRole, joinByLink, linkTarget, resolveSession, upsertUser, type LinkKind } from "./access.ts";
+import {
+  allowLogin,
+  clearCookie,
+  clearJoinCookie,
+  createSession,
+  deleteSession,
+  getSession,
+  JOIN_COOKIE,
+  joinCookie,
+  loginWithCode,
+  parseCookies,
+  sessionCookie,
+  sessionIdFrom,
+  setSessionName,
+} from "./auth.ts";
+import { firebaseEnabled, verifyIdToken } from "./firebase.ts";
 import { config } from "./config.ts";
 import { sqlite } from "./db/index.ts";
 import { startRouteRefresh } from "./dispatch.ts";
@@ -26,6 +42,12 @@ const clientIp = (req: Request, server: { requestIP(r: Request): { address: stri
   const list = (req.headers.get("x-forwarded-for") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
   return list[list.length - config.trustProxyHops] ?? socket;
 };
+
+const redirect = (location: string, cookie?: string): Response =>
+  new Response(null, { status: 302, headers: cookie ? { location, "set-cookie": cookie } : { location } });
+
+const LINK_KINDS: Record<"j" | "t" | "g", LinkKind> = { j: "crew", t: "truck", g: "cc" };
+const LINK_COOKIE = /^(crew|truck|cc):([A-Za-z0-9_-]{4,64})$/;
 
 // #region static
 const IMMUTABLE = /^\/assets\//;
@@ -102,18 +124,63 @@ const server = Bun.serve({
       return json({ ok: true, displayName: name });
     }
 
+    if (path === "/auth/firebase" && req.method === "POST") {
+      if (!firebaseEnabled()) return json({ ok: false, error: "Sign-in unavailable" }, { status: 503 });
+      if (!allowLogin(clientIp(req, srv))) return json({ ok: false, error: "Too many tries" }, { status: 429 });
+      const body = await readBody(req);
+      const token = await verifyIdToken(body.idToken ?? "");
+      if (!token) return json({ ok: false, error: "Sign in again" }, { status: 401 });
+      const user = upsertUser(token, body.name);
+      deleteSession(sessionIdFrom(req));
+      const session = createSession({ role: "none", userId: user.id, displayName: user.name, userAgent: req.headers.get("user-agent") });
+      const cookies = [sessionCookie(session.id)];
+      const pending = LINK_COOKIE.exec(parseCookies(req.headers.get("cookie"))[JOIN_COOKIE] ?? "");
+      let state: "entered" | "choose" | "request";
+      if (pending && joinByLink(user.id, session.id, pending[1] as LinkKind, pending[2]!)) state = "entered";
+      else state = resolveSession(session.id, user.id);
+      if (pending) cookies.push(clearJoinCookie());
+      const headers = new Headers({ "content-type": "application/json" });
+      for (const c of cookies) headers.append("set-cookie", c);
+      return new Response(JSON.stringify({ ok: true, state }), { headers });
+    }
+
+    if (path === "/auth/leave" && req.method === "POST") {
+      // A user steps out of the role and keeps the sign-in; a code session simply ends.
+      const session = getSession(sessionIdFrom(req));
+      if (session?.userId != null) {
+        clearRole(session.id);
+        return json({ ok: true, signedOut: false });
+      }
+      deleteSession(sessionIdFrom(req));
+      return json({ ok: true, signedOut: true }, { headers: { "set-cookie": clearCookie() } });
+    }
+
     if (path === "/auth/logout" && req.method === "POST") {
       deleteSession(sessionIdFrom(req));
       return json({ ok: true }, { headers: { "set-cookie": clearCookie() } });
     }
 
-    const join = /^\/j\/([A-Za-z0-9_-]{4,64})\/?$/.exec(path);
-    if (join && req.method === "GET") {
-      const session = joinWithToken(join[1]!, req.headers.get("user-agent"));
-      if (!session) return new Response(null, { status: 302, headers: { location: "/login?link=unknown" } });
-      deleteSession(sessionIdFrom(req));
-      return new Response(null, { status: 302, headers: { location: "/", "set-cookie": sessionCookie(session.id) } });
+    // #region QR links: /j/<crew token>, /t/<truck code>, /g/<green code>
+    const link = /^\/([jtg])\/([A-Za-z0-9_-]{4,64})\/?$/.exec(path);
+    if (link && req.method === "GET") {
+      const kind = LINK_KINDS[link[1] as "j" | "t" | "g"];
+      const raw = link[2]!;
+      if (!linkTarget(kind, raw)) return redirect("/login?link=unknown");
+      if (!firebaseEnabled()) {
+        // No Firebase project yet: the printed QR still signs in on the spot, as before SPEC 18.
+        const session = loginWithCode(raw, req.headers.get("user-agent"));
+        if (!session || session.role === "admin") return redirect("/login?link=unknown");
+        deleteSession(sessionIdFrom(req));
+        return redirect("/", sessionCookie(session.id));
+      }
+      const current = getSession(sessionIdFrom(req));
+      if (current?.userId != null) {
+        joinByLink(current.userId, current.id, kind, raw);
+        return redirect("/", clearJoinCookie());
+      }
+      return redirect("/login", joinCookie(`${kind}:${raw}`));
     }
+    // #endregion
 
     // #region photos
     if (path === "/photos" && req.method === "POST") return handlePhotoUpload(req);

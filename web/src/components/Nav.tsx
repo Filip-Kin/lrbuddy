@@ -5,7 +5,17 @@ import { Link, useLocation } from "wouter";
 export interface NavLink {
   href: string;
   label: string;
+  /** A count shown next to the label (pending access requests); hidden at 0. */
+  badge?: number;
 }
+
+const Badge = ({ n, on }: { n: number | undefined; on: boolean }) =>
+  n ? (
+    <span className={`ml-1.5 inline-grid min-w-6 place-items-center rounded-full px-1.5 text-xs font-bold tabular-nums ${on ? "bg-on-brand text-brand" : "bg-brand text-on-brand"}`}>
+      {n}
+      <span className="sr-only"> pending</span>
+    </span>
+  ) : null;
 
 export const isActive = (loc: string, href: string): boolean => {
   const path = href.split("?")[0] ?? href;
@@ -100,6 +110,7 @@ export const Nav = ({
           {links.map((l) => (
             <Link key={l.href} href={l.href} className={inlineCls(isActive(loc, l.href))} aria-current={isActive(loc, l.href) ? "page" : undefined}>
               {l.label}
+              <Badge n={l.badge} on={isActive(loc, l.href)} />
             </Link>
           ))}
           {onSignOut && (
@@ -145,6 +156,7 @@ export const Nav = ({
                           aria-current={active ? "page" : undefined}
                         >
                           {l.label}
+                          <Badge n={l.badge} on={active} />
                         </Link>
                       </li>
                     );

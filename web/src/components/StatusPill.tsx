@@ -13,7 +13,10 @@ export type PillStatus =
   | "returning"
   | "offline"
   | "low"
-  | "urgent";
+  | "urgent"
+  | "pending"
+  | "approved"
+  | "denied";
 
 type Tone = "crew" | "green" | "warn" | "brand" | "plain" | "muted" | "outline";
 
@@ -44,6 +47,9 @@ const STATUS: Record<PillStatus, { label: string; tone: Tone }> = {
   offline: { label: "Offline", tone: "muted" },
   low: { label: "Low stock", tone: "warn" },
   urgent: { label: "Urgent", tone: "crew" },
+  pending: { label: "Pending", tone: "brand" },
+  approved: { label: "Approved", tone: "green" },
+  denied: { label: "Denied", tone: "muted" },
 };
 
 export const statusLabel = (s: PillStatus): string => STATUS[s].label;

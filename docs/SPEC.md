@@ -102,8 +102,12 @@ crews             id, day_id, cc_id, company_id, number (per day, shown as "Crew
 trucks            id, day_id, cc_id, name, driver_name, driver_phone, code (unique 6 chars, uppercase),
                   status ('idle'|'delivering'|'returning'|'offline'), last_seen_at
 green_codes       id, cc_id, code (unique 6 chars)          -- one code per CC, shown on the QR sheet
-sessions          id (text uuid PK), role ('admin'|'green'|'driver'|'crew'), crew_id, truck_id, cc_id,
-                  display_name, created_at, last_used_at, user_agent
+sessions          id (text uuid PK), role ('admin'|'green'|'driver'|'crew'|'none'), user_id (nullable), membership_id
+                  (nullable), crew_id, truck_id, cc_id, display_name, created_at, last_used_at, user_agent
+                  -- 'none' is a signed-in user with no role yet (section 18); code sessions have no user
+users             id, firebase_uid (unique), name, phone (E.164), email, created_at, last_seen_at
+memberships       id, user_id, event_id, role, day_id, cc_id, crew_id, truck_id, status ('pending'|'approved'|'denied'),
+                  requested_at, decided_at, decided_by_user_id, note ('QR' when a scan created it)
 request_types     id, event_id, key, label, unit ('case'|'box'|'can'|'each'|'roll'), priority (1 low, 2 normal, 3 urgent),
                   tracks_stock (bool), default_capacity (stock a new truck gets), sort, active
 requests          id, crew_id (nullable), cc_id, day_id, type_id, qty, note,
@@ -150,7 +154,9 @@ Default request types seeded for every new event, in this order:
 
 ## 4. Auth
 
-No accounts, no Firebase. A session cookie names a role and a scope.
+Section 18 puts phone and Google sign-in in front of this. Everything below still holds for the
+codes, which now sit behind QR links and the Staff password field. A session cookie names a role
+and a scope.
 
 | Role | How they get in | Scope |
 |---|---|---|
@@ -720,3 +726,22 @@ the client config is read from `VITE_FIREBASE_CONFIG` and the Firebase Auth emul
 
 Gate: `/login` shows no field labelled Code. Phone field is `type="tel"` with `autocomplete="tel"`,
 code field `inputmode="numeric"` with `autocomplete="one-time-code"`. Both at least 16 px.
+
+The calls the build made (details in DECISIONS.md):
+- Session role `none` instead of a nullable role: SQLite cannot drop NOT NULL without rebuilding
+  `sessions`, and the rebuild would cascade-delete every push subscription on the live database.
+- "Today" is the event day whose date is today in Detroit and that has a CC. On any other date
+  (before the event, the demo, a day with nothing set up) every approved membership counts, so one
+  approved membership still opens the app.
+- `POST /auth/firebase {idToken, name?}` answers `{ state: 'entered' | 'choose' | 'request' }`. A
+  scanned link before sign-in is kept in an `lrb_join` cookie (1 hour) and completed by that call.
+  `POST /auth/leave` takes a user out of the role (back to the Access screen) and ends a code session.
+- A QR scan approves a pending request for the same place and drops the user's other pending
+  requests for that role and day. A new request for the same role and day replaces a pending one.
+- Approving fills the place with the person: a crew with no red shirt takes the requester as lead
+  (Replace lead overwrites, Add leaves it), a truck with no driver takes their name and number, a
+  green shirt joins the CC's green shirt list (unless the name or number is already on it).
+- Without `FIREBASE_SERVICE_ACCOUNT` or the emulator the server keeps the pre-18 behaviour: the
+  sign-in page shows the Staff password field and `/j`, `/t`, `/g` sign in on the spot.
+- The CC sheet carries the green QR top right and one QR per truck; the overview map gives up
+  0.45 in per truck so the sheet stays one page.

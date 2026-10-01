@@ -1,0 +1,15 @@
+# Local Firebase Auth emulator, so development and tests never send a real SMS.
+# Start with `docker compose up -d`; Auth answers on http://127.0.0.1:${FIREBASE_AUTH_PORT:-9099}.
+# The `demo-` project id needs no real Firebase project. Codes the emulator "sends" are listed at
+# GET /emulator/v1/projects/demo-lrbuddy/verificationCodes on the same port.
+services:
+  firebase-auth:
+    image: andreysenov/firebase-tools:latest
+    command: firebase emulators:start --only auth --project demo-lrbuddy
+    working_dir: /home/node
+    volumes:
+      - ./firebase.json:/home/node/firebase.json:ro
+      - ./.firebaserc:/home/node/.firebaserc:ro
+    ports:
+      - "${FIREBASE_AUTH_PORT:-9099}:9099"
+    stop_grace_period: 10s

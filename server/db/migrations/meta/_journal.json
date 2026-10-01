@@ -29,6 +29,13 @@
       "when": 1790819016280,
       "tag": "0003_wise_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790825498073,
+      "tag": "0004_gifted_ricochet",
+      "breakpoints": true
     }
   ]
 }

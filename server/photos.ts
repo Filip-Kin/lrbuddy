@@ -123,7 +123,7 @@ export const photoScope = (session: Session): PhotoScope | null => {
   } else if (session.role === "green") {
     ccId = session.ccId;
   }
-  if (ccId === null) return null;
+  if (ccId === null || session.role === "none") return null;
   const row = db
     .select({ dayId: commandCenters.dayId, eventId: days.eventId })
     .from(commandCenters)
@@ -241,7 +241,7 @@ export const handlePhotoUpload = async (req: Request, now = Date.now()): Promise
       kind: kind as PhotoKind,
       sessionId: session.id,
       takenBy: session.displayName ?? (scope.crew ? crewLabel(scope.crew) : (scope.truck?.name ?? null)),
-      role: session.role,
+      role: scope.role,
       crewId: scope.crew?.id ?? null,
       truckId: scope.truck?.id ?? null,
       ccId: where.ccId,

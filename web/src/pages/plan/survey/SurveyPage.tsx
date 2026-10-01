@@ -1,3 +1,4 @@
+import type { Map as LeafletMap } from "leaflet";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Button, ButtonLink } from "../../../components/Button.tsx";
 import { EmptyState } from "../../../components/EmptyState.tsx";
@@ -11,8 +12,8 @@ import { plural } from "../../../components/admin/format.ts";
 import { RectIcon } from "../../../components/admin/icons.tsx";
 import { MapMode } from "../../../components/admin/MapMode.tsx";
 import { errorText, Notice, type NoticeValue } from "../../../components/admin/Notice.tsx";
-import { bboxText, useRectDraw, type BBox } from "../../../components/admin/rect.ts";
 import { dateTime, lotTitle } from "../../../lib/format.ts";
+import { rectBBox, rectSize, STEP_LABEL, useOrientedRect, type OrientedRect } from "../../../lib/map/orientedRect.ts";
 import { trpc, type RouterOutputs } from "../../../lib/trpc.ts";
 import { noEvent } from "../common.ts";
 import { GradeSheet, type SheetParcel } from "./GradeSheet.tsx";
@@ -20,6 +21,7 @@ import { GRADE_LABEL, GRADES, type Grade } from "./style.ts";
 import { SurveyMap, type MapParcel } from "./SurveyMap.tsx";
 
 type Row = RouterOutputs["plan"]["survey"]["list"][number];
+type BBox = [number, number, number, number];
 
 /** The server refuses a bigger rectangle (about 5 km a side). */
 const MAX_LOAD_DEG = 0.06;
@@ -37,7 +39,7 @@ const GradeTag = ({ grade }: { grade: Grade }) => (
 );
 
 // #region load parcels sheet
-const LoadSheet = ({ bbox, onClose, onRedraw, notify }: { bbox: BBox | null; onClose: () => void; onRedraw: () => void; notify: (n: NoticeValue) => void }) => {
+const LoadSheet = ({ rect, onClose, onRedraw, notify }: { rect: OrientedRect | null; onClose: () => void; onRedraw: () => void; notify: (n: NoticeValue) => void }) => {
   const utils = trpc.useUtils();
   const load = trpc.plan.parcels.loadBbox.useMutation({
     onSuccess: (r) => {
@@ -48,7 +50,9 @@ const LoadSheet = ({ bbox, onClose, onRedraw, notify }: { bbox: BBox | null; onC
     },
     onError: (e) => notify({ tone: "error", text: errorText(e, "Parcel layer not answering. Try again in a minute.") }),
   });
-  if (!bbox) return null;
+  if (!rect) return null;
+  // The assessor layer takes an envelope, so the load covers the box around the rectangle.
+  const bbox = rectBBox(rect);
   const tooBig = bbox[2] - bbox[0] > MAX_LOAD_DEG || bbox[3] - bbox[1] > MAX_LOAD_DEG;
   return (
     <Sheet
@@ -68,7 +72,7 @@ const LoadSheet = ({ bbox, onClose, onRedraw, notify }: { bbox: BBox | null; onC
       }
     >
       <div className="space-y-3 pb-2">
-        <Stat value={bboxText(bbox)} label="Area" />
+        <Stat value={rectSize(rect)} label="Area" />
         {tooBig && <p className="font-semibold">Area too large. Draw a smaller rectangle.</p>}
       </div>
     </Sheet>
@@ -89,7 +93,8 @@ export const SurveyPage = () => {
     { enabled: view !== null && view.zoom >= CONTEXT_ZOOM, placeholderData: (prev) => prev, staleTime: 60_000 },
   );
   const [drawing, setDrawing] = useState(false);
-  const [sheetBBox, setSheetBBox] = useState<BBox | null>(null);
+  const [sheetRect, setSheetRect] = useState<OrientedRect | null>(null);
+  const [map, setMap] = useState<LeafletMap | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ lat: number; lng: number; n: number } | null>(null);
   const [gradeFilter, setGradeFilter] = useState<Grade | "all">("all");
@@ -97,7 +102,12 @@ export const SurveyPage = () => {
   const [shown, setShown] = useState(PAGE_ROWS);
   const [notice, setNotice] = useState<NoticeValue>(null);
   const clearNotice = useCallback(() => setNotice(null), []);
-  const rect = useRectDraw();
+  const rectTool = useOrientedRect(map, {
+    drawing: drawing && sheetRect === null,
+    value: drawing ? sheetRect : null,
+    onChange: setSheetRect,
+    onCancel: () => setDrawing(false),
+  });
 
   const rows = list.data ?? [];
   const surveyed = useMemo<MapParcel[]>(() => {
@@ -152,15 +162,8 @@ export const SurveyPage = () => {
 
   const stopDrawing = (): void => {
     setDrawing(false);
-    rect.reset();
+    setSheetRect(null);
   };
-
-  const onMapClick = (lat: number, lng: number): void => {
-    const b = rect.tap(lat, lng);
-    if (b) setSheetBBox(b);
-  };
-
-  const rectPoints = rect.lines[0]?.points ?? null;
 
   if (noEvent(list.error)) {
     return (
@@ -180,7 +183,7 @@ export const SurveyPage = () => {
       wide
       actions={
         <>
-          <Button size="sm" variant={drawing ? "primary" : "secondary"} onClick={() => (drawing ? stopDrawing() : (rect.reset(), setDrawing(true)))}>
+          <Button size="sm" variant={drawing ? "primary" : "secondary"} onClick={() => (drawing ? stopDrawing() : (setSheetRect(null), setDrawing(true)))}>
             <RectIcon />
             Load parcels
           </Button>
@@ -224,14 +227,13 @@ export const SurveyPage = () => {
               sides={mapSides}
               selectedId={selectedId}
               onParcel={setSelectedId}
-              onMapClick={drawing ? onMapClick : undefined}
-              rect={rectPoints}
-              corner={rect.step === 2 ? rect.corner : null}
+              passive={drawing}
+              onReady={setMap}
               onView={(bbox, zoom) => setView({ bbox, zoom })}
               focus={focus}
               fitKey={`day-${dayId ?? "all"}`}
             />
-            {drawing && <MapMode label="Load parcels" detail={rect.step === 1 ? "Corner 1 of 2" : "Corner 2 of 2"} onCancel={stopDrawing} />}
+            {drawing && sheetRect === null && <MapMode label="Load parcels" detail={rectTool.step ? STEP_LABEL[rectTool.step] : undefined} onCancel={stopDrawing} />}
           </div>
           <Panel title="Key">
             <ul className="space-y-2 text-sm">
@@ -352,15 +354,9 @@ export const SurveyPage = () => {
         </Panel>
       </div>
       <LoadSheet
-        bbox={sheetBBox}
-        onClose={() => {
-          setSheetBBox(null);
-          stopDrawing();
-        }}
-        onRedraw={() => {
-          setSheetBBox(null);
-          rect.reset();
-        }}
+        rect={sheetRect}
+        onClose={stopDrawing}
+        onRedraw={() => setSheetRect(null)}
         notify={setNotice}
       />
       <GradeSheet

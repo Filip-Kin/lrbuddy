@@ -22,6 +22,7 @@ const p = await import("./parcels.ts");
 const { createSession } = await import("./auth.ts");
 const { planRouter } = await import("./routers/plan.ts");
 const { eq } = await import("drizzle-orm");
+const { config } = await import("./config.ts");
 
 afterAll(() => {
   d.cancelScheduledRoutes();
@@ -189,7 +190,9 @@ describe("assignments and publish", () => {
     const sheets = await admin.print.sheets({ dayId });
     expect(sheets.crewPages).toHaveLength(1);
     const page = sheets.crewPages[0]!;
-    expect(page).toMatchObject({ teamName: "Ford 1", ccName: "East" });
+    expect(page).toMatchObject({ teamName: "Ford 1", ccName: "East", code: crew.token, url: `${config.publicUrl}/j/${crew.token}`, loginUrl: `${config.publicUrl}/login` });
+    expect(page.qrSvg).toStartWith("<svg");
+    expect(page.lots.every((l) => l.parcelId !== null)).toBe(true);
     expect(page.area).not.toBeNull();
     expect(page.lots.map((l) => l.grade).sort()).toEqual(["high", "low", "low"]);
     expect(sheets.ccPages[0]!.workLots).toHaveLength(3);

@@ -1,3 +1,4 @@
+import type { Map as LeafletMap } from "leaflet";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button, ButtonLink } from "../../../components/Button.tsx";
 import { EmptyState } from "../../../components/EmptyState.tsx";
@@ -15,7 +16,6 @@ import {
   rectPolygon,
   rectSize,
   STEP_LABEL,
-  useLeafletMap,
   useOrientedRect,
   type OrientedRect,
 } from "../../../lib/map/orientedRect.ts";
@@ -215,8 +215,7 @@ export const AssignmentsPage = () => {
   const [publishOpen, setPublishOpen] = useState(false);
   const [notice, setNotice] = useState<NoticeValue>(null);
   const clearNotice = useCallback(() => setNotice(null), []);
-  const holder = useRef<HTMLDivElement>(null);
-  const map = useLeafletMap(holder);
+  const [map, setMap] = useState<LeafletMap | null>(null);
 
   const targetCompany = companies.find((c) => c.companyId === target) ?? null;
   const cards = useRef(new Map<number, HTMLLIElement>());
@@ -557,8 +556,8 @@ export const AssignmentsPage = () => {
               </Button>
             </div>
           </section>
-          <div ref={holder} className="relative h-[60dvh] min-h-80 overflow-hidden rounded-2xl ring-1 ring-line lg:h-auto lg:flex-1">
-            <MapView markers={markers} label="Assignments map" className="absolute inset-0" />
+          <div className="relative h-[60dvh] min-h-80 overflow-hidden rounded-2xl ring-1 ring-line lg:h-auto lg:flex-1">
+            <MapView markers={markers} label="Assignments map" className="absolute inset-0" onReady={setMap} />
             {drawSel && <MapMode label="Select area" detail={selTool.step ? STEP_LABEL[selTool.step] : undefined} onCancel={() => setDrawSel(false)} />}
             {areaRow && (
               <MapMode

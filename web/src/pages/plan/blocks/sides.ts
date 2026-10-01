@@ -23,32 +23,6 @@ export const assignedLabel = (a: Side["assignment"], withDay = true): string | n
 // #endregion
 
 // #region styles
-/**
- * Block side colours. A red ramp from --crew for the work bands, so no new
- * accent colour enters the palette; the dark band mixes --crew with black.
- * Injected once, like the oriented rectangle's styles.
- */
-const CSS = `
-.lrb-side { stroke-width: 1.5px; stroke-linejoin: round; }
-.lrb-side-none { stroke: var(--muted); fill: var(--muted); fill-opacity: 0.16; stroke-opacity: 0.7; }
-.lrb-side-light { stroke: var(--crew); fill: var(--crew); fill-opacity: 0.22; }
-.lrb-side-mid { stroke: var(--crew); fill: var(--crew); fill-opacity: 0.55; }
-.lrb-side-dark { stroke: color-mix(in srgb, var(--crew) 55%, #000); fill: color-mix(in srgb, var(--crew) 55%, #000); fill-opacity: 0.85; }
-.lrb-side-here { stroke: var(--brand-green); fill: var(--brand-green); fill-opacity: 0.45; }
-.lrb-side-away { stroke: var(--muted); fill: var(--muted); fill-opacity: 0.08; stroke-dasharray: 3 3; }
-.lrb-side-focus { stroke: var(--ink); stroke-width: 3px; stroke-opacity: 1; }
-.lrb-side-sel { stroke: var(--ink); stroke-width: 3.5px; stroke-opacity: 1; fill: var(--brand); fill-opacity: 0.7; }
-.lrb-area { stroke: var(--muted); fill: none; stroke-width: 2px; stroke-dasharray: 8 5; }
-.lrb-area-label { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 9999px; padding: 1px 8px; font: 600 12px/18px ui-sans-serif, system-ui, sans-serif; white-space: nowrap; box-shadow: 0 1px 2px rgb(0 0 0 / 0.2); transform: translate(-50%, -50%); width: max-content; }
-`;
-const injectCss = (): void => {
-  if (typeof document === "undefined" || document.getElementById("lrb-sides-css")) return;
-  const el = document.createElement("style");
-  el.id = "lrb-sides-css";
-  el.textContent = CSS;
-  document.head.appendChild(el);
-};
-
 /** Swatch classes for legends, matching the map. */
 export const SWATCH: Record<Band | "here" | "away" | "sel", string> = {
   none: "bg-muted/25 ring-1 ring-inset ring-muted",
@@ -89,7 +63,6 @@ export const useSidesLayer = (map: L.Map | null, sides: readonly DrawnSide[], on
 
   useEffect(() => {
     if (!map) return;
-    injectCss();
     const g = L.layerGroup().addTo(map);
     group.current = g;
     return () => {
@@ -129,7 +102,6 @@ export const useAreasLayer = (map: L.Map | null, areas: readonly DrawnArea[]): v
   const group = useRef<L.LayerGroup | null>(null);
   useEffect(() => {
     if (!map) return;
-    injectCss();
     const g = L.layerGroup().addTo(map);
     group.current = g;
     return () => {

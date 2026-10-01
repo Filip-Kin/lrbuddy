@@ -4,7 +4,8 @@ import type { LotGeometry } from "../../../../../server/db/schema.ts";
 import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM } from "../../../lib/map/basemap.ts";
 import { escapeHtml } from "../../../lib/map/markers.ts";
 import { ahead, metresPerPixel, turn, type LatLng } from "./geo.ts";
-import { gradeColour, toLatLngs, usePalette, usePrefersDark, type Grade } from "./style.ts";
+import { gradeColour, toLatLngs, usePalette, type Grade } from "./style.ts";
+import { usePrefersDark } from "../../../lib/map/MapView.tsx";
 
 export interface DriveShape {
   parcelId: string;

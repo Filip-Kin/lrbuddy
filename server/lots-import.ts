@@ -1,9 +1,9 @@
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import Papa from "papaparse";
 import { bus } from "./bus.ts";
 import { db } from "./db/index.ts";
 import { commandCenters, lots, type Lot, type LotGeometry, type LotSource } from "./db/schema.ts";
-import { normalizeBBox, type BBox } from "./geo.ts";
+import { areaBBox, inArea, isRing, normalizeBBox, type Area } from "./geo.ts";
 import { siteCcIds } from "./queries.ts";
 
 export const DLBA_URL =
@@ -105,18 +105,44 @@ export interface DlbaOptions {
   fetchImpl?: typeof fetch;
 }
 
-/** Pulls Land Bank lots inside the bbox, paging until the service says it is done. */
-export const fetchDlba = async (bbox: BBox, opts: DlbaOptions = {}): Promise<LotInput[]> => {
-  const [xmin, ymin, xmax, ymax] = normalizeBBox(bbox);
+/**
+ * ArcGIS spatial filter for an area: an envelope for a bbox, a polygon for a
+ * ring (the oriented rectangle), so the services return what was drawn.
+ */
+const spatialFilter = (area: Area): Record<string, string> => {
+  if (isRing(area)) {
+    // Esri reads a counter-clockwise ring as a hole; outer rings go clockwise.
+    let twice = 0;
+    for (let i = 0, j = area.length - 1; i < area.length; j = i++) twice += (area[j]![0] - area[i]![0]) * (area[j]![1] + area[i]![1]);
+    const ring = twice < 0 ? [...area].reverse() : area;
+    return {
+      geometry: JSON.stringify({ rings: [ring], spatialReference: { wkid: 4326 } }),
+      geometryType: "esriGeometryPolygon",
+      inSR: "4326",
+      spatialRel: "esriSpatialRelIntersects",
+    };
+  }
+  const [xmin, ymin, xmax, ymax] = normalizeBBox(area);
+  return {
+    geometry: `${xmin},${ymin},${xmax},${ymax}`,
+    geometryType: "esriGeometryEnvelope",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+  };
+};
+
+/**
+ * Pulls Land Bank lots inside the area (an envelope or a polygon ring),
+ * paging until the service says it is done. Only lots whose point falls
+ * inside the area are kept.
+ */
+export const fetchDlba = async (area: Area, opts: DlbaOptions = {}): Promise<LotInput[]> => {
   const out: LotInput[] = [];
   const limit = opts.limit ?? Infinity;
   let offset = 0;
   for (;;) {
     const params = new URLSearchParams({
-      geometry: `${xmin},${ymin},${xmax},${ymax}`,
-      geometryType: "esriGeometryEnvelope",
-      inSR: "4326",
-      spatialRel: "esriSpatialRelIntersects",
+      ...spatialFilter(area),
       outFields: "name,parcel_id,inventory_status_socrata,longitude,latitude",
       outSR: "4326",
       f: "json",
@@ -134,7 +160,7 @@ export const fetchDlba = async (bbox: BBox, opts: DlbaOptions = {}): Promise<Lot
     for (const f of feats) {
       const lat = Number.isFinite(num(f.attributes.latitude)) ? num(f.attributes.latitude) : num(f.geometry?.y);
       const lng = Number.isFinite(num(f.attributes.longitude)) ? num(f.attributes.longitude) : num(f.geometry?.x);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !inArea({ lat, lng }, area)) continue;
       out.push({ parcelId: str(f.attributes.parcel_id), address: str(f.attributes.name), lat, lng });
       if (out.length >= limit) return out;
     }
@@ -143,13 +169,13 @@ export const fetchDlba = async (bbox: BBox, opts: DlbaOptions = {}): Promise<Lot
   }
 };
 
-/** DLBA lots in the bbox, then their parcel outlines. An outline failure keeps the lots. */
+/** DLBA lots in the area, then their parcel outlines. An outline failure keeps the lots. */
 export const importDlba = async (
   eventId: number,
-  bbox: BBox,
+  area: Area,
   opts: DlbaOptions = {},
 ): Promise<ImportResult & { fetched: number; outlines: number }> => {
-  const rows = await fetchDlba(bbox, opts);
+  const rows = await fetchDlba(area, opts);
   const res = upsertLots(eventId, rows, "dlba");
   const outlines = await attachOutlines(eventId, { fetchImpl: opts.fetchImpl }).catch(() => 0);
   return { ...res, fetched: rows.length, outlines };
@@ -284,19 +310,10 @@ export const parcelAtPoint = async (lat: number, lng: number, opts: DlbaOptions 
   return null;
 };
 
-const envelope = (bbox: BBox): Record<string, string> => {
-  const [xmin, ymin, xmax, ymax] = normalizeBBox(bbox);
-  return {
-    geometry: `${xmin},${ymin},${xmax},${ymax}`,
-    geometryType: "esriGeometryEnvelope",
-    inSR: "4326",
-    spatialRel: "esriSpatialRelIntersects",
-  };
-};
 
-/** How many residential vacant parcels sit in the bbox; shown before an import. */
-export const countVacantParcels = async (bbox: BBox, opts: DlbaOptions = {}): Promise<number> => {
-  const qs = new URLSearchParams({ ...envelope(bbox), where: VACANT_WHERE, returnCountOnly: "true", f: "json" });
+/** How many residential vacant parcels touch the area; shown before an import. */
+export const countVacantParcels = async (area: Area, opts: DlbaOptions = {}): Promise<number> => {
+  const qs = new URLSearchParams({ ...spatialFilter(area), where: VACANT_WHERE, returnCountOnly: "true", f: "json" });
   const res = await (opts.fetchImpl ?? fetch)(`${PARCEL_URL}?${qs.toString()}`, {
     headers: { "user-agent": USER_AGENT },
     signal: AbortSignal.timeout(opts.timeoutMs ?? 30_000),
@@ -307,15 +324,15 @@ export const countVacantParcels = async (bbox: BBox, opts: DlbaOptions = {}): Pr
   return body.count;
 };
 
-/** Residential vacant parcels in the bbox, with outlines, paged 1000 at a time. */
-export const fetchVacantParcels = async (bbox: BBox, opts: DlbaOptions = {}): Promise<LotInput[]> => {
+/** Residential vacant parcels whose centre is in the area, with outlines, paged 1000 at a time. */
+export const fetchVacantParcels = async (area: Area, opts: DlbaOptions = {}): Promise<LotInput[]> => {
   const out: LotInput[] = [];
   const limit = opts.limit ?? Infinity;
   let offset = 0;
   for (;;) {
     const body = await parcelQuery(
       {
-        ...envelope(bbox),
+        ...spatialFilter(area),
         where: VACANT_WHERE,
         resultOffset: String(offset),
         resultRecordCount: String(Math.min(PARCEL_PAGE, limit - out.length)),
@@ -327,7 +344,9 @@ export const fetchVacantParcels = async (bbox: BBox, opts: DlbaOptions = {}): Pr
     for (const f of feats) {
       const p = toParcel(f);
       if (!p) continue;
-      out.push({ parcelId: p.parcelId, address: p.address, geometry: p.geometry, ...geometryCenter(p.geometry) });
+      const centre = geometryCenter(p.geometry);
+      if (!inArea(centre, area)) continue;
+      out.push({ parcelId: p.parcelId, address: p.address, geometry: p.geometry, ...centre });
       if (out.length >= limit) return out;
     }
     const more = body.exceededTransferLimit ?? body.properties?.exceededTransferLimit ?? false;
@@ -336,8 +355,8 @@ export const fetchVacantParcels = async (bbox: BBox, opts: DlbaOptions = {}): Pr
   }
 };
 
-export const importVacantParcels = async (eventId: number, bbox: BBox, opts: DlbaOptions = {}): Promise<ImportResult & { fetched: number }> => {
-  const rows = await fetchVacantParcels(bbox, opts);
+export const importVacantParcels = async (eventId: number, area: Area, opts: DlbaOptions = {}): Promise<ImportResult & { fetched: number }> => {
+  const rows = await fetchVacantParcels(area, opts);
   return { ...upsertLots(eventId, rows, "parcel"), fetched: rows.length };
 };
 
@@ -486,27 +505,21 @@ export const addManualLot = async (
 };
 
 /**
- * Sets the CC of every lot of the event inside the bbox (only lots with no CC
- * when `onlyUnassigned`). Clears the crew when the CC changes. Emits one
- * lot.changed per CC that gained or lost lots, which is enough for every
- * screen at that CC to refetch.
+ * Sets the CC of the lots matching `where` (only lots with no CC when
+ * `onlyUnassigned`). Clears the crew when the lot moves to another site; a
+ * move between days' rows of one site keeps it. Emits one lot.changed per CC
+ * that gained or lost lots, which is enough for every screen at that CC to
+ * refetch.
  */
-export const assignLotsToCcByBBox = (eventId: number, bbox: BBox, ccId: number | null, onlyUnassigned = false): number => {
-  const [w, s, e, n] = normalizeBBox(bbox);
-  const where = and(
-    eq(lots.eventId, eventId),
-    sql`${lots.lng} between ${w} and ${e}`,
-    sql`${lots.lat} between ${s} and ${n}`,
-    onlyUnassigned ? isNull(lots.ccId) : undefined,
-  );
-  const before = db.selectDistinct({ ccId: lots.ccId }).from(lots).where(where).all();
-  // Moving between days' rows of one site keeps the crew; a new site clears it.
+const assignLotsWhere = (where: SQL | undefined, ccId: number | null, onlyUnassigned: boolean): number => {
+  const scoped = and(where, onlyUnassigned ? isNull(lots.ccId) : undefined);
+  const before = db.selectDistinct({ ccId: lots.ccId }).from(lots).where(scoped).all();
   const site = ccId === null ? [] : siteCcIds(ccId);
   const sameSite = site.length > 0 ? sql`${lots.ccId} in (${sql.join(site.map((i) => sql`${i}`), sql`, `)})` : sql`${lots.ccId} is null`;
   const res = db
     .update(lots)
     .set({ ccId, crewId: sql`case when ${sameSite} then ${lots.crewId} else null end` })
-    .where(where)
+    .where(scoped)
     .returning()
     .all();
   const first = res[0];
@@ -517,4 +530,17 @@ export const assignLotsToCcByBBox = (eventId: number, bbox: BBox, ccId: number |
   }
   return res.length;
 };
+
+/** Every lot of the event whose point is inside the area (an envelope or a ring) goes to the CC. */
+export const assignLotsToCcInArea = (eventId: number, area: Area, ccId: number | null, onlyUnassigned = false): number => {
+  const [w, s, e, n] = areaBBox(area);
+  const box = and(eq(lots.eventId, eventId), sql`${lots.lng} between ${w} and ${e}`, sql`${lots.lat} between ${s} and ${n}`);
+  if (!isRing(area)) return assignLotsWhere(box, ccId, onlyUnassigned);
+  const ids = db.select({ id: lots.id, lat: lots.lat, lng: lots.lng }).from(lots).where(box).all().filter((l) => inArea(l, area)).map((l) => l.id);
+  return ids.length ? assignLotsWhere(inArray(lots.id, ids), ccId, onlyUnassigned) : 0;
+};
+
+/** The given lots of the event go to the CC (the admin Lots page's selection). */
+export const assignLotIdsToCc = (eventId: number, ids: readonly number[], ccId: number | null): number =>
+  ids.length ? assignLotsWhere(and(eq(lots.eventId, eventId), inArray(lots.id, [...ids])), ccId, false) : 0;
 // #endregion

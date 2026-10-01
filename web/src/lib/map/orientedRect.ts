@@ -5,12 +5,12 @@
  * third click fixes it. After that the rectangle has a rotate handle at one
  * end, a handle on each edge and one on each corner.
  *
- * MapView keeps its Leaflet map to itself, so this module finds it through a
- * Leaflet init hook: every map registers itself on creation and leaves on
- * `unload`. `useLeafletMap(ref)` returns the map inside a wrapper element.
+ * The map comes from MapView's `onReady` (or any Leaflet map). The tool's
+ * shapes use their own SVG renderer, so the `.lrb-orect*` classes in
+ * styles.css apply on a canvas map too.
  */
 import L from "leaflet";
-import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // #region geometry
 export interface LatLng {
@@ -182,60 +182,7 @@ export const rotateTo = (r: OrientedRect, q: LatLng): OrientedRect => {
 };
 // #endregion
 
-// #region map registry
-const maps = new Set<L.Map>();
-const listeners = new Set<() => void>();
-let version = 0;
-const bump = (): void => {
-  version++;
-  for (const l of listeners) l();
-};
-L.Map.addInitHook(function (this: L.Map) {
-  const m = this;
-  maps.add(m);
-  m.on("unload", () => {
-    maps.delete(m);
-    bump();
-  });
-  bump();
-});
-const subscribe = (cb: () => void): (() => void) => {
-  listeners.add(cb);
-  return () => listeners.delete(cb);
-};
 
-/** The Leaflet map rendered inside `holder` (a MapView wrapper), once it exists. */
-export const useLeafletMap = (holder: RefObject<HTMLElement | null>): L.Map | null => {
-  useSyncExternalStore(subscribe, () => version);
-  const el = holder.current;
-  if (!el) return null;
-  for (const m of maps) if (el.contains(m.getContainer())) return m;
-  return null;
-};
-// #endregion
-
-// #region styles
-const CSS = `
-.lrb-orect { stroke: var(--ink); fill: var(--brand); }
-.lrb-orect-preview { stroke: var(--ink); fill: var(--brand); stroke-dasharray: 6 5; }
-.lrb-orect-h { display: flex; align-items: center; justify-content: center; touch-action: none; }
-.lrb-orect-h span { display: block; width: 14px; height: 14px; box-sizing: border-box; background: var(--surface); border: 2.5px solid var(--ink); border-radius: 3px; box-shadow: 0 0 0 1.5px var(--surface); }
-.lrb-orect-edge span { border-radius: 9999px; width: 13px; height: 13px; }
-.lrb-orect-rot span { border-radius: 9999px; width: 18px; height: 18px; background: var(--brand); }
-.lrb-orect-corner { cursor: move; }
-.lrb-orect-edge { cursor: ew-resize; }
-.lrb-orect-rot { cursor: grab; }
-.lrb-orect-dot span { width: 12px; height: 12px; border-radius: 9999px; background: var(--ink); border-color: var(--surface); }
-.leaflet-container.lrb-orect-drawing, .leaflet-container.lrb-orect-drawing .leaflet-interactive { cursor: crosshair; }
-`;
-const injectCss = (): void => {
-  if (typeof document === "undefined" || document.getElementById("lrb-orect-css")) return;
-  const el = document.createElement("style");
-  el.id = "lrb-orect-css";
-  el.textContent = CSS;
-  document.head.appendChild(el);
-};
-// #endregion
 
 // #region tool
 export type DrawStep = "first" | "second" | "width";
@@ -262,6 +209,7 @@ const ROTATE_GAP_PX = 30;
 class Tool {
   private readonly group: L.LayerGroup;
   private readonly preview: L.LayerGroup;
+  private readonly svg = L.svg({ padding: 0.5 });
   private shape: L.Polygon | null = null;
   private handles: L.Marker[] = [];
   private value: OrientedRect | null = null;
@@ -273,7 +221,6 @@ class Tool {
     private readonly map: L.Map,
     private readonly cb: ToolCallbacks,
   ) {
-    injectCss();
     this.group = L.layerGroup().addTo(map);
     this.preview = L.layerGroup().addTo(map);
     map.on("click", this.onClick);
@@ -290,6 +237,7 @@ class Tool {
     document.removeEventListener("keydown", this.onKey);
     this.group.remove();
     this.preview.remove();
+    this.svg.remove();
   }
 
   setValue(r: OrientedRect | null): void {
@@ -364,11 +312,11 @@ class Tool {
           [ph.a.lat, ph.a.lng],
           [p.lat, p.lng],
         ],
-        { className: "lrb-orect-preview", weight: 2.5, interactive: false },
+        { className: "lrb-orect-preview", weight: 2.5, interactive: false, renderer: this.svg },
       ).addTo(this.preview);
     } else if (ph.kind === "width") {
       const r = rectFromAxis(ph.a, ph.b, p);
-      L.polygon(rectLatLngs(r).slice(0, 4), { className: "lrb-orect-preview", weight: 2.5, fillOpacity: 0.12, interactive: false }).addTo(this.preview);
+      L.polygon(rectLatLngs(r).slice(0, 4), { className: "lrb-orect-preview", weight: 2.5, fillOpacity: 0.12, interactive: false, renderer: this.svg }).addTo(this.preview);
       for (const q of [ph.a, ph.b]) L.marker([q.lat, q.lng], { icon: handleIcon("dot"), interactive: false, keyboard: false }).addTo(this.preview);
     }
   }
@@ -379,7 +327,7 @@ class Tool {
     this.handles = [];
     const r = this.value;
     if (!r || this.phase.kind !== "idle") return;
-    this.shape = L.polygon(rectLatLngs(r).slice(0, 4), { className: "lrb-orect", weight: 2.5, fillOpacity: 0.12, interactive: false }).addTo(this.group);
+    this.shape = L.polygon(rectLatLngs(r).slice(0, 4), { className: "lrb-orect", weight: 2.5, fillOpacity: 0.12, interactive: false, renderer: this.svg }).addTo(this.group);
     if (!this.editable) return;
     const make = (kind: "corner" | "edge" | "rot", label: string, move: (start: OrientedRect, q: LatLng) => OrientedRect): void => {
       const m = L.marker([r.center.lat, r.center.lng], { icon: handleIcon(kind), draggable: true, keyboard: false, title: label, alt: label, zIndexOffset: 2000 });
@@ -446,7 +394,7 @@ export interface OrientedRectOptions {
 }
 
 /**
- * Attaches the tool to a map from `useLeafletMap`. Returns the drawing step,
+ * Attaches the tool to a map (MapView `onReady`). Returns the drawing step,
  * for the label over the map: "first" and "second" wait for the two axis
  * clicks, "width" for the click that sets the width.
  */

@@ -1,5 +1,6 @@
 import type { LatLngExpression } from "leaflet";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
+import { usePrefersDark } from "../../../lib/map/MapView.tsx";
 import type { LotGeometry } from "../../../../../server/db/schema.ts";
 
 export type Grade = "high" | "low" | "clear";
@@ -9,18 +10,6 @@ export const GRADE_LABEL: Record<Grade, string> = { high: "High", low: "Low", cl
 export const GRADES: readonly Grade[] = ["high", "low", "clear"];
 
 // #region scheme
-const darkQuery = typeof window !== "undefined" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
-
-export const usePrefersDark = (): boolean =>
-  useSyncExternalStore(
-    (cb) => {
-      darkQuery?.addEventListener("change", cb);
-      return () => darkQuery?.removeEventListener("change", cb);
-    },
-    () => darkQuery?.matches ?? false,
-    () => false,
-  );
-
 export interface Palette {
   ink: string;
   brand: string;

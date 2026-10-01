@@ -1,3 +1,4 @@
+import type { Map as LeafletMap } from "leaflet";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Button, ButtonLink } from "../../../components/Button.tsx";
@@ -5,7 +6,6 @@ import { EmptyState } from "../../../components/EmptyState.tsx";
 import { Panel, Stat } from "../../../components/Panel.tsx";
 import { Skeleton } from "../../../components/Skeleton.tsx";
 import { MapView } from "../../../lib/map/MapView.tsx";
-import { useLeafletMap } from "../../../lib/map/orientedRect.ts";
 import { trpc } from "../../../lib/trpc.ts";
 import { noEvent } from "../common.ts";
 import { CapacityInputs, Legend } from "./parts.tsx";
@@ -95,8 +95,7 @@ export const BlocksPage = () => {
   const [sel, setSel] = useState<Set<string>>(() => new Set());
   const anchor = useRef<string | null>(null);
   const rows = useRef(new Map<string, HTMLTableRowElement>());
-  const holder = useRef<HTMLDivElement>(null);
-  const map = useLeafletMap(holder);
+  const [map, setMap] = useState<LeafletMap | null>(null);
 
   const sides = list.data ?? [];
   const byKey = useMemo(() => new Map(sides.map((s) => [s.key, s])), [sides]);
@@ -200,8 +199,8 @@ export const BlocksPage = () => {
     body = (
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,4fr)_minmax(0,7fr)]">
         <div className="flex min-h-0 flex-col gap-2">
-          <div ref={holder} className="relative h-[50dvh] min-h-72 overflow-hidden rounded-2xl ring-1 ring-line lg:h-auto lg:flex-1">
-            <MapView markers={[]} label="Block sides map" className="absolute inset-0" />
+          <div className="relative h-[50dvh] min-h-72 overflow-hidden rounded-2xl ring-1 ring-line lg:h-auto lg:flex-1">
+            <MapView markers={[]} label="Block sides map" className="absolute inset-0" onReady={setMap} />
           </div>
           <Legend
             items={[

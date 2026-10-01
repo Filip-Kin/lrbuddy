@@ -1,7 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import Papa from "papaparse";
-import QRCode from "qrcode";
 import { z } from "zod";
 import { newCrewToken, uniqueCode } from "../auth.ts";
 import { bus, type BusMessage } from "../bus.ts";
@@ -30,10 +29,11 @@ import {
   type Event,
 } from "../db/schema.ts";
 import { crewLabel, emitStock, scheduleRoute, stockFor, sweepOpen } from "../dispatch.ts";
-import { normalizeBBox } from "../geo.ts";
+import { ringBBox, type Ring } from "../geo.ts";
 import {
   addManualLot,
-  assignLotsToCcByBBox,
+  assignLotIdsToCc,
+  assignLotsToCcInArea,
   countVacantParcels,
   emitLot,
   importDlba,
@@ -47,7 +47,14 @@ import { copySetupFromPreviousDay, createCc, createCrew, createEvent, createTruc
 import { adminProcedure, liveFor, readAdmin, router } from "../trpc.ts";
 
 // #region helpers
-const bboxInput = z.tuple([z.number(), z.number(), z.number(), z.number()]);
+/** A drawn rectangle as a GeoJSON ring of [lng, lat] pairs. */
+const ringInput = z.array(z.tuple([z.number(), z.number()])).min(4).max(64);
+/** Imports refuse a rectangle wider than about 25 km either way. */
+const checkImportRing = (ring: Ring): Ring => {
+  const [w, s, e, n] = ringBBox(ring);
+  if (e - w > 0.3 || n - s > 0.3) throw new TRPCError({ code: "BAD_REQUEST", message: "Area too large" });
+  return ring;
+};
 const phone = z.string().trim().max(40).nullish();
 const id = z.number().int();
 
@@ -661,49 +668,49 @@ const lotsRouter = router({
     const unassigned = db.select({ n: sql<number>`count(*)` }).from(lots).where(and(eq(lots.eventId, eventId), sql`${lots.ccId} is null`)).get();
     return { bySource, byStatus, unassigned: unassigned?.n ?? 0 };
   }),
-  /** Land Bank lots in the rectangle; with `ccId`, lots in it that have no CC go to that CC. */
+  /** Land Bank lots in the drawn rectangle; with `ccId`, lots in it that have no CC go to that CC. */
   importDlba: adminProcedure
-    .input(z.object({ bbox: bboxInput, ccId: id.nullish(), eventId: id.nullish(), limit: z.number().int().min(1).max(20000).optional() }))
+    .input(z.object({ ring: ringInput, ccId: id.nullish(), eventId: id.nullish(), limit: z.number().int().min(1).max(20000).optional() }))
     .mutation(async ({ input }) => {
-      const [w, s, e, n] = normalizeBBox(input.bbox);
-      if (e - w > 0.3 || n - s > 0.3) throw new TRPCError({ code: "BAD_REQUEST", message: "Area too large" });
+      const ring = checkImportRing(input.ring);
       const eventId = eventOrActive(input.eventId);
       if (input.ccId != null && eventOfCc(getCcOrThrow(input.ccId)) !== eventId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Command center is in another event" });
       }
       let res: Awaited<ReturnType<typeof importDlba>>;
       try {
-        res = await importDlba(eventId, [w, s, e, n], { limit: input.limit });
+        res = await importDlba(eventId, ring, { limit: input.limit });
       } catch (err) {
         throw new TRPCError({ code: "BAD_GATEWAY", message: "Land Bank unavailable", cause: err });
       }
-      const assigned = input.ccId != null ? assignLotsToCcByBBox(eventId, [w, s, e, n], input.ccId, true) : 0;
+      const assigned = input.ccId != null ? assignLotsToCcInArea(eventId, ring, input.ccId, true) : 0;
       return { ...res, assigned };
     }),
-  /** Residential vacant parcels in the rectangle, counted before an import. */
-  countVacant: adminProcedure.input(z.object({ bbox: bboxInput })).query(async ({ input }) => {
+  /** Residential vacant parcels touching the drawn rectangle, counted before an import. */
+  countVacant: adminProcedure.input(z.object({ ring: ringInput })).query(async ({ input }) => {
+    const ring = checkImportRing(input.ring);
     try {
-      return { count: await countVacantParcels(input.bbox) };
+      return { count: await countVacantParcels(ring) };
     } catch (err) {
       throw new TRPCError({ code: "BAD_GATEWAY", message: "Parcel layer unavailable", cause: err });
     }
   }),
+  /** Residential vacant parcels whose centre is in the drawn rectangle. */
   importVacant: adminProcedure
-    .input(z.object({ bbox: bboxInput, ccId: id.nullish(), eventId: id.nullish(), limit: z.number().int().min(1).max(20000).optional() }))
+    .input(z.object({ ring: ringInput, ccId: id.nullish(), eventId: id.nullish(), limit: z.number().int().min(1).max(20000).optional() }))
     .mutation(async ({ input }) => {
-      const [w, s, e, n] = normalizeBBox(input.bbox);
-      if (e - w > 0.3 || n - s > 0.3) throw new TRPCError({ code: "BAD_REQUEST", message: "Area too large" });
+      const ring = checkImportRing(input.ring);
       const eventId = eventOrActive(input.eventId);
       if (input.ccId != null && eventOfCc(getCcOrThrow(input.ccId)) !== eventId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Command center is in another event" });
       }
       let res: Awaited<ReturnType<typeof importVacantParcels>>;
       try {
-        res = await importVacantParcels(eventId, [w, s, e, n], { limit: input.limit });
+        res = await importVacantParcels(eventId, ring, { limit: input.limit });
       } catch (err) {
         throw new TRPCError({ code: "BAD_GATEWAY", message: "Parcel layer unavailable", cause: err });
       }
-      const assigned = input.ccId != null ? assignLotsToCcByBBox(eventId, [w, s, e, n], input.ccId, true) : 0;
+      const assigned = input.ccId != null ? assignLotsToCcInArea(eventId, ring, input.ccId, true) : 0;
       return { ...res, assigned };
     }),
   importCsv: adminProcedure
@@ -718,12 +725,13 @@ const lotsRouter = router({
   add: adminProcedure
     .input(z.object({ lat: z.number(), lng: z.number(), address: z.string().max(200).nullish(), ccId: id.nullish(), eventId: id.nullish() }))
     .mutation(({ input }) => addManualLot(eventOrActive(input.eventId), input)),
-  assignCc: adminProcedure.input(z.object({ bbox: bboxInput, ccId: id.nullable(), eventId: id.nullish() })).mutation(({ input }) => {
+  /** The selected lots go to the CC (or to none). A move to another site clears the crew; between days of one site it stays. */
+  assignCc: adminProcedure.input(z.object({ ids: z.array(id).min(1).max(20000), ccId: id.nullable(), eventId: id.nullish() })).mutation(({ input }) => {
     const eventId = eventOrActive(input.eventId);
     if (input.ccId !== null && eventOfCc(getCcOrThrow(input.ccId)) !== eventId) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "Command center is in another event" });
     }
-    return { updated: assignLotsToCcByBBox(eventId, input.bbox, input.ccId) };
+    return { updated: assignLotIdsToCc(eventId, input.ids, input.ccId) };
   }),
   /** One lot: CC, address, note, status. A new CC clears the crew. */
   update: adminProcedure
@@ -759,23 +767,6 @@ const lotsRouter = router({
       emitLot(next);
       return next;
     }),
-  /** Removes every lot of the event inside the rectangle. */
-  deleteInBBox: adminProcedure.input(z.object({ bbox: bboxInput, eventId: id.nullish() })).mutation(({ input }) => {
-    const [w, s, e, n] = normalizeBBox(input.bbox);
-    const r = db
-      .delete(lots)
-      .where(
-        and(
-          eq(lots.eventId, eventOrActive(input.eventId)),
-          sql`${lots.lng} between ${w} and ${e}`,
-          sql`${lots.lat} between ${s} and ${n}`,
-        ),
-      )
-      .returning({ id: lots.id })
-      .all();
-    sweepPhotoFiles();
-    return { deleted: r.length };
-  }),
   delete: adminProcedure.input(z.object({ ids: z.array(id).min(1).max(5000) })).mutation(({ input }) => {
     const r = db.delete(lots).where(inArray(lots.id, input.ids)).returning({ id: lots.id }).all();
     sweepPhotoFiles();
@@ -785,57 +776,6 @@ const lotsRouter = router({
 // #endregion
 
 // #region print and export
-const printRouter = router({
-  /** One page per crew with its join QR, plus one page per CC with its codes. */
-  sheet: adminProcedure.input(z.object({ dayId: id })).query(async ({ input }) => {
-    const day = db.select().from(days).where(eq(days.id, input.dayId)).get();
-    if (!day) throw new TRPCError({ code: "NOT_FOUND", message: "Day not found" });
-    const ccs = db.select().from(commandCenters).where(eq(commandCenters.dayId, day.id)).orderBy(commandCenters.name).all();
-    const ccIds = ccs.map((c) => c.id);
-    const shirts = ccIds.length ? db.select().from(greenShirts).where(inArray(greenShirts.ccId, ccIds)).all() : [];
-    const codes = ccIds.length ? db.select().from(greenCodes).where(inArray(greenCodes.ccId, ccIds)).all() : [];
-    const truckRows = db.select().from(trucks).where(eq(trucks.dayId, day.id)).orderBy(trucks.name).all();
-    const crewRows = db
-      .select({ crew: crews, company: companies })
-      .from(crews)
-      .leftJoin(companies, eq(companies.id, crews.companyId))
-      .where(eq(crews.dayId, day.id))
-      .orderBy(crews.number)
-      .all();
-    const loginUrl = `${config.publicUrl}/login`;
-    const crewPages = await Promise.all(
-      crewRows.map(async ({ crew, company }) => {
-        const url = `${config.publicUrl}/j/${crew.token}`;
-        const cc = ccs.find((c) => c.id === crew.ccId);
-        return {
-          crewId: crew.id,
-          name: crewLabel(crew),
-          companyName: company?.name ?? null,
-          leadName: crew.leadName,
-          ccName: cc?.name ?? null,
-          ccAddress: cc?.address ?? null,
-          url,
-          qrSvg: await QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" }),
-          greenShirts: shirts.filter((g) => g.ccId === crew.ccId).map((g) => ({ name: g.name, phone: g.phone, roleLabel: g.roleLabel })),
-        };
-      }),
-    );
-    const ccPages = await Promise.all(
-      ccs.map(async (cc) => ({
-        ccId: cc.id,
-        name: cc.name,
-        address: cc.address,
-        greenCode: codes.find((g) => g.ccId === cc.id)?.code ?? null,
-        loginUrl,
-        loginQrSvg: await QRCode.toString(loginUrl, { type: "svg", margin: 1 }),
-        trucks: truckRows.filter((t) => t.ccId === cc.id).map((t) => ({ name: t.name, driverName: t.driverName, code: t.code })),
-        greenShirts: shirts.filter((g) => g.ccId === cc.id).map((g) => ({ name: g.name, phone: g.phone, roleLabel: g.roleLabel })),
-      })),
-    );
-    return { day, crewPages, ccPages };
-  }),
-});
-
 const exportRouter = router({
   /** Row counts for each download, for the active event. */
   counts: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
@@ -1080,7 +1020,6 @@ export const adminRouter = router({
   crews: crewsRouter,
   catalog: catalogRouter,
   lots: lotsRouter,
-  print: printRouter,
   export: exportRouter,
   photos: photosRouter,
   /** Active event with its days, for the Event screen header. */

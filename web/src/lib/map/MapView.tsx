@@ -54,12 +54,14 @@ export interface MapViewProps {
   className?: string;
   /** Accessible name for the map region. */
   label?: string;
+  /** The Leaflet map once it exists, and null when it goes, for tools that draw on it (oriented rectangle, block sides). */
+  onReady?: (map: L.Map | null) => void;
 }
 // #endregion
 
 // #region colour scheme
 const darkQuery = typeof window !== "undefined" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
-const usePrefersDark = (): boolean =>
+export const usePrefersDark = (): boolean =>
   useSyncExternalStore(
     (cb) => {
       darkQuery?.addEventListener("change", cb);
@@ -148,7 +150,7 @@ const applyFit = (m: L.Map, pts: L.LatLngExpression[]): void => {
  * system. Markers and lines are redrawn when their arrays change; the view is
  * fitted to every marker on first data and whenever `fitKey` changes.
  */
-export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, label = "Map" }: MapViewProps) => {
+export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, label = "Map", onReady }: MapViewProps) => {
   const holder = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const tiles = useRef<L.Layer[]>([]);
@@ -159,6 +161,8 @@ export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, la
   const userMoved = useRef(false);
   const clickRef = useRef(onMapClick);
   clickRef.current = onMapClick;
+  const readyRef = useRef(onReady);
+  readyRef.current = onReady;
   const dark = usePrefersDark();
 
   useEffect(() => {
@@ -183,9 +187,11 @@ export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, la
       if (view && !userMoved.current) applyFit(m, view);
     });
     ro.observe(el);
+    readyRef.current?.(m);
     return () => {
       for (const ev of ["pointerdown", "wheel", "keydown"] as const) el.removeEventListener(ev, touched);
       ro.disconnect();
+      readyRef.current?.(null);
       m.remove();
       map.current = null;
       tiles.current = [];

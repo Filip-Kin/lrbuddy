@@ -64,3 +64,29 @@ export const detour = (a: LatLng, x: LatLng, b: LatLng | null): number =>
 /** Google Maps directions deep link; opens the app on a phone. */
 export const directionsUrl = (p: LatLng): string =>
   `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`;
+
+/** Closed or open polygon ring of [lng, lat] pairs, the GeoJSON order. */
+export type Ring = Array<[number, number]>;
+
+/** An envelope, or a polygon ring such as the oriented rectangle. */
+export type Area = BBox | Ring;
+
+export const isRing = (a: Area): a is Ring => Array.isArray(a[0]);
+
+/** Smallest bbox around the ring. */
+export const ringBBox = (ring: Ring): BBox => bboxOf(ring.map(([lng, lat]) => ({ lat, lng }))) ?? [0, 0, 0, 0];
+
+/** Ray casting; a point on an edge may land either way, which is fine for lots. */
+export const inRing = (p: LatLng, ring: Ring): boolean => {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i]!;
+    const [xj, yj] = ring[j]!;
+    if (yi > p.lat !== yj > p.lat && p.lng < ((xj - xi) * (p.lat - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+};
+
+export const areaBBox = (a: Area): BBox => (isRing(a) ? ringBBox(a) : normalizeBBox(a));
+
+export const inArea = (p: LatLng, a: Area): boolean => (isRing(a) ? inRing(p, a) : inBBox(p, a));

@@ -333,6 +333,134 @@
   color: var(--on-brand);
   border-color: var(--on-brand);
 }
+
+/* Oriented rectangle (lib/map/orientedRect.ts). Its shapes use their own SVG renderer, so these
+   classes apply on canvas maps too. */
+.lrb-orect {
+  stroke: var(--ink);
+  fill: var(--brand);
+}
+.lrb-orect-preview {
+  stroke: var(--ink);
+  fill: var(--brand);
+  stroke-dasharray: 6 5;
+}
+.lrb-orect-h {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+.lrb-orect-h span {
+  display: block;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 2.5px solid var(--ink);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+.lrb-orect-edge span {
+  border-radius: 9999px;
+  width: 13px;
+  height: 13px;
+}
+.lrb-orect-rot span {
+  border-radius: 9999px;
+  width: 18px;
+  height: 18px;
+  background: var(--brand);
+}
+.lrb-orect-corner {
+  cursor: move;
+}
+.lrb-orect-edge {
+  cursor: ew-resize;
+}
+.lrb-orect-rot {
+  cursor: grab;
+}
+.lrb-orect-dot span {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: var(--ink);
+  border-color: var(--surface);
+}
+.leaflet-container.lrb-orect-drawing,
+.leaflet-container.lrb-orect-drawing .leaflet-interactive {
+  cursor: crosshair;
+}
+
+/* Block sides (pages/plan/blocks/sides.ts): a red ramp from --crew for the work bands, so no new
+   accent enters the palette; the dark band mixes --crew with black. */
+.lrb-side {
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+}
+.lrb-side-none {
+  stroke: var(--muted);
+  fill: var(--muted);
+  fill-opacity: 0.16;
+  stroke-opacity: 0.7;
+}
+.lrb-side-light {
+  stroke: var(--crew);
+  fill: var(--crew);
+  fill-opacity: 0.22;
+}
+.lrb-side-mid {
+  stroke: var(--crew);
+  fill: var(--crew);
+  fill-opacity: 0.55;
+}
+.lrb-side-dark {
+  stroke: color-mix(in srgb, var(--crew) 55%, #000);
+  fill: color-mix(in srgb, var(--crew) 55%, #000);
+  fill-opacity: 0.85;
+}
+.lrb-side-here {
+  stroke: var(--brand-green);
+  fill: var(--brand-green);
+  fill-opacity: 0.45;
+}
+.lrb-side-away {
+  stroke: var(--muted);
+  fill: var(--muted);
+  fill-opacity: 0.08;
+  stroke-dasharray: 3 3;
+}
+.lrb-side-focus {
+  stroke: var(--ink);
+  stroke-width: 3px;
+  stroke-opacity: 1;
+}
+.lrb-side-sel {
+  stroke: var(--ink);
+  stroke-width: 3.5px;
+  stroke-opacity: 1;
+  fill: var(--brand);
+  fill-opacity: 0.7;
+}
+.lrb-area {
+  stroke: var(--muted);
+  fill: none;
+  stroke-width: 2px;
+  stroke-dasharray: 8 5;
+}
+.lrb-area-label {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 9999px;
+  padding: 1px 8px;
+  font: 600 12px/18px ui-sans-serif, system-ui, sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  transform: translate(-50%, -50%);
+  width: max-content;
+}
 /* #endregion */
 
 @media print {

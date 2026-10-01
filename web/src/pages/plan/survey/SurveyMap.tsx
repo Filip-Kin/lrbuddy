@@ -2,8 +2,8 @@ import L from "leaflet";
 import { useEffect, useRef } from "react";
 import type { LotGeometry } from "../../../../../server/db/schema.ts";
 import { DEFAULT_CENTER, DEFAULT_ZOOM, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM, TILE_ATTRIB } from "../../../lib/map/basemap.ts";
-import { selectLine, stopIcon } from "../../../lib/map/markers.ts";
-import { bandStroke, gradeColour, toLatLngs, usePalette, usePrefersDark, type Band, type Grade } from "./style.ts";
+import { bandStroke, gradeColour, toLatLngs, usePalette, type Band, type Grade } from "./style.ts";
+import { usePrefersDark } from "../../../lib/map/MapView.tsx";
 
 export interface MapParcel {
   parcelId: string;
@@ -28,10 +28,10 @@ export interface SurveyMapProps {
   sides: readonly MapSide[];
   selectedId: string | null;
   onParcel: (parcelId: string) => void;
-  /** Set while drawing a rectangle: every click, on a parcel or not, goes here. */
-  onMapClick?: (lat: number, lng: number) => void;
-  rect: Array<[number, number]> | null;
-  corner: { lat: number; lng: number } | null;
+  /** True while a drawing tool owns the clicks: a click on a parcel passes through to the map. */
+  passive?: boolean;
+  /** The Leaflet map once it exists, and null when it goes, for the oriented rectangle. */
+  onReady?: (map: L.Map | null) => void;
   /** Fires after every move with [west, south, east, north] and the zoom. */
   onView?: (bbox: [number, number, number, number], zoom: number) => void;
   /** Change to pan to a point. */
@@ -45,13 +45,15 @@ export interface SurveyMapProps {
  * parcels filled by grade, unsurveyed ones in view as outlines. Thousands of
  * parcels, so shapes go through the map's one canvas renderer.
  */
-export const SurveyMap = ({ parcels, context, sides, selectedId, onParcel, onMapClick, rect, corner, onView, focus, fitKey }: SurveyMapProps) => {
+export const SurveyMap = ({ parcels, context, sides, selectedId, onParcel, passive = false, onReady, onView, focus, fitKey }: SurveyMapProps) => {
   const holder = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
-  const layers = useRef<{ tiles: L.Layer[]; sides: L.LayerGroup; context: L.LayerGroup; parcels: L.LayerGroup; select: L.LayerGroup; rect: L.LayerGroup } | null>(null);
+  const layers = useRef<{ tiles: L.Layer[]; sides: L.LayerGroup; context: L.LayerGroup; parcels: L.LayerGroup; select: L.LayerGroup } | null>(null);
   const fitted = useRef<string | null>(null);
-  const clickRef = useRef(onMapClick);
-  clickRef.current = onMapClick;
+  const passiveRef = useRef(passive);
+  passiveRef.current = passive;
+  const readyRef = useRef(onReady);
+  readyRef.current = onReady;
   const parcelRef = useRef(onParcel);
   parcelRef.current = onParcel;
   const viewRef = useRef(onView);
@@ -73,9 +75,7 @@ export const SurveyMap = ({ parcels, context, sides, selectedId, onParcel, onMap
       context: L.layerGroup().addTo(m),
       parcels: L.layerGroup().addTo(m),
       select: L.layerGroup().addTo(m),
-      rect: L.layerGroup().addTo(m),
     };
-    m.on("click", (e: L.LeafletMouseEvent) => clickRef.current?.(e.latlng.lat, e.latlng.lng));
     const report = (): void => {
       const b = m.getBounds();
       viewRef.current?.([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], m.getZoom());
@@ -85,8 +85,10 @@ export const SurveyMap = ({ parcels, context, sides, selectedId, onParcel, onMap
     const ro = new ResizeObserver(() => m.invalidateSize());
     ro.observe(holder.current);
     report();
+    readyRef.current?.(m);
     return () => {
       ro.disconnect();
+      readyRef.current?.(null);
       m.remove();
       map.current = null;
       layers.current = null;
@@ -107,9 +109,9 @@ export const SurveyMap = ({ parcels, context, sides, selectedId, onParcel, onMap
   const shape = (p: MapParcel, style: L.PathOptions): L.Path => {
     const s = p.geometry ? L.polygon(toLatLngs(p.geometry), style) : L.circleMarker([p.lat, p.lng], { ...style, radius: 5 });
     s.on("click", (e: L.LeafletMouseEvent) => {
+      if (passiveRef.current) return;
       L.DomEvent.stopPropagation(e);
-      if (clickRef.current) clickRef.current(e.latlng.lat, e.latlng.lng);
-      else parcelRef.current(p.parcelId);
+      parcelRef.current(p.parcelId);
     });
     if (p.address) s.bindTooltip(p.address, { sticky: true, direction: "top", opacity: 0.95 });
     return s;
@@ -158,14 +160,6 @@ export const SurveyMap = ({ parcels, context, sides, selectedId, onParcel, onMap
       L.circleMarker([p.lat, p.lng], { radius: 9, color: pal.ink, weight: 3, fill: false, interactive: false }).addTo(l.select);
     }
   }, [selectedId, parcels, context, pal]);
-
-  useEffect(() => {
-    const l = layers.current;
-    if (!l) return;
-    l.rect.clearLayers();
-    if (rect) selectLine(rect).addTo(l.rect);
-    if (corner) L.marker([corner.lat, corner.lng], { icon: stopIcon(1, true), interactive: false, keyboard: false }).addTo(l.rect);
-  }, [rect, corner]);
 
   useEffect(() => {
     const m = map.current;

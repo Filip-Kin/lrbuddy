@@ -1,3 +1,4 @@
+import type { Map as LeafletMap } from "leaflet";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
@@ -15,7 +16,7 @@ import { Panel, Stat } from "../../components/Panel.tsx";
 import { SkeletonList } from "../../components/Skeleton.tsx";
 import { Segmented } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
-import { insideRect, rectBBox, rectSize, STEP_LABEL, useLeafletMap, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
+import { insideRect, rectBBox, rectRing, rectSize, STEP_LABEL, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
 type Lot = RouterOutputs["admin"]["lots"]["list"][number];
@@ -65,7 +66,7 @@ const RectSheet = ({
   notify,
 }: {
   action: RectAction | null;
-  /** Imports send the rectangle's bounding box (the layers take an envelope); assign and remove use the rectangle itself. */
+  /** Imports send the rectangle as a polygon; assign and remove take the lots whose centre is inside it. */
   rect: OrientedRect | null;
   lots: readonly Lot[];
   ccs: readonly Cc[];
@@ -76,6 +77,7 @@ const RectSheet = ({
   const utils = trpc.useUtils();
   const open = action !== null && rect !== null;
   const bbox = useMemo(() => (rect ? rectBBox(rect) : null), [rect]);
+  const ring = useMemo(() => (rect ? rectRing(rect) : null), [rect]);
   const tooBig = bbox !== null && (bbox[2] - bbox[0] > MAX_SPAN_DEG || bbox[3] - bbox[1] > MAX_SPAN_DEG);
   const inside = useMemo(() => (rect ? insideRect(lots, rect) : []), [lots, rect]);
   const [ccId, setCcId] = useState<number | "none">("none");
@@ -113,29 +115,25 @@ const RectSheet = ({
       ),
     onError: fail,
   });
-  const vacantCount = trpc.admin.lots.countVacant.useQuery({ bbox: bbox ?? [0, 0, 0, 0] }, { enabled: open && action === "vacant" && !tooBig, retry: false, staleTime: 60_000 });
+  const vacantCount = trpc.admin.lots.countVacant.useQuery({ ring: ring ?? [] }, { enabled: open && ring !== null && action === "vacant" && !tooBig, retry: false, staleTime: 60_000 });
   const vacant = trpc.admin.lots.importVacant.useMutation({
     onSuccess: (r) => finish(`${plural(r.added, "lot")} added, ${r.updated.toLocaleString("en-US")} updated${assignedText(r.assigned)}`),
     onError: fail,
   });
-  // One update per lot inside the rectangle; tRPC batches them into one request.
-  const update = trpc.admin.lots.update.useMutation();
-  const [assigning, setAssigning] = useState(false);
   const target = ccId === "none" ? null : ccId;
   const moving = inside.filter((l) => l.ccId !== target);
-  const assignInside = async (): Promise<void> => {
-    const todo = moving;
-    setAssigning(true);
-    try {
-      await Promise.all(todo.map((l) => update.mutateAsync({ id: l.id, ccId: target })));
+  const assign = trpc.admin.lots.assignCc.useMutation({
+    onSuccess: (r) => {
       const cc = ccs.find((c) => c.id === target);
-      finish(cc ? `${plural(todo.length, "lot")} to CC ${cc.name}` : `${plural(todo.length, "lot")} without CC`);
-    } catch (e) {
+      finish(cc ? `${plural(r.updated, "lot")} to CC ${cc.name}` : `${plural(r.updated, "lot")} without CC`);
+    },
+    onError: (e) => {
       refresh();
       fail(e);
-    } finally {
-      setAssigning(false);
-    }
+    },
+  });
+  const assignInside = (): void => {
+    if (moving.length) assign.mutate({ ids: moving.map((l) => l.id), ccId: target });
   };
   const remove = trpc.admin.lots.delete.useMutation({
     onSuccess: (r) => finish(`${plural(r.deleted, "lot")} removed`),
@@ -161,7 +159,7 @@ const RectSheet = ({
       </div>
     );
     footer = (
-      <Button block size="lg" busy={dlba.isPending} onClick={() => dlba.mutate({ bbox, ccId: importCc })}>
+      <Button block size="lg" busy={dlba.isPending} onClick={() => ring && dlba.mutate({ ring, ccId: importCc })}>
         Import Land Bank lots
       </Button>
     );
@@ -181,7 +179,7 @@ const RectSheet = ({
       </div>
     );
     footer = (
-      <Button block size="lg" busy={vacant.isPending} disabled={!n} onClick={() => vacant.mutate({ bbox, ccId: importCc })}>
+      <Button block size="lg" busy={vacant.isPending} disabled={!n} onClick={() => ring && vacant.mutate({ ring, ccId: importCc })}>
         {n ? `Import ${plural(n, "parcel")}` : "Nothing to import"}
       </Button>
     );
@@ -193,7 +191,7 @@ const RectSheet = ({
       </div>
     );
     footer = (
-      <Button block size="lg" busy={assigning} disabled={moving.length === 0} onClick={() => void assignInside()}>
+      <Button block size="lg" busy={assign.isPending} disabled={moving.length === 0} onClick={assignInside}>
         {moving.length ? `Assign ${plural(moving.length, "lot")}` : inside.length ? (target === null ? "Already without CC" : "Already at this CC") : "No lots here"}
       </Button>
     );
@@ -409,8 +407,7 @@ export const LotsPage = () => {
   const [filter, setFilter] = useState<Filter>("all");
   const [notice, setNotice] = useState<NoticeValue>(null);
   const clear = useCallback(() => setNotice(null), []);
-  const holder = useRef<HTMLDivElement>(null);
-  const map = useLeafletMap(holder);
+  const [map, setMap] = useState<LeafletMap | null>(null);
   const drawingRect = mode.kind === "rect" && sheetRect === null;
   const rectTool = useOrientedRect(map, {
     drawing: drawingRect,
@@ -530,11 +527,11 @@ export const LotsPage = () => {
         {tools}
         <Notice value={notice} onClear={clear} />
         <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <div ref={holder} className="relative h-[62dvh] min-h-80 overflow-hidden rounded-2xl ring-1 ring-line lg:h-[calc(100dvh-13rem)]">
+          <div className="relative h-[62dvh] min-h-80 overflow-hidden rounded-2xl ring-1 ring-line lg:h-[calc(100dvh-13rem)]">
             {lotsQ.isLoading ? (
               <div className="h-full w-full animate-pulse bg-surface-2" aria-busy="true" aria-label="Loading" />
             ) : (
-              <MapView markers={markers} onMapClick={mode.kind === "add" ? onMapClick : undefined} fitKey="lots" label="Lots map" className="absolute inset-0" />
+              <MapView markers={markers} onMapClick={mode.kind === "add" ? onMapClick : undefined} fitKey="lots" label="Lots map" className="absolute inset-0" onReady={setMap} />
             )}
             {mode.kind === "add" && <MapMode label="Add lot" detail={add.isPending ? "Adding…" : undefined} onCancel={stopMode} cancelLabel="Done" />}
             {mode.kind === "rect" && (

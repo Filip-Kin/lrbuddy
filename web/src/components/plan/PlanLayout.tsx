@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { isActive, Nav, type NavLink } from "../Nav.tsx";
 import { logout, type SignedIn } from "../../lib/session.ts";
 import { EventPicker } from "./EventPicker.tsx";
+import { WakeSwitch } from "./WakeSwitch.tsx";
 
 export const planLinks: NavLink[] = [
   { href: "/plan/survey", label: "Survey" },
@@ -23,7 +24,7 @@ const railLink = (active: boolean): string =>
  * Planning portal shell. From 860 px: a left rail with the event picker, the
  * portal pages and the way back to the field app. Below 860 px: the same top
  * bar and left drawer as every other screen, with the event picker at the top
- * of the drawer. `no-print` keeps the rail and the bar off paper.
+ * of the drawer, with Keep screen on for drive mode. `no-print` keeps the rail and the bar off paper.
  */
 export const PlanLayout = ({ me, children }: { me: SignedIn; children: ReactNode }) => {
   const [loc] = useLocation();
@@ -31,7 +32,17 @@ export const PlanLayout = ({ me, children }: { me: SignedIn; children: ReactNode
   return (
     <div className="flex h-dvh flex-col nav:flex-row">
       <div className="nav:hidden">
-        <Nav scope={eventName} links={[...planLinks, FIELD_APP]} onSignOut={() => void logout()} drawerTop={<EventPicker tone="bar" />} />
+        <Nav
+          scope={eventName}
+          links={[...planLinks, FIELD_APP]}
+          onSignOut={() => void logout()}
+          drawerTop={
+            <div className="space-y-2">
+              <EventPicker tone="bar" />
+              <WakeSwitch />
+            </div>
+          }
+        />
       </div>
       <aside aria-label="Planning" className="no-print hidden w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-line bg-surface-2 px-3 py-4 nav:flex">
         <Link href="/plan/survey" className="flex items-center gap-2 px-2 text-lg font-extrabold tracking-tight text-ink">

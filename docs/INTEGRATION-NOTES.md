@@ -49,3 +49,12 @@ The foundation is in. Each slice owns its files; ask here for changes to the sha
 - `web/src/components/plan/PlanLayout.tsx` or the portal settings: a Keep screen on switch for admins. Drive mode honours the driver preference (`lrb.driver.wake`, on by default) through `useWakeLock`, but only the driver Settings page can turn it off.
 - `web/src/pages/plan/SurveyPage.tsx` and `DrivePage.tsx` are now one-line re-exports of `pages/plan/survey/`; `index.tsx` needs no change.
 - New test file `server/routers/plan/survey.test.ts` covers `survey.sides`, `survey.lotOf` and `survey.lotForPhoto`; the drive rules are tested in `web/src/pages/plan/survey/drive.test.ts`.
+
+## Resolved 2026-09-30, portal integration
+
+- `admin.print.sheet` is gone with its test; `plan.print.sheets` has a test for the crew code, join URL, login URL and lot parcel ids.
+- `MapView` takes `onReady(map | null)` and exports `usePrefersDark`. The Leaflet init hook and `useLeafletMap` are gone from `lib/map/orientedRect.ts`; survey's copy of the hook is gone.
+- The `.lrb-orect*`, `.lrb-side*` and `.lrb-area*` styles live in the map region of `styles.css`; both `injectCss` helpers are gone. The rectangle tool draws through its own SVG renderer, so the classes apply on the survey's canvas map too.
+- `admin.lots.assignCc` takes lot ids (same-site crew rule kept, one request). `importDlba`, `countVacant` and `importVacant` take the rectangle as a ring and query the layers with a polygon; imports keep what has its centre inside. `deleteInBBox` is gone (the page removes by id).
+- `components/admin/rect.ts` is gone: Survey's Load parcels uses the oriented rectangle too and loads the box around it.
+- The portal's phone drawer has Keep screen on, sharing the driver preference.

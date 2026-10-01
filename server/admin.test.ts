@@ -216,25 +216,36 @@ describe("lots", () => {
     expect(byAddress.get("Held")).toBe(w.west);
   });
 
-  test("assign and remove by rectangle only touch lots inside it", async () => {
-    addLot(42.378, -82.99, "IN1.");
-    addLot(42.379, -82.991, "IN2.");
+  test("assign and remove by id only touch the selected lots", async () => {
+    const a = addLot(42.378, -82.99, "IN1.");
+    const b = addLot(42.379, -82.991, "IN2.");
     addLot(42.36, -83.05, "OUT.");
-    const box: [number, number, number, number] = [-82.995, 42.375, -82.985, 42.382];
-    expect(await admin.lots.assignCc({ bbox: box, ccId: w.east })).toEqual({ updated: 2 });
+    expect(await admin.lots.assignCc({ ids: [a.id, b.id], ccId: w.east })).toEqual({ updated: 2 });
     const counts = await admin.lots.counts();
     expect(counts.unassigned).toBe(1);
-    expect(await admin.lots.deleteInBBox({ bbox: box })).toEqual({ deleted: 2 });
+    expect(await admin.lots.delete({ ids: [a.id, b.id] })).toEqual({ deleted: 2 });
     expect((await admin.lots.list()).map((l) => l.parcelId)).toEqual(["OUT."]);
   });
 
+  test("a rotated rectangle takes the lots inside it, not its bounding box", async () => {
+    const { assignLotsToCcInArea } = await import("./lots-import.ts");
+    addLot(42.38, -82.99, "MID.");
+    addLot(42.3845, -82.9945, "CORNER.");
+    // A diamond around (42.38, -82.99): the corner lot is inside its bbox but outside the diamond.
+    const ring: Array<[number, number]> = [[-82.995, 42.38], [-82.99, 42.385], [-82.985, 42.38], [-82.99, 42.375], [-82.995, 42.38]];
+    expect(assignLotsToCcInArea(w.eventId, ring, w.east)).toBe(1);
+    const byParcel = new Map((await admin.lots.list()).map((l) => [l.parcelId, l.ccId]));
+    expect(byParcel.get("MID.")).toBe(w.east);
+    expect(byParcel.get("CORNER.")).toBeNull();
+  });
+
   test("an import's CC only takes lots in the area that have no CC", async () => {
-    const { assignLotsToCcByBBox } = await import("./lots-import.ts");
+    const { assignLotsToCcInArea } = await import("./lots-import.ts");
     addLot(42.378, -82.99, "FREE.");
     const taken = addLot(42.379, -82.991, "WEST.");
     db.update(s.lots).set({ ccId: w.west }).where(eq(s.lots.id, taken.id)).run();
     const box: [number, number, number, number] = [-82.995, 42.375, -82.985, 42.382];
-    expect(assignLotsToCcByBBox(w.eventId, box, w.east, true)).toBe(1);
+    expect(assignLotsToCcInArea(w.eventId, box, w.east, true)).toBe(1);
     const byParcel = new Map((await admin.lots.list()).map((l) => [l.parcelId, l.ccId]));
     expect(byParcel.get("FREE.")).toBe(w.east);
     expect(byParcel.get("WEST.")).toBe(w.west);
@@ -281,17 +292,3 @@ describe("export", () => {
   });
 });
 
-describe("print sheet", () => {
-  test("one page per crew with a QR of its join link, one per CC with codes", async () => {
-    await admin.trucks.create({ ccId: w.east, name: "Truck 1" });
-    setup.createCrew({ dayId: w.day1, ccId: w.east, companyId: null, token: "tok-crew-one-000000" });
-    const sheet = await admin.print.sheet({ dayId: w.day1 });
-    expect(sheet.crewPages).toHaveLength(1);
-    expect(sheet.crewPages[0]!.url).toBe(`${config.publicUrl}/j/tok-crew-one-000000`);
-    expect(sheet.crewPages[0]!.qrSvg).toStartWith("<svg");
-    expect(sheet.ccPages.map((p) => [p.name, p.trucks.length, !!p.greenCode])).toEqual([
-      ["East", 1, true],
-      ["West", 0, true],
-    ]);
-  });
-});

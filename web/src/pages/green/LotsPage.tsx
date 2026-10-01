@@ -1,3 +1,4 @@
+import type { Map as LeafletMap } from "leaflet";
 import { useMemo, useRef, useState } from "react";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
@@ -8,7 +9,7 @@ import { Segmented } from "../../components/Segmented.tsx";
 import { Skeleton } from "../../components/Skeleton.tsx";
 import { lotPill, StatusPill } from "../../components/StatusPill.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
-import { insideRect, STEP_LABEL, useLeafletMap, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
+import { insideRect, STEP_LABEL, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
 import { trpc } from "../../lib/trpc.ts";
 
 type StatusFilter = "all" | GreenLot["status"];
@@ -35,8 +36,7 @@ export const LotsPage = () => {
   const [rect, setRect] = useState<OrientedRect | null>(null);
   // Lots the rectangle added, so moving its handles swaps them for the new set.
   const fromRect = useRef<Set<number>>(new Set());
-  const holder = useRef<HTMLDivElement>(null);
-  const map = useLeafletMap(holder);
+  const [map, setMap] = useState<LeafletMap | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [flash, showFlash] = useFlash();
 
@@ -151,8 +151,8 @@ export const LotsPage = () => {
       <h1 className="mb-4 text-2xl font-bold tracking-tight">Lots</h1>
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-6">
         <div className="lg:sticky lg:top-4 lg:self-start">
-          <div ref={holder} className={`relative h-[45dvh] overflow-hidden rounded-2xl ring-1 ring-line lg:h-[calc(100dvh-10rem)] ${drawing ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
-            <MapView markers={markers} label="Lots map" className="absolute inset-0" />
+          <div className={`relative h-[45dvh] overflow-hidden rounded-2xl ring-1 ring-line lg:h-[calc(100dvh-10rem)] ${drawing ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
+            <MapView markers={markers} label="Lots map" className="absolute inset-0" onReady={setMap} />
             <div className="pointer-events-none absolute top-3 right-3 z-[1000] flex flex-col items-end gap-2">
               {drawing ? (
                 <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-ink py-1 pr-1 pl-4 text-surface shadow-lg">

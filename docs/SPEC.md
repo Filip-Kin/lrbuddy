@@ -634,3 +634,29 @@ Gate and sheets
 - Add `/plan/survey`, `/plan/blocks`, `/plan/assignments`, `/plan/print` to the admin routes in
   `scripts/gate.py` and `scripts/sheets.py`, and `/plan/survey/drive` as an admin phone route. The
   print page is exempt from the hamburger check (it is a document) but not from overflow.
+
+## 17. Driver home is the map
+
+Replaces the Driver rows in section 5. The driver has one screen while driving.
+
+- `/` **Map**: full-height Leaflet map (`100dvh` minus the bar), following the truck's GPS dot and
+  rotating to the heading like Survey drive mode (same helper). The route polyline is drawn from the
+  truck to the last stop, stops numbered, the CC as a star. **Recenter** button appears when the user
+  pans away.
+- **Next stop card** pinned at the top under the bar, over the map: crew or stop label, company, what
+  and how many, note, distance and ETA, status pills (Urgent, En route). Buttons: **En route**,
+  **Delivered**, **Call**. Compact; it never covers more than a third of the map on a phone.
+- **Guidance banner** between the card and the map: the next manoeuvre from the OSRM route steps
+  (`steps=true` on the trip call, stored on `routes.legs`): an arrow icon, the street name and the
+  distance to it ("Left, Harding St, 200 m"). Updates as the truck moves; recomputes with the route.
+  When the engine is the fallback (no OSRM), the banner shows the straight-line bearing and distance
+  to the next stop instead. **Maps** button opens Google Maps to the next stop as a fallback for a
+  driver who wants voice turn-by-turn.
+- **Queue** button fixed bottom right (yellow, like the crew Request button): opens the queue as a
+  bottom sheet, the full ordered list with distances and ETAs, **Restock** and **Low stock** pill,
+  tap a stop to make it next (manual reorder sets a pinned order the route respects until Delivered).
+- `/stock` and `/settings` stay as they are. The old `/map` route redirects to `/`.
+- The map screen keeps the screen awake while the truck has stops (the existing toggle default on for
+  drivers).
+- Gate: driver routes become `/`, `/stock`, `/settings`; the card plus banner together are under
+  36 % of the viewport height at 390x844; Queue button at least 56 px; overflow 0.

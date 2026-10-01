@@ -264,8 +264,9 @@ crew or driver. Web apps get no GPS in the background; the settings page says "L
 
 Assignment on request creation:
 
-1. Candidate trucks: same CC and day, status not `offline`, seen in the last 15 minutes. If none,
-   status stays `open` and greens see it in the Open column.
+1. Candidate trucks: same CC and day, status not `offline`. Trucks seen in the last 15 minutes are
+   preferred; if none has reported, every non-offline truck is a candidate and is routed from the CC.
+   A request only stays `open` when the CC has no trucks at all (greens see it in the Open column).
 2. For each candidate compute the insertion cost: haversine detour of adding this crew's position
    (or the crew's last position, or the CC if none) into the truck's current stop order at the best
    index. Pick the minimum. Tie: fewer stops.
@@ -595,6 +596,12 @@ Assignments (laptop)
   crew's `area`. Re-publishing updates, never duplicates (keyed on event + parcel). Lots a crew already
   marked done are left alone.
 - Drag a crew's area corners on the map to adjust the printed rectangle.
+- **Rotated rectangles.** Detroit's east side streets run diagonal, so an axis-aligned rectangle never
+  fits a block. The selection tool is an oriented rectangle: tap or click twice along the street to set
+  the long axis, then drag sideways to set the width; afterwards the rectangle has a rotate handle at
+  one end and resize handles on each edge. Selection is parcels whose centroid falls inside the
+  polygon. The same tool is shared as `lib/map/orientedRect.ts` and replaces the axis-aligned
+  **Rectangle** on the green Lots page and the admin Lots page. The crew `area` is this polygon.
 
 Print (laptop), moved from `/admin/print` to `/plan/print`
 - One sheet per crew, Letter portrait, `@media print` with `break-after: page`. Header: crew name,

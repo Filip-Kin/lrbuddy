@@ -3,9 +3,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // #region camera
 export type CameraState = "starting" | "on" | "denied" | "none";
 
-/** The rear camera on a <video>, or why there is none. Stops the tracks on unmount. */
-export const useCamera = () => {
+/**
+ * The rear camera on a <video>, or why there is none. Stops the tracks on
+ * unmount. `paused` freezes the preview and turns the tracks off (the Flag
+ * screen's full-screen map) without asking for the camera again.
+ */
+export const useCamera = (paused = false) => {
   const video = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
   const [state, setState] = useState<CameraState>("starting");
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -23,10 +30,12 @@ export const useCamera = () => {
           return;
         }
         stream = s;
+        streamRef.current = s;
+        for (const t of s.getVideoTracks()) t.enabled = !pausedRef.current;
         const v = video.current;
         if (v) {
           v.srcObject = s;
-          void v.play().catch(() => undefined);
+          if (!pausedRef.current) void v.play().catch(() => undefined);
         }
         setState("on");
       })
@@ -36,9 +45,18 @@ export const useCamera = () => {
       });
     return () => {
       gone = true;
+      streamRef.current = null;
       if (stream) for (const t of stream.getTracks()) t.stop();
     };
   }, []);
+  useEffect(() => {
+    const s = streamRef.current;
+    if (s) for (const t of s.getVideoTracks()) t.enabled = !paused;
+    const v = video.current;
+    if (!v || !v.srcObject) return;
+    if (paused) v.pause();
+    else void v.play().catch(() => undefined);
+  }, [paused, state]);
   return { video, state };
 };
 // #endregion

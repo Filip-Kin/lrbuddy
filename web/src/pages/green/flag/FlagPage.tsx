@@ -1,12 +1,8 @@
-import type { Map as LeafletMap } from "leaflet";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "../../../components/Button.tsx";
 import { useWakeLock } from "../../../components/driver/hooks.ts";
-import { Sheet } from "../../../components/Sheet.tsx";
 import { lotTitle } from "../../../lib/format.ts";
 import { STATUS_LABEL, type LotGrade, type LotStatus } from "../../../lib/lotStatus.ts";
-import { MapView, type MapLine, type MapMarker } from "../../../lib/map/MapView.tsx";
-import { useParcelLayer } from "../../../lib/map/parcelLayer.ts";
+import { FlagMap } from "./FlagMap.tsx";
 import { postPhoto, prepareFrame, useInvalidatePhotos } from "../../../lib/photos.ts";
 import { trpc } from "../../../lib/trpc.ts";
 import { compassPoint, pickParcel, type Candidate } from "./pick.ts";
@@ -15,6 +11,9 @@ import { useCamera, useCompass, useFix } from "./sensors.ts";
 /** Undo stays on the last-flag card this long (SPEC 22). */
 export const UNDO_MS = 20_000;
 const RETRY_MS = [2000, 4000, 8000, 15_000] as const;
+/** The map strip's state for the session (SPEC 22, map strip). */
+const MAP_KEY = "lrb.flag.map";
+const readExpanded = (): boolean => typeof window !== "undefined" && window.sessionStorage.getItem(MAP_KEY) === "full";
 
 // #region types
 interface Target extends Candidate {
@@ -44,8 +43,6 @@ interface Flag {
 // #endregion
 
 // #region helpers
-const RAD = Math.PI / 180;
-
 /** Point in a [lng, lat] ring. */
 const inRing = (lat: number, lng: number, ring: ReadonlyArray<readonly [number, number]>): boolean => {
   let inside = false;
@@ -63,11 +60,11 @@ const since = (at: number, now: number): string => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-/** The heading cone on the mini map: 30 m ahead, 40 degrees wide. */
-const cone = (at: { lat: number; lng: number }, heading: number): Array<[number, number]> => {
-  const pt = (deg: number, m: number): [number, number] => [at.lat + (Math.cos(deg * RAD) * m) / 111_320, at.lng + (Math.sin(deg * RAD) * m) / (111_320 * Math.cos(at.lat * RAD))];
-  return [[at.lat, at.lng], pt(heading - 20, 30), pt(heading + 20, 30), [at.lat, at.lng]];
-};
+const ExpandIcon = ({ up }: { up: boolean }) => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {up ? <path d="M6 15l6-6 6 6" /> : <path d="M6 9l6 6 6-6" />}
+  </svg>
+);
 
 const isRefusal = (e: unknown): boolean => {
   if (typeof e !== "object" || e === null || !("data" in e)) return false;
@@ -89,7 +86,9 @@ export const FlagPage = () => {
   const overview = trpc.green.overview.useQuery(undefined, { refetchInterval: 60_000 });
   const parcels = trpc.green.parcels.useQuery(undefined, { refetchInterval: 120_000 });
   const plan = trpc.green.plan.useQuery(undefined, { refetchInterval: 120_000 });
-  const camera = useCamera();
+  // Full-screen map: the camera pauses, taps on the map pick the parcel. Kept for the session.
+  const [expanded, setExpandedState] = useState(readExpanded);
+  const camera = useCamera(expanded);
   const { fix, state: fixState } = useFix();
   const compass = useCompass();
   useWakeLock(true);
@@ -138,7 +137,16 @@ export const FlagPage = () => {
   }, [overview.data, parcels.data, crewName, areaName]);
 
   // Recomputed every second (the `now` tick) from the latest fix and heading.
-  const picked = useMemo(() => pickParcel(fix, heading, targets), [fix, heading, targets, now]);
+  const aimed = useMemo(() => pickParcel(fix, heading, targets), [fix, heading, targets, now]);
+  // A parcel tapped on the full-screen map wins over the aimed one until the map collapses.
+  const [tapped, setTapped] = useState<string | null>(null);
+  const tappedTarget = tapped ? (targets.find((t) => t.key === tapped) ?? null) : null;
+  const picked = expanded && tappedTarget ? tappedTarget : aimed;
+  const setExpanded = useCallback((on: boolean): void => {
+    setExpandedState(on);
+    setTapped(null);
+    window.sessionStorage.setItem(MAP_KEY, on ? "full" : "strip");
+  }, []);
   // #endregion
 
   // #region queue
@@ -218,15 +226,16 @@ export const FlagPage = () => {
     };
   }, [pump]);
 
+  // No photo while the map is full screen: the camera is paused and would not show the tapped parcel.
   const grab = useCallback(async (): Promise<{ photo: Blob; thumb: Blob } | null> => {
     const v = camera.video.current;
-    if (camera.state !== "on" || !v || v.videoWidth === 0) return null;
+    if (expanded || camera.state !== "on" || !v || v.videoWidth === 0) return null;
     try {
       return await prepareFrame(v, v.videoWidth, v.videoHeight);
     } catch {
       return null;
     }
-  }, [camera.state, camera.video]);
+  }, [camera.state, camera.video, expanded]);
 
   const flag = useCallback(
     async (target: Target, status: FlagStatus): Promise<void> => {
@@ -267,39 +276,18 @@ export const FlagPage = () => {
   );
   // #endregion
 
-  // #region wrong lot
-  const [wrongOpen, setWrongOpen] = useState(false);
-  const [chosen, setChosen] = useState<string | null>(null);
-  const [miniMap, setMiniMap] = useState<LeafletMap | null>(null);
-  const chosenTarget = chosen ? (targets.find((t) => t.key === chosen) ?? null) : null;
-  const onBare = useCallback((parcelId: string) => setChosen(`p:${parcelId}`), []);
-  useParcelLayer(wrongOpen ? miniMap : null, parcels.data, wrongOpen, onBare);
-  const miniMarkers = useMemo<MapMarker[]>(() => {
-    if (!wrongOpen) return [];
-    const out: MapMarker[] = (overview.data?.lots ?? []).map((l) => ({
-      id: `lot-${l.id}`,
-      kind: "lot",
-      lat: l.lat,
-      lng: l.lng,
-      status: l.status,
-      geometry: l.geometry,
-      selected: chosen === `l:${l.id}`,
-      noFit: true,
-      title: l.address ?? undefined,
-      onClick: () => setChosen(`l:${l.id}`),
-    }));
-    if (fix) out.push({ id: "me", kind: "me", lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy });
-    else if (overview.data) out.push({ id: "cc", kind: "cc", lat: overview.data.cc.lat, lng: overview.data.cc.lng, name: `CC ${overview.data.cc.name}`, letter: overview.data.cc.letter });
+  // #region map
+  // Flags not yet answered draw in their new status on the map straight away.
+  const pending = useMemo(() => {
+    const out = new Map<string, LotStatus>();
+    for (const f of flags) if (f.phase === "queued" || f.phase === "sending") out.set(f.target.key, f.status);
     return out;
-  }, [wrongOpen, overview.data, fix, chosen]);
-  const miniLines = useMemo<MapLine[]>(() => {
-    const out: MapLine[] = [];
-    if (fix && heading !== null) out.push({ id: "cone", points: cone(fix, heading), style: "select" });
-    const t = chosenTarget;
-    const ring = t?.geometry?.type === "Polygon" ? t.geometry.coordinates[0] : t?.geometry?.coordinates[0]?.[0];
-    if (ring) out.push({ id: "chosen", points: ring.map((p) => [p[1] ?? 0, p[0] ?? 0] as [number, number]), style: "select" });
-    return out;
-  }, [fix, heading, chosenTarget]);
+  }, [flags]);
+  const mapLots = useMemo(() => overview.data?.lots ?? [], [overview.data]);
+  const cc = useMemo(() => {
+    const c = overview.data?.cc;
+    return c ? { lat: c.lat, lng: c.lng, name: c.name, letter: c.letter } : null;
+  }, [overview.data]);
   // #endregion
 
   const last = [...flags].reverse().find((f) => f.phase !== "undone") ?? null;
@@ -307,58 +295,91 @@ export const FlagPage = () => {
   const label = (t: Target): string => [lotTitle(t), t.status ? STATUS_LABEL[t.status] : STATUS_LABEL.not_todo, t.crewName].filter(Boolean).join(" · ");
   const canFlag = picked !== null;
 
-  return (
-    <div className="relative h-full min-h-[480px] overflow-hidden bg-black text-white" data-flag>
-      <video ref={camera.video} muted playsInline autoPlay className="absolute inset-0 h-full w-full object-cover" aria-label="Camera" />
-      {camera.state !== "on" && <div aria-hidden="true" className="absolute inset-0 bg-[#0e3038]" />}
-
-      {/* The parcel being aimed at: a yellow frame in the middle of the view. */}
-      {picked && (
-        <div aria-hidden="true" className="pointer-events-none absolute inset-x-[12%] top-[24%] bottom-[34%] rounded-2xl border-4 border-[#fddd08] shadow-[0_0_0_2px_rgb(0_0_0/0.35)]" />
-      )}
-
-      <div className="absolute inset-x-3 top-3 z-10 flex items-start gap-2">
-        <div className="min-w-0 flex-1 rounded-xl bg-black/65 px-3 py-2" data-flag-target>
-          <p className="text-base leading-tight font-bold break-words">{picked ? label(picked) : "No parcel"}</p>
-          <div className="mt-1 flex flex-wrap gap-1.5 text-xs font-semibold">
-            {camera.state === "denied" && <span className="rounded-full bg-[#e55b00] px-2 py-0.5">No camera</span>}
-            {camera.state === "none" && <span className="rounded-full bg-[#e55b00] px-2 py-0.5">No camera</span>}
-            {(fixState === "denied" || fixState === "none") && <span className="rounded-full bg-[#e55b00] px-2 py-0.5">No location</span>}
-            {fixState === "waiting" && <span className="rounded-full bg-white/20 px-2 py-0.5">Finding location</span>}
-          </div>
+  const top = (
+    <div className={`z-[1001] flex items-start gap-2 ${expanded ? "relative shrink-0 px-3 py-3" : "absolute inset-x-3 top-3"}`}>
+      <div className="min-w-0 flex-1 rounded-xl bg-black/65 px-3 py-2" data-flag-target>
+        <p className="text-base leading-tight font-bold break-words">{picked ? label(picked) : "No parcel"}</p>
+        <div className="mt-1 flex flex-wrap gap-1.5 text-xs font-semibold empty:hidden">
+          {camera.state === "denied" && <span className="rounded-full bg-[#e55b00] px-2 py-0.5">No camera</span>}
+          {camera.state === "none" && <span className="rounded-full bg-[#e55b00] px-2 py-0.5">No camera</span>}
+          {(fixState === "denied" || fixState === "none") && <span className="rounded-full bg-[#e55b00] px-2 py-0.5">No location</span>}
+          {fixState === "waiting" && <span className="rounded-full bg-white/20 px-2 py-0.5">Finding location</span>}
         </div>
-        {compass.needsAsk ? (
-          <button type="button" onClick={() => void compass.ask()} className="min-h-11 shrink-0 rounded-full bg-[#fddd08] px-4 text-sm font-bold text-[#0e3038]">
-            Compass
-          </button>
-        ) : (
-          <span className="shrink-0 rounded-full bg-black/65 px-3 py-2 text-sm font-bold" data-flag-heading>
-            {heading !== null ? `Facing ${compassPoint(heading)}` : "No compass"}
-          </span>
+      </div>
+      {compass.needsAsk ? (
+        <button type="button" onClick={() => void compass.ask()} className="min-h-11 shrink-0 rounded-full bg-[#fddd08] px-4 text-sm font-bold text-[#0e3038]">
+          Compass
+        </button>
+      ) : (
+        <span className="shrink-0 rounded-full bg-black/65 px-3 py-2 text-sm font-bold" data-flag-heading>
+          {heading !== null ? `Facing ${compassPoint(heading)}` : "No compass"}
+        </span>
+      )}
+    </div>
+  );
+
+  const lastCard = last && (
+    <div className={`absolute inset-x-3 z-[1000] flex items-center gap-2 rounded-xl bg-black/70 py-1.5 pr-1.5 pl-3 ${expanded ? "bottom-6" : "bottom-3"}`} data-flag-last role="status" aria-live="polite">
+      <p className="min-w-0 flex-1 text-sm leading-tight font-semibold break-words">
+        {`Last: ${lotTitle(last.target)} · ${STATUS_LABEL[last.status]} · ${since(last.at, now)} ago`}
+        {last.phase === "failed" && ` · ${last.message ?? "Not saved"}`}
+        {last.phase === "queued" && last.message && ` · ${last.message}`}
+      </p>
+      {now - last.at < UNDO_MS && last.phase !== "failed" && (
+        <button type="button" onClick={() => void undo(last)} className="min-h-11 shrink-0 rounded-lg bg-white px-4 text-sm font-bold text-[#0e3038]" data-flag-undo>
+          Undo
+        </button>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="relative flex h-full min-h-[480px] flex-col overflow-hidden bg-black text-white" data-flag data-flag-expanded={expanded ? "true" : "false"}>
+      {top}
+
+      {/* Camera: hidden, not unmounted, while the map is full screen, so it resumes without asking again. */}
+      <div className={`relative min-h-0 flex-1 ${expanded ? "hidden" : ""}`} data-flag-camera>
+        <video ref={camera.video} muted playsInline autoPlay className="absolute inset-0 h-full w-full object-cover" aria-label="Camera" />
+        {camera.state !== "on" && <div aria-hidden="true" className="absolute inset-0 bg-[#0e3038]" />}
+        {/* The parcel being aimed at: a yellow frame in the middle of the view. */}
+        {picked && (
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-[12%] top-[22%] bottom-[18%] rounded-2xl border-4 border-[#fddd08] shadow-[0_0_0_2px_rgb(0_0_0/0.35)]" />
         )}
+        {!expanded && lastCard}
       </div>
 
-      {last && (
-        <div className="absolute inset-x-3 bottom-[calc(max(1rem,env(safe-area-inset-bottom))+7.5rem)] z-10 flex items-center gap-2 rounded-xl bg-black/70 py-1.5 pr-1.5 pl-3" data-flag-last role="status" aria-live="polite">
-          <p className="min-w-0 flex-1 text-sm leading-tight font-semibold break-words">
-            {`Last: ${lotTitle(last.target)} · ${STATUS_LABEL[last.status]} · ${since(last.at, now)} ago`}
-            {last.phase === "failed" && ` · ${last.message ?? "Not saved"}`}
-            {last.phase === "queued" && last.message && ` · ${last.message}`}
-          </p>
-          {now - last.at < UNDO_MS && last.phase !== "failed" && (
-            <button type="button" onClick={() => void undo(last)} className="min-h-11 shrink-0 rounded-lg bg-white px-4 text-sm font-bold text-[#0e3038]" data-flag-undo>
-              Undo
-            </button>
-          )}
-        </div>
-      )}
+      <div className={`relative isolate shrink-0 overflow-hidden border-t-2 border-black ${expanded ? "min-h-0 flex-1" : "h-[28%]"}`} data-flag-strip>
+        <FlagMap
+          lots={mapLots}
+          parcels={parcels.data}
+          plan={plan.data}
+          cc={cc}
+          fix={fix}
+          heading={heading}
+          picked={picked}
+          pending={pending}
+          expanded={expanded}
+          onPick={setTapped}
+        />
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          aria-label={expanded ? "Collapse map" : "Expand map"}
+          aria-expanded={expanded}
+          className="absolute top-2 right-2 z-[1000] grid h-11 w-11 place-items-center rounded-full bg-black/75 text-white shadow-lg ring-2 ring-white/70"
+          data-flag-expand
+        >
+          <ExpandIcon up={!expanded} />
+        </button>
+        {expanded && lastCard}
+      </div>
 
-      <div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-3 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="relative z-10 flex shrink-0 items-center justify-between gap-3 bg-black px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <button
           type="button"
           disabled={!canFlag}
           onClick={() => picked && void flag(picked, "do_not_touch")}
-          className="min-h-14 w-24 rounded-2xl bg-black/70 px-2 text-sm leading-tight font-bold ring-2 ring-[#ff8a3d] disabled:opacity-40"
+          className="min-h-14 w-24 rounded-2xl bg-white/10 px-2 text-sm leading-tight font-bold ring-2 ring-[#ff8a3d] disabled:opacity-40"
           data-flag-side="dnt"
         >
           Do not touch
@@ -380,40 +401,15 @@ export const FlagPage = () => {
         </button>
         <button
           type="button"
-          onClick={() => {
-            setChosen(picked?.key ?? null);
-            setWrongOpen(true);
-          }}
-          className="min-h-14 w-24 rounded-2xl bg-black/70 px-2 text-sm leading-tight font-bold ring-2 ring-white/70"
+          disabled={expanded}
+          aria-pressed={expanded}
+          onClick={() => setExpanded(true)}
+          className={`min-h-14 w-24 rounded-2xl px-2 text-sm leading-tight font-bold ring-2 ${expanded ? "bg-[#fddd08] text-[#0e3038] ring-[#fddd08]" : "bg-white/10 ring-white/70"}`}
           data-flag-side="wrong"
         >
           Wrong lot
         </button>
       </div>
-
-      <Sheet
-        open={wrongOpen}
-        onClose={() => setWrongOpen(false)}
-        title={chosenTarget ? label(chosenTarget) : "Wrong lot"}
-        footer={
-          <Button
-            size="lg"
-            block
-            disabled={!chosenTarget}
-            onClick={() => {
-              if (!chosenTarget) return;
-              void flag(chosenTarget, "open");
-              setWrongOpen(false);
-            }}
-          >
-            Todo here
-          </Button>
-        }
-      >
-        <div className="relative h-[52dvh] min-h-64 overflow-hidden rounded-2xl ring-1 ring-line">
-          {wrongOpen && <MapView markers={miniMarkers} lines={miniLines} fitKey="flag" label="Parcels" className="absolute inset-0" onReady={setMiniMap} />}
-        </div>
-      </Sheet>
     </div>
   );
 };

@@ -923,7 +923,7 @@ foot or from the truck window. Not red shirts.
   updates the lot as Todo with the crew whose rectangle contains it, and shows the last-flag card
   ("Last: 3998 St Clair · Todo · 00:12 ago") with **Undo** for 20 s (undo deletes the photo and
   reverts the status). Two side buttons: **Do not touch** (same, status do_not_touch, photo kept)
-  and **Wrong lot** (north-up mini map with the heading cone, tap the right parcel, **Todo here**).
+  and **Wrong lot** (expands the map strip below to full screen, where a tap picks the right parcel).
 - Works offline-ish: flags queue in memory and post in order; a queued count shows on the shutter.
 - No camera permission or no GPS: the screen says which one in a label and still allows Wrong lot
   tapping with Todo and no photo.

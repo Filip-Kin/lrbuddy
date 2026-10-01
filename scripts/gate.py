@@ -592,8 +592,41 @@ def parcel_status_checks() -> None:
 # At 390x844 the Todo shutter is at least 84 px and the side buttons 56 px, with no overflow.
 # With a fake camera and the phone placed on a bare parcel: Todo makes the lot Todo with a Before
 # photo. Undo then takes the parcel back to bare, so the data is left as it was.
+# Map strip: about 28 % of the height (accepted 20 to 36 %), Expand and Collapse at least 44 px, the
+# picked parcel outlined in yellow inside the strip. Expanded the map takes most of the screen, the
+# camera pauses, the three buttons stay, a tap on another parcel picks it, a reload keeps it expanded,
+# and Collapse brings the strip and the camera back. Light and dark screenshots of both states.
 SHUTTER_MIN_PX = 84
 SIDE_MIN_PX = 56
+STRIP_MIN, STRIP_MAX = 0.20, 0.36
+EXPAND_MIN_PX = 44
+
+STRIP_JS = """() => {
+  const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+  const strip = document.querySelector('[data-flag-strip]');
+  const pick = strip ? strip.querySelector('[data-flag-pick]') : null;
+  const v = document.querySelector('[data-flag] video');
+  const z = strip ? strip.querySelector('.leaflet-container') : null;
+  return { strip: box(strip), expand: box(document.querySelector('[data-flag-expand]')),
+           mode: (strip && strip.querySelector('[data-flag-map]') || {}).dataset?.flagMap || '',
+           pick: box(pick), pickKey: pick ? pick.getAttribute('data-flag-pick') : null,
+           zoom: z ? Number(z.dataset.zoom || 0) : 0, paused: v ? v.paused : null,
+           vh: window.innerHeight };
+}"""
+
+# Bare parcels whose centre sits well inside the expanded map, away from its corners and buttons.
+OTHER_PARCELS_JS = """(skip) => {
+  const s = document.querySelector('[data-flag-strip]').getBoundingClientRect();
+  const out = [];
+  for (const el of document.querySelectorAll('[data-flag-strip] [data-parcel]')) {
+    const id = el.getAttribute('data-parcel'); if (id === skip) continue;
+    const r = el.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    if (r.width < 12 || r.height < 12) continue;
+    if (x < s.left + 60 || x > s.right - 60 || y < s.top + 70 || y > s.bottom - 70) continue;
+    out.push({ id, x, y, d: Math.hypot(x - (s.left + s.width / 2), y - (s.top + s.height / 2)) });
+  }
+  return out.sort((a, b) => a.d - b.d).slice(0, 6);
+}"""
 
 FLAG_BOXES_JS = """() => {
   const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { w: r.width, h: r.height }; };
@@ -653,6 +686,24 @@ def flag_checks() -> None:
                     fail(f"green /flag: horizontal overflow {b['over']}px")
                 if b["target"] == "No parcel":
                     fail(f"green /flag: no parcel picked at parcel {pid}'s centre")
+                st = page.evaluate(STRIP_JS)
+                if not st["strip"] or not (STRIP_MIN <= st["strip"]["h"] / st["vh"] <= STRIP_MAX):
+                    fail(f"green /flag: map strip is {st['strip']} of {st['vh']}px (want {STRIP_MIN:.0%} to {STRIP_MAX:.0%})")
+                if st["mode"] != "strip":
+                    fail(f"green /flag: map opens as {st['mode']!r}, not the strip")
+                if not st["expand"] or min(st["expand"]["w"], st["expand"]["h"]) < EXPAND_MIN_PX:
+                    fail(f"green /flag: Expand is {st['expand']} (<{EXPAND_MIN_PX}px)")
+                if abs(st["zoom"] - 18) > 0.01:
+                    fail(f"green /flag: strip zoom is {st['zoom']}, not 18")
+                sb, pk = st["strip"], st["pick"]
+                if not pk or st["pickKey"] != f"p:{pid}":
+                    fail(f"green /flag: picked parcel p:{pid} not outlined in the strip (got {st['pickKey']})")
+                elif not sb or pk["x"] + pk["w"] < sb["x"] or pk["x"] > sb["x"] + sb["w"] or pk["y"] + pk["h"] < sb["y"] or pk["y"] > sb["y"] + sb["h"]:
+                    fail(f"green /flag: yellow outline {pk} is outside the strip {sb}")
+                else:
+                    stroke = page.evaluate("() => getComputedStyle(document.querySelector('[data-flag-strip] [data-flag-pick]')).stroke")
+                    if stroke != "rgb(253, 221, 8)":
+                        fail(f"green /flag: picked outline stroke is {stroke}, not yellow")
                 page.locator("[data-flag-shutter]").click()
                 lot = None
                 for _ in range(40):
@@ -686,7 +737,9 @@ def flag_checks() -> None:
                             back = True
                             break
                     if back:
+                        aimed = pid
                         pid = None
+                        flag_expand_checks(page, aimed, "light")
                     else:
                         fail(f"green /flag: Undo did not take parcel {pid} back to Not todo")
         except Exception as e:  # noqa: BLE001
@@ -696,7 +749,78 @@ def flag_checks() -> None:
                 ctx.request.post(f"{BASE}/trpc/green.setLotStatus", data=json.dumps({"json": {"parcelId": pid, "status": "not_todo"}}),
                                  headers={"content-type": "application/json"})
         ctx.close()
+        # Dark: the strip and the expanded map, screenshots only plus overflow.
+        ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=1, has_touch=True, is_mobile=True, color_scheme="dark",
+                                  permissions=["camera", "geolocation"], geolocation={"latitude": 42.0, "longitude": -83.0})
+        try:
+            ctx.request.post(f"{BASE}/auth/login", data=json.dumps(ROLES["green"]["login"]), headers={"content-type": "application/json"})
+            bare = trpc_get(ctx, "green.parcels")
+            if bare:
+                p = bare[len(bare) // 2]
+                ctx.set_geolocation({"latitude": p["lat"], "longitude": p["lng"], "accuracy": 5})
+                page = ctx.new_page()
+                page.goto(BASE + "/flag", wait_until="domcontentloaded", timeout=45000)
+                page.wait_for_selector("[data-flag-shutter]", timeout=20000)
+                page.wait_for_timeout(2500)
+                page.screenshot(path=str(OUT / "green_flag-phone-dark.png"))
+                page.locator("[data-flag-expand]").click()
+                page.wait_for_timeout(1500)
+                page.screenshot(path=str(OUT / "green_flag_expanded-phone-dark.png"))
+                b = page.evaluate(FLAG_BOXES_JS)
+                if b["over"] > 0:
+                    fail(f"green /flag dark expanded: horizontal overflow {b['over']}px")
+                page.locator("[data-flag-expand]").click()
+                page.wait_for_timeout(500)
+        except Exception as e:  # noqa: BLE001
+            fail(f"green /flag dark: {type(e).__name__} {str(e)[:120]}")
+        ctx.close()
         browser.close()
+
+
+def flag_expand_checks(page, aimed: str, scheme: str) -> None:
+    """Expand, tap another parcel, reload, collapse. Picks only; nothing is flagged."""
+    page.locator("[data-flag-expand]").click()
+    page.wait_for_timeout(1200)
+    st = page.evaluate(STRIP_JS)
+    b = page.evaluate(FLAG_BOXES_JS)
+    page.screenshot(path=str(OUT / f"green_flag_expanded-phone-{scheme}.png"))
+    if st["mode"] != "full" or not st["strip"] or st["strip"]["h"] < 0.5 * st["vh"]:
+        fail(f"green /flag: Expand left the map at {st['strip']} ({st['mode']!r})")
+    if st["paused"] is not True:
+        fail(f"green /flag: camera not paused with the map full screen (paused={st['paused']})")
+    if not st["expand"] or min(st["expand"]["w"], st["expand"]["h"]) < EXPAND_MIN_PX:
+        fail(f"green /flag: Collapse is {st['expand']} (<{EXPAND_MIN_PX}px)")
+    if not b["shutter"] or min(b["shutter"]["w"], b["shutter"]["h"]) < SHUTTER_MIN_PX:
+        fail(f"green /flag expanded: shutter is {b['shutter']} (<{SHUTTER_MIN_PX}px)")
+    if len(b["sides"]) != 2 or any(not sd or sd["h"] < SIDE_MIN_PX for sd in b["sides"]):
+        fail(f"green /flag expanded: side buttons {b['sides']} (<{SIDE_MIN_PX}px tall)")
+    if b["over"] > 0:
+        fail(f"green /flag expanded: horizontal overflow {b['over']}px")
+    picked_other = None
+    for c in page.evaluate(OTHER_PARCELS_JS, aimed):
+        page.mouse.click(c["x"], c["y"])
+        page.wait_for_timeout(500)
+        if page.evaluate(STRIP_JS)["pickKey"] == f"p:{c['id']}":
+            picked_other = c["id"]
+            break
+    if not picked_other:
+        fail("green /flag expanded: a tap on another parcel did not pick it")
+    else:
+        page.screenshot(path=str(OUT / f"green_flag_expanded_tap-phone-{scheme}.png"))
+    page.reload(wait_until="domcontentloaded", timeout=45000)
+    page.wait_for_selector("[data-flag-shutter]", timeout=20000)
+    page.wait_for_timeout(1500)
+    if page.evaluate(STRIP_JS)["mode"] != "full":
+        fail("green /flag: the expanded map did not stay expanded after a reload")
+    page.locator("[data-flag-expand]").click()
+    page.wait_for_timeout(1200)
+    st = page.evaluate(STRIP_JS)
+    if st["mode"] != "strip" or not st["strip"] or not (STRIP_MIN <= st["strip"]["h"] / st["vh"] <= STRIP_MAX):
+        fail(f"green /flag: Collapse left the map at {st['strip']} ({st['mode']!r})")
+    if st["paused"] is not False:
+        fail(f"green /flag: camera did not resume after Collapse (paused={st['paused']})")
+    if st["pickKey"] != f"p:{aimed}":
+        fail(f"green /flag: after Collapse the pick is {st['pickKey']}, not the aimed p:{aimed}")
 
 
 # endregion

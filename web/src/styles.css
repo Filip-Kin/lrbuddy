@@ -587,3 +587,17 @@
   background: var(--brand);
   border-radius: 999px;
 }
+
+/* Flag screen map (SPEC 22, map strip): the picked parcel in yellow with a dark edge so it reads on the light basemap, the heading cone in the "me" blue. */
+.lrb-flag-pick {
+  stroke: #fddd08;
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 1.5px rgb(14 48 56 / 0.9));
+}
+.lrb-flag-cone {
+  stroke: #2f80ed;
+  stroke-opacity: 0.8;
+  fill: #2f80ed;
+  fill-opacity: 0.18;
+}

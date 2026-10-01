@@ -19,7 +19,7 @@ export const ParcelFacts = ({ parcelId, grade }: { parcelId: string | null; grad
   const q = trpc.shared.parcelInfo.useQuery({ parcelId: parcelId ?? "" }, { enabled: !!parcelId, staleTime: 3_600_000 });
   const facts: Array<[string, string]> = [];
   if (q.data?.kind) facts.push(["Type", q.data.kind]);
-  if (q.data?.owner) facts.push(["Owner", q.data.owner]);
+  if (q.data?.owner) facts.push(["Taxpayer", q.data.owner]);
   if (grade) facts.push(["Size", GRADE_LABEL[grade]]);
   if (facts.length === 0) return null;
   return (

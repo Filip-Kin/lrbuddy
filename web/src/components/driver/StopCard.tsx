@@ -32,7 +32,7 @@ const stopPills = (s: QueueStop, now: number): ReactNode => (
 );
 
 /** ETA from the route, else straight line at 25 km/h so the card never shows a gap. */
-const stopEta = (s: QueueStop, meters: number, now: number): string => etaText(s.etaAt, now) ?? duration((meters / FALLBACK_MPS) * 1000);
+export const stopEta = (s: QueueStop, meters: number, now: number): string => etaText(s.etaAt, now) ?? duration((meters / FALLBACK_MPS) * 1000);
 
 export const ErrorLine = ({ text }: { text: string | null }) =>
   text ? (
@@ -42,7 +42,7 @@ export const ErrorLine = ({ text }: { text: string | null }) =>
   ) : null;
 
 /** Keeps a freshly shown card from taking the second tap meant for the card before it. */
-const useArmed = (key: string, ms = 800): boolean => {
+export const useArmed = (key: string, ms = 800): boolean => {
   const [armed, setArmed] = useState(false);
   useEffect(() => {
     setArmed(false);
@@ -170,16 +170,10 @@ export const StopDetails = ({
   );
 };
 
-/** The top of the queue: the next stop, framed in yellow. */
-export const NextStopCard = (props: Parameters<typeof StopDetails>[0]) => (
-  <section aria-label="Next stop" className="rounded-3xl bg-surface p-4 shadow-sm ring-2 ring-brand">
-    <StopDetails {...props} />
-  </section>
-);
 // #endregion
 
 // #region later stops
-export const StopRow = ({ stop, n, now, onOpen }: { stop: QueueStop; n: number; now: number; onOpen: () => void }) => {
+export const StopRow = ({ stop, n, now, onOpen, pills }: { stop: QueueStop; n: number; now: number; onOpen: () => void; pills?: ReactNode }) => {
   const distFrom = useDistanceFrom();
   const meters = distFrom(stop, stop.distanceM);
   return (
@@ -192,6 +186,7 @@ export const StopRow = ({ stop, n, now, onOpen }: { stop: QueueStop; n: number; 
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="line-clamp-2 text-base font-bold break-words">{stop.name}</span>
+          {pills}
           {stop.urgent && <StatusPill status="urgent" />}
           {isNew(stop, now) && <NewPill />}
         </span>

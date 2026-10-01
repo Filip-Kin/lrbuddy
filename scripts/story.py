@@ -96,14 +96,15 @@ def water_qty(ctx: BrowserContext) -> int:
 
 
 def stop_for(page: Page, name: str):
-    """The stop's action area: the next stop card, or the sheet opened from its row."""
+    """The next stop card holding the stop. A later stop is made next from the Queue sheet first."""
     card = page.locator('section[aria-label="Next stop"]')
     if card.count() and name in card.inner_text():
         return card
-    page.locator("li button", has_text=name).first.click()
-    dialog = page.get_by_role("dialog")
-    dialog.wait_for()
-    return dialog
+    page.locator("[data-queue-button]").click()
+    page.get_by_role("dialog").locator("li button", has_text=name).first.click()
+    wait_for(lambda: card.count() and name in card.inner_text(), 10)
+    time.sleep(1)  # a freshly shown stop card ignores taps for 800 ms
+    return card
 
 
 with sync_playwright() as pw:
@@ -114,7 +115,7 @@ with sync_playwright() as pw:
 
     # The driver's phone is open first so Truck 1 counts as seen and has a fresh fix.
     go(drv, "/")
-    drv.get_by_role("heading", name="Queue").wait_for()
+    drv.locator("[data-queue-button]").wait_for()
     time.sleep(2)
     water_before = water_qty(drv_ctx)
     delivered_before = api(green_ctx, "green.stats")["delivered"]
@@ -157,19 +158,20 @@ with sync_playwright() as pw:
 
     # #region 3. driver queue and route
     go(drv, "/")
-    in_queue = wait_for(lambda: "Crew 1" in drv.locator("main").inner_text(), 15)
-    check(bool(in_queue), "Truck 1 queue shows Crew 1")
-    shot(drv, "3-driver-queue")
-    go(drv, "/map")
     route = wait_for(lambda: drv.locator("path.lrb-route").count(), 15)
     check(bool(route), "driver map draws the route")
     shot(drv, "3-driver-map")
+    drv.locator("[data-queue-button]").click()
+    in_queue = wait_for(lambda: "Crew 1" in drv.get_by_role("dialog").inner_text(), 15)
+    check(bool(in_queue), "Truck 1 queue shows Crew 1")
+    shot(drv, "3-driver-queue")
+    drv.keyboard.press("Escape")
     # #endregion
 
     # #region 4. en route
     go(crew, "/requests")
     go(drv, "/")
-    drv.get_by_text("Crew 1").first.wait_for()
+    drv.locator('section[aria-label="Next stop"]').wait_for()
     time.sleep(1)  # a freshly shown stop card ignores taps for 800 ms
     stop_for(drv, "Crew 1").get_by_role("button", name="En route").click()
     ok = wait_for(lambda: next((r for r in api(crew_ctx, "crew.myRequests") if r["id"] == req["id"] and r["status"] == "en_route"), None), 10)

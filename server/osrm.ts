@@ -1,11 +1,13 @@
 import { haversine, type LatLng } from "./geo.ts";
-import type { RouteEngine } from "./db/schema.ts";
+import type { Manoeuvre, RouteEngine } from "./db/schema.ts";
 
 export interface TripLeg {
   /** Seconds for this leg alone. */
   durationS: number;
   /** Metres for this leg alone. */
   distanceM: number;
+  /** Manoeuvres along the leg; empty from the fallback. */
+  steps: Manoeuvre[];
 }
 
 export interface TripResult {
@@ -54,7 +56,7 @@ export const fallbackTrip = (origin: LatLng, stops: readonly LatLng[], destinati
   const legs: TripLeg[] = [];
   for (let i = 1; i < path.length; i++) {
     const d = haversine(path[i - 1]!, path[i]!);
-    legs.push({ distanceM: d, durationS: d / FALLBACK_SPEED });
+    legs.push({ distanceM: d, durationS: d / FALLBACK_SPEED, steps: [] });
   }
   return {
     order,
@@ -66,6 +68,13 @@ export const fallbackTrip = (origin: LatLng, stops: readonly LatLng[], destinati
   };
 };
 
+interface OsrmStep {
+  distance: number;
+  name?: string;
+  ref?: string;
+  maneuver: { type: string; modifier?: string; location: [number, number] };
+}
+
 interface OsrmTripResponse {
   code: string;
   waypoints?: Array<{ waypoint_index: number; trips_index: number }>;
@@ -73,9 +82,32 @@ interface OsrmTripResponse {
     distance: number;
     duration: number;
     geometry: { type: string; coordinates: Array<[number, number]> };
-    legs: Array<{ distance: number; duration: number }>;
+    legs: Array<{ distance: number; duration: number; steps?: OsrmStep[] }>;
   }>;
 }
+
+/** Steps that tell the driver nothing: leaving the start, and a street changing name on a straight road. */
+const QUIET_TYPES = new Set(["depart", "new name", "continue", "notification"]);
+
+/**
+ * OSRM leg steps as manoeuvres, each with its distance from the start of the
+ * leg. A step's distance is the road after its manoeuvre, so a manoeuvre sits
+ * at the sum of the steps before it. Straight-on name changes are dropped.
+ */
+export const parseSteps = (steps: readonly OsrmStep[] | undefined): Manoeuvre[] => {
+  const out: Manoeuvre[] = [];
+  let at = 0;
+  for (const st of steps ?? []) {
+    const m = st.maneuver;
+    const modifier = m.modifier ?? null;
+    const quiet = m.type === "depart" || (QUIET_TYPES.has(m.type) && (modifier === null || modifier === "straight"));
+    if (!quiet && Array.isArray(m.location) && m.location.length === 2) {
+      out.push({ type: m.type, modifier, name: (st.name || st.ref || "").trim(), lat: m.location[1], lng: m.location[0], atM: at });
+    }
+    at += Number.isFinite(st.distance) ? st.distance : 0;
+  }
+  return out;
+};
 
 const isTripResponse = (v: unknown): v is OsrmTripResponse =>
   typeof v === "object" && v !== null && typeof (v as { code?: unknown }).code === "string";
@@ -104,6 +136,7 @@ export const trip = async (
     roundtrip: "false",
     overview: "full",
     geometries: "geojson",
+    steps: "true",
   });
   if (destination) params.set("destination", "last");
   const url = `${opts.osrmUrl}/trip/v1/driving/${coords}?${params.toString()}`;
@@ -132,7 +165,7 @@ export const trip = async (
     if (order.length !== stops.length) return fallbackTrip(origin, stops, destination);
     return {
       order,
-      legs: t.legs.map((l) => ({ distanceM: l.distance, durationS: l.duration })),
+      legs: t.legs.map((l) => ({ distanceM: l.distance, durationS: l.duration, steps: parseSteps(l.steps) })),
       geometry: t.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
       distanceM: t.distance,
       durationS: t.duration,

@@ -306,6 +306,59 @@ describe("routes", () => {
     expect(d.getTruck(t.id).status).toBe("returning");
   });
 
+  test("a pinned stop goes first until it is delivered", async () => {
+    const now = Date.now();
+    const t = addTruck(w, "A", CC, MIN, now);
+    const near = addCrew(w, north(0.5), now);
+    const mid = addCrew(w, north(1), now);
+    const far = addCrew(w, north(3), now);
+    request(w, near.id, "snacks", 1, now);
+    request(w, mid.id, "snacks", 1, now);
+    request(w, far.id, "snacks", 1, now);
+    const before = await d.computeRouteNow(t.id, now);
+    expect(before!.legs.map((l) => l.key)).toEqual([`crew:${near.id}`, `crew:${mid.id}`, `crew:${far.id}`]);
+
+    d.pinNext(t.id, `crew:${far.id}`);
+    // The queue shows it first at once, before the debounced route runs.
+    expect(d.orderedStops(t.id, now).map((x) => x.key)[0]).toBe(`crew:${far.id}`);
+    const pinned = await d.computeRouteNow(t.id, now);
+    // Far first, then nearest neighbour from there: mid, then near.
+    expect(pinned!.legs.map((l) => l.key)).toEqual([`crew:${far.id}`, `crew:${mid.id}`, `crew:${near.id}`]);
+
+    d.deliverStop(t.id, `crew:${far.id}`, now);
+    expect(d.getTruck(t.id).pinnedStopKey).toBeNull();
+    const after = await d.computeRouteNow(t.id, now);
+    expect(after!.legs.map((l) => l.key)).toEqual([`crew:${near.id}`, `crew:${mid.id}`]);
+    // The same crew asking again is not pinned.
+    request(w, far.id, "water", 1, now);
+    expect(d.orderedStops(t.id, now).map((x) => x.key)[0]).not.toBe(`crew:${far.id}`);
+  });
+
+  test("a pinned stop outranks an urgent one", async () => {
+    const now = Date.now();
+    const t = addTruck(w, "A", CC, MIN, now);
+    const near = addCrew(w, north(0.5), now);
+    const far = addCrew(w, north(4), now);
+    request(w, near.id, "snacks", 1, now);
+    request(w, far.id, "water", 2, now - 11 * MIN);
+    d.pinNext(t.id, `crew:${near.id}`);
+    const route = await d.computeRouteNow(t.id, now);
+    expect(route!.legs.map((l) => l.key)).toEqual([`crew:${near.id}`, `crew:${far.id}`]);
+  });
+
+  test("a pin clears when its stop moves to another truck, and a stop off the truck cannot be pinned", () => {
+    const now = Date.now();
+    const a = addTruck(w, "A", CC, MIN, now);
+    const b = addTruck(w, "B", north(5), MIN, now);
+    const crew = addCrew(w, north(0.5), now);
+    const r = request(w, crew.id, "snacks", 1, now);
+    expect(r.truckId).toBe(a.id);
+    d.pinNext(a.id, `crew:${crew.id}`);
+    expect(() => d.pinNext(b.id, `crew:${crew.id}`)).toThrow();
+    d.reassign(r.id, b.id, now);
+    expect(d.getTruck(a.id).pinnedStopKey).toBeNull();
+  });
+
   test("a stale crew position loses to a newer request position", () => {
     const now = Date.now();
     const cc = d.getCc(w.ccId);

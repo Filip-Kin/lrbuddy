@@ -137,7 +137,7 @@ def static_checks() -> None:
 ROLES = {
     "anon": {"login": None, "routes": ["/login"]},
     "crew": {"login": {"code": "demo-crew-01", "displayName": "Gate"}, "routes": ["/", "/request", "/requests", "/lots", "/cc", "/settings"]},
-    "driver": {"login": {"code": "TRUCK1", "displayName": "Gate"}, "routes": ["/", "/map", "/stock", "/settings"]},
+    "driver": {"login": {"code": "TRUCK1", "displayName": "Gate"}, "routes": ["/", "/stock", "/settings"]},
     "green": {"login": {"code": "EAST01", "displayName": "Gate"}, "routes": ["/", "/requests", "/lots", "/photos", "/crews", "/trucks", "/broadcast", "/stats"]},
     "admin": {"login": {"code": ADMIN}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export",
                                                   "/plan/survey", "/plan/blocks", "/plan/assignments", "/plan/print", "/plan/survey/drive"]},
@@ -155,8 +155,18 @@ ROUTE_SIZES = {
 NO_NAV = {"/plan/print", "/login"}
 # Print pages draw maps; the page sets [data-print-ready] once every tile has loaded.
 PRINT_ROUTES = {"/plan/print"}
-# Old paths that must land somewhere else.
-REDIRECTS = {"/admin/print": "/plan/print"}
+# Old paths that must land somewhere else, per role.
+REDIRECTS = {"admin": {"/admin/print": "/plan/print"}, "driver": {"/map": "/"}}
+# Driver home (SPEC 17): the next stop card plus the guidance banner stay under this share of the
+# phone height, and the Queue button is at least this big.
+DRIVER_CARD_MAX = 0.36
+QUEUE_MIN_PX = 56
+
+DRIVER_HOME_JS = """() => {
+  const box = (sel) => { const e = document.querySelector(sel); if (!e || e.offsetParent === null) return null;
+    const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, w: r.width, h: r.height }; };
+  return { card: box('[data-next-card]'), banner: box('[data-guidance]'), queue: box('[data-queue-button]'), vh: window.innerHeight };
+}"""
 
 LUM_JS = """() => {
   const c = getComputedStyle(document.body).backgroundColor.match(/\\d+(\\.\\d+)?/g).map(Number);
@@ -209,15 +219,16 @@ def dynamic_checks() -> None:
                     page.on("pageerror", lambda e: errors.append(str(e)))
                     bad: list[str] = []
                     page.on("response", lambda resp: bad.append(f"{resp.status} {resp.url}") if resp.status >= 400 and BASE in resp.url else None)
-                    if role == "admin" and size == "laptop" and scheme == "light":
-                        for old, new in REDIRECTS.items():
+                    if size == "laptop" and scheme == "light":
+                        for old, new in REDIRECTS.get(role, {}).items():
                             try:
                                 page.goto(BASE + old, wait_until="networkidle", timeout=45000)
+                                page.wait_for_timeout(300)
                                 landed = page.evaluate("location.pathname")
                                 if landed != new:
-                                    fail(f"admin {old}: landed on {landed}, expected {new}")
+                                    fail(f"{role} {old}: landed on {landed}, expected {new}")
                             except Exception as e:  # noqa: BLE001
-                                fail(f"admin {old}: navigation failed {type(e).__name__}")
+                                fail(f"{role} {old}: navigation failed {type(e).__name__}")
                     for route in cfg["routes"]:
                         if size not in ROUTE_SIZES.get(route, set(SIZES)):
                             continue
@@ -255,6 +266,24 @@ def dynamic_checks() -> None:
                         for i in page.evaluate(INPUTS_JS):
                             if i["fs"] < 16:
                                 fail(f"{tag}: input '{i['n']}' font-size {i['fs']}px (<16 makes iOS zoom on focus)")
+                        if role == "driver" and route == "/" and size == "phone":
+                            dh = page.evaluate(DRIVER_HOME_JS)
+                            if dh["card"] is None:
+                                fail(f"{tag}: no [data-next-card] on the driver map")
+                            else:
+                                parts = [b for b in (dh["card"], dh["banner"]) if b]
+                                if dh["banner"] is None:
+                                    warn(f"{tag}: no [data-guidance] banner (no next stop?)")
+                                top = min(b["top"] for b in parts)
+                                bottom = max(b["bottom"] for b in parts)
+                                share = (bottom - top) / dh["vh"]
+                                if share >= DRIVER_CARD_MAX:
+                                    fail(f"{tag}: next stop card plus banner cover {share:.0%} of the height (max {DRIVER_CARD_MAX:.0%})")
+                            q = dh["queue"]
+                            if q is None:
+                                fail(f"{tag}: no [data-queue-button] on the driver map")
+                            elif q["h"] < QUEUE_MIN_PX or q["w"] < QUEUE_MIN_PX:
+                                fail(f"{tag}: Queue button is {q['w']:.0f}x{q['h']:.0f}px (<{QUEUE_MIN_PX})")
                         for c in page.evaluate(CAMERA_JS):
                             if c["h"] < 44 or c["w"] < 44:
                                 fail(f"{tag}: camera button '{c['t']}' is {c['w']:.0f}x{c['h']:.0f}px (<44)")

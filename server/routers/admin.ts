@@ -231,6 +231,14 @@ const daysRouter = router({
 // #endregion
 
 // #region command centers, green shirts, codes, trucks
+/** A CC's letter for the day ("A"): one letter or digit, stored upper case; empty clears it. */
+const ccLetter = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9]?$/, "One letter or digit")
+  .transform((v) => v.toUpperCase())
+  .nullish();
+
 const ccsRouter = router({
   /** Every CC of the active event, for the admin CC picker. */
   list: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
@@ -253,11 +261,12 @@ const ccsRouter = router({
         lng: z.number().min(-180).max(180),
         address: z.string().trim().max(200).nullish(),
         notes: z.string().max(1000).nullish(),
+        letter: ccLetter,
       }),
     )
     .mutation(({ input }) => {
       if (!db.select({ id: days.id }).from(days).where(eq(days.id, input.dayId)).get()) throw notFound("Day");
-      return createCc({ ...input, address: input.address || null });
+      return createCc({ ...input, address: input.address || null, letter: input.letter || null });
     }),
   /** Street address of the parcel under a point, to prefill a new CC. Null when none or the city layer is down. */
   addressAt: adminProcedure.input(z.object({ lat: z.number(), lng: z.number() })).query(async ({ input }) => {
@@ -277,10 +286,12 @@ const ccsRouter = router({
         lng: z.number().optional(),
         address: z.string().max(200).nullish(),
         notes: z.string().max(1000).nullish(),
+        letter: ccLetter,
       }),
     )
     .mutation(({ input }) => {
-      const { id: ccId, ...set } = input;
+      const { id: ccId, letter, ...rest } = input;
+      const set = letter === undefined ? rest : { ...rest, letter: letter || null };
       return db.update(commandCenters).set(set).where(eq(commandCenters.id, ccId)).returning().get();
     }),
   delete: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
@@ -421,7 +432,7 @@ const companiesRouter = router({
       return { ...c, crewCount: st?.n ?? 0, headcount: st?.people ?? 0 };
     });
   }),
-  create: adminProcedure.input(z.object({ name: z.string().trim().min(1).max(100), eventId: id.nullish() })).mutation(({ input }) => {
+  create: adminProcedure.input(z.object({ name: z.string().trim().min(1).max(100), short: z.string().trim().max(16).nullish(), eventId: id.nullish() })).mutation(({ input }) => {
     const eventId = eventOrActive(input.eventId);
     const dup = db
       .select({ id: companies.id })
@@ -429,11 +440,17 @@ const companiesRouter = router({
       .where(and(eq(companies.eventId, eventId), sql`lower(${companies.name}) = ${input.name.toLowerCase()}`))
       .get();
     if (dup) throw new TRPCError({ code: "CONFLICT", message: "Company already listed" });
-    return db.insert(companies).values({ eventId, name: input.name }).returning().get();
+    return db.insert(companies).values({ eventId, name: input.name, short: input.short || null }).returning().get();
   }),
-  rename: adminProcedure.input(z.object({ id, name: z.string().trim().min(1).max(100) })).mutation(({ input }) =>
-    db.update(companies).set({ name: input.name }).where(eq(companies.id, input.id)).returning().get(),
-  ),
+  /** Name and the short used for crew names ("GM" makes "GM 1"); an empty short falls back to the first word. */
+  update: adminProcedure
+    .input(z.object({ id, name: z.string().trim().min(1).max(100), short: z.string().trim().max(16).nullish() }))
+    .mutation(({ input }) => {
+      const set = input.short === undefined ? { name: input.name } : { name: input.name, short: input.short || null };
+      const r = db.update(companies).set(set).where(eq(companies.id, input.id)).returning().get();
+      if (!r) throw notFound("Company");
+      return r;
+    }),
   delete: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
     db.delete(companies).where(eq(companies.id, input.id)).run();
     return { ok: true };

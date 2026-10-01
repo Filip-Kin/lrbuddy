@@ -35,11 +35,15 @@ export const truckIcon = (name: string, highlight = false): L.DivIcon =>
     iconAnchor: [17, 17],
   });
 
-/** Teal flag on yellow. */
-export const ccIcon = (name: string): L.DivIcon =>
+/** What a CC marker carries: its letter for the day when it has one (SPEC 19), else `fallback` (an icon). */
+export const ccBody = (letter: string | null | undefined, fallback: string): string =>
+  letter ? `<span class="lrb-cc-body lrb-cc-letter">${escapeHtml(letter)}</span>` : `<span class="lrb-cc-body">${fallback}</span>`;
+
+/** Yellow circle with the CC's letter in teal, or a teal flag when it has none. */
+export const ccIcon = (name: string, letter?: string | null): L.DivIcon =>
   L.divIcon({
     className: "lrb-cc",
-    html: `<span class="lrb-cc-body">${FLAG_SVG}</span><span class="lrb-tag">${escapeHtml(name)}</span>`,
+    html: `${ccBody(letter, FLAG_SVG)}<span class="lrb-tag">${escapeHtml(name)}</span>`,
     iconSize: [36, 36],
     iconAnchor: [18, 18],
   });

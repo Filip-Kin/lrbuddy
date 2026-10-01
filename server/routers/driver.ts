@@ -175,7 +175,7 @@ export const buildQueue = (truckId: number, cc: CommandCenter, eventId: number, 
 
   return {
     truck: { id: truck.id, name: truck.name, driverName: truck.driverName, status: truck.status },
-    cc: { id: cc.id, name: cc.name, address: cc.address, lat: cc.lat, lng: cc.lng },
+    cc: { id: cc.id, name: cc.name, letter: cc.letter, address: cc.address, lat: cc.lat, lng: cc.lng },
     ccNavigateUrl: directionsUrl(cc),
     distanceToCcM,
     atCc: distanceToCcM <= AT_CC_M,

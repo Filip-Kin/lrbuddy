@@ -795,3 +795,16 @@ Seed
 - CC East letter "A", CC West letter "B". Companies get shorts (Ford "FORD", Rocket "ROCKET",
   DTE "DTE", Henry Ford Health "HFH", GM "GM"). One shared area for two crews at each CC so the
   company sheet shows the "&" label.
+
+Marks (from the second photo, the same sheet after a morning in the field)
+- The B&B lead marks the paper with a sharpie: a thick line along the stretch of a block side that
+  needs work, an X across a rectangle that is done, a company name ("DTE") written over a rectangle
+  that was handed to another company, small dots for single lots.
+- Printed sheet: in addition to the lot fills, draw every block side with `work_count > 0` as a thick
+  (4 px at print scale) dark line offset 6 m onto that side of the street centreline, spanning the
+  parcels that need work, so the sheet reads the way the sharpie version does. Block sides with no
+  work get nothing.
+- Green map, day of: tap a rectangle label for a sheet with **Reassign** (pick another company and
+  its crews at this CC) and **Done** (marks every open lot in the rectangle done, with a confirm that
+  states the count); tap a block side's mark for **Done** on that side only. Both emit lot.changed and
+  show on the admin Assignments page. The crews involved get a push ("Reassigned: W Boston Blvd to DTE").

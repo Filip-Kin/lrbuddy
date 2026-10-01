@@ -448,7 +448,7 @@ export const LotsPage = () => {
       const key = `${c.name}|${c.lat.toFixed(4)}|${c.lng.toFixed(4)}`;
       if (!seen.has(key)) seen.set(key, c);
     }
-    return [...seen.values()].map((c) => ({ id: `cc-${c.id}`, kind: "cc", lat: c.lat, lng: c.lng, name: `CC ${c.name}`, noFit: true }));
+    return [...seen.values()].map((c) => ({ id: `cc-${c.id}`, kind: "cc", lat: c.lat, lng: c.lng, name: `CC ${c.name}`, letter: c.letter, noFit: true }));
   }, [ccs]);
 
   const shown = useMemo(

@@ -46,7 +46,7 @@ export const MapPage = () => {
         out.push({ id: `lot-${l.id}`, kind: "lot", lat: l.lat, lng: l.lng, status: l.status, geometry: l.geometry, mine: l.crewId !== null, noFit: true, title: l.address ?? undefined, onClick: () => setSelected({ kind: "lot", id: l.id }) });
       }
     }
-    out.push({ id: "cc", kind: "cc", lat: d.cc.lat, lng: d.cc.lng, name: `CC ${d.cc.name}` });
+    out.push({ id: "cc", kind: "cc", lat: d.cc.lat, lng: d.cc.lng, name: `CC ${d.cc.name}`, letter: d.cc.letter });
     const crewPos = new Map<number, { lat: number; lng: number }>();
     for (const c of d.crews) {
       if (!c.position) continue;

@@ -6,9 +6,10 @@
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "./db/index.ts";
-import { assignments, companyDays, crews, lots, parcels, surveyTags, type Crew, type Lot, type LotGeometry } from "./db/schema.ts";
+import { assignments, companyDays, crewAreas, crews, lots, parcels, surveyTags, type Crew, type Lot, type LotGeometry } from "./db/schema.ts";
 import { normalizeBBox, type BBox } from "./geo.ts";
 import { areaAround, loadParcelsBBox, outlinePoints, upsertParcels, type ParcelInput } from "./parcels.ts";
+import { createSharedArea } from "./routers/plan/areas.ts";
 import { publishAssignments } from "./routers/plan/assignments.ts";
 
 /** 2026-07-14 10:00 in Detroit (EDT, UTC-4). */
@@ -79,6 +80,8 @@ export interface SeedPlanResult {
   parcels: string;
   tags: number;
   assigned: number;
+  /** Shared areas made, one per CC. */
+  shared: number;
   /** Lots written or updated by the publish. */
   published: number;
   areas: number;
@@ -178,6 +181,21 @@ export const seedPlan = async (input: { eventId: number; dayId: number; bbox: BB
   }
   // #endregion
 
+  // #region one shared area per CC (SPEC 19): the first company with two crews there gives both its sides as one area
+  let shared = 0;
+  for (const ccId of [...new Set(input.crews.map((c) => c.ccId))]) {
+    const here = input.crews.filter((c) => c.ccId === ccId && c.companyId !== null).sort((a, b) => a.number - b.number);
+    const companyId = here.find((c) => here.filter((x) => x.companyId === c.companyId).length >= 2)?.companyId;
+    if (companyId == null) continue;
+    const pair = here.filter((c) => c.companyId === companyId).slice(0, 2).map((c) => c.id);
+    db.transaction((tx) => {
+      const area = createSharedArea(tx, { eventId, dayId, crewIds: pair, polygon: null });
+      tx.update(assignments).set({ crewId: null, areaId: area.id }).where(and(eq(assignments.eventId, eventId), inArray(assignments.crewId, pair))).run();
+    });
+    shared++;
+  }
+  // #endregion
+
   // #region publish, as the Assignments page does, so lots and crew areas come from the assignments
   const published = publishAssignments(eventId, { dayId, resetAreas: true });
   // #endregion
@@ -189,7 +207,7 @@ export const seedPlan = async (input: { eventId: number; dayId: number; bbox: BB
     db
       .select({ id: crews.id })
       .from(crews)
-      .where(and(inArray(crews.id, input.crews.map((c) => c.id)), sql`${crews.area} is not null`))
+      .where(and(inArray(crews.id, input.crews.map((c) => c.id)), sql`${crews.areaId} is not null`))
       .all()
       .map((r) => r.id),
   );
@@ -198,10 +216,11 @@ export const seedPlan = async (input: { eventId: number; dayId: number; bbox: BB
     const mine = afterPublish.filter((l) => l.crewId === crew.id);
     const area = areaAround(mine.flatMap((l) => (l.geometry ? outlinePoints(l.geometry) : [{ lat: l.lat, lng: l.lng }])), 15);
     if (!area) continue;
-    db.update(crews).set({ area }).where(eq(crews.id, crew.id)).run();
+    const row = db.insert(crewAreas).values({ eventId, dayId, polygon: area }).returning().get();
+    db.update(crews).set({ areaId: row.id }).where(eq(crews.id, crew.id)).run();
     areas++;
   }
   // #endregion
 
-  return { parcels: parcelNote, tags: route.length, assigned, published: published.added + published.updated, areas };
+  return { parcels: parcelNote, tags: route.length, assigned, shared, published: published.added + published.updated, areas };
 };

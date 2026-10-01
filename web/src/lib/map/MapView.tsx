@@ -32,7 +32,7 @@ export type MapMarker =
   | (Base & { kind: "crew"; label: string; muted?: boolean })
   | (Base & { kind: "truck"; name: string; highlight?: boolean })
   /** `onDragEnd` makes the flag draggable (admin day map). */
-  | (Base & { kind: "cc"; name: string; onDragEnd?: (lat: number, lng: number) => void })
+  | (Base & { kind: "cc"; name: string; letter?: string | null; onDragEnd?: (lat: number, lng: number) => void })
   /** Drawn as its parcel outline when `geometry` is set, else a small square. `selected` adds a heavy ink outline. */
   | (Base & { kind: "lot"; status: LotStatus; mine?: boolean; selected?: boolean; geometry?: LotGeometry | null })
   | (Base & { kind: "request"; urgent?: boolean })
@@ -93,7 +93,7 @@ const layerFor = (m: MapMarker): L.Layer => {
       break;
     case "cc": {
       const drag = m.onDragEnd;
-      const marker = L.marker(at, { icon: ccIcon(m.name), zIndexOffset: 400, title: m.title ?? m.name, alt: m.name, draggable: !!drag, autoPan: !!drag });
+      const marker = L.marker(at, { icon: ccIcon(m.name, m.letter), zIndexOffset: 400, title: m.title ?? m.name, alt: m.name, draggable: !!drag, autoPan: !!drag });
       if (drag) {
         marker.on("dragend", () => {
           const p = marker.getLatLng();

@@ -472,3 +472,9 @@
     --ink: #000000;
   }
 }
+/* SPEC 19: a CC with a letter shows it in place of the icon. */
+.lrb-cc-letter {
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1;
+}

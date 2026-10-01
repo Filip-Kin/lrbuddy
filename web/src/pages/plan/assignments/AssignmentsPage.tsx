@@ -9,6 +9,7 @@ import { Panel, Stat } from "../../../components/Panel.tsx";
 import { Sheet } from "../../../components/Sheet.tsx";
 import { Skeleton } from "../../../components/Skeleton.tsx";
 import { Switch } from "../../../components/Switch.tsx";
+import { ToggleChip } from "../../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../../lib/map/MapView.tsx";
 import {
   insideRect,
@@ -42,6 +43,9 @@ type Company = RouterOutputs["plan"]["assignments"]["companies"][number];
 type CrewRow = RouterOutputs["plan"]["crews"]["list"][number];
 type Cc = RouterOutputs["admin"]["ccs"]["list"][number];
 
+/** "GM 9, GM 10 & GM 11", the way the sheet names a shared area. */
+const joinNames = (names: readonly string[]): string => (names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`);
+
 const plural = (n: number, one: string, many = `${one}s`): string => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 
 // #region company card
@@ -52,7 +56,7 @@ const CompanyCard = ({
   cap,
   work,
   target,
-  targetCrew,
+  targetCrews,
   areaCrew,
   onPick,
   onPickCrew,
@@ -70,7 +74,8 @@ const CompanyCard = ({
   /** Assigned work per crew id. */
   work: Map<number, { high: number; low: number }>;
   target: boolean;
-  targetCrew: number | null;
+  /** Crews picked for Assign to; several share one area. */
+  targetCrews: ReadonlySet<number>;
   areaCrew: number | null;
   onPick: () => void;
   onPickCrew: (crewId: number) => void;
@@ -97,7 +102,7 @@ const CompanyCard = ({
             const w = work.get(c.id) ?? { high: 0, low: 0 };
             const l = crewLoad(w.high, w.low, cap);
             const over = l > 1 + 1e-9;
-            const picked = targetCrew === c.id;
+            const picked = targetCrews.has(c.id);
             return (
               <li key={c.id} className="flex items-center gap-1.5">
                 <button
@@ -107,7 +112,9 @@ const CompanyCard = ({
                   className={`flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-sm ${picked ? "bg-brand text-on-brand" : "hover:bg-surface-2"}`}
                 >
                   <span className="shrink-0 font-semibold">{c.name}</span>
-                  <span className={`min-w-0 truncate ${picked ? "" : "text-muted"}`}>{c.leadName ?? ""}</span>
+                  <span className={`min-w-0 truncate ${picked ? "" : "text-muted"}`}>
+                    {c.areaLabel && c.areaLabel !== c.name ? c.areaLabel : (c.leadName ?? "")}
+                  </span>
                   <span className="ml-auto flex shrink-0 items-center gap-1.5 tabular-nums">
                     {w.high + w.low}
                     <span aria-hidden="true" className="h-1.5 w-10 overflow-hidden rounded-full bg-surface-2 ring-1 ring-line ring-inset">
@@ -116,7 +123,7 @@ const CompanyCard = ({
                     {over && <span className="sr-only">Over</span>}
                   </span>
                 </button>
-                <Button size="sm" variant={areaCrew === c.id ? "primary" : "secondary"} onClick={() => onArea(c.id)} aria-label={`Area, ${c.name}`}>
+                <Button size="sm" variant={areaCrew === c.id ? "primary" : "secondary"} onClick={() => onArea(c.id)} aria-label={`Area, ${c.areaLabel ?? c.name}`}>
                   Area
                 </Button>
               </li>
@@ -140,6 +147,7 @@ const PublishSheet = ({
   open,
   dayLabel,
   sides,
+  crewRows,
   onClose,
   onPublish,
   busy,
@@ -147,13 +155,18 @@ const PublishSheet = ({
   open: boolean;
   dayLabel: string;
   sides: readonly Side[];
+  crewRows: readonly CrewRow[];
   onClose: () => void;
   onPublish: (resetAreas: boolean) => void;
   busy: boolean;
 }) => {
   const [reset, setReset] = useState(false);
   const work = sides.reduce((n, s) => n + s.workCount, 0);
-  const crews = new Set(sides.map((s) => s.assignment?.crewId).filter((x): x is number => x != null)).size;
+  const areaIds = new Set(sides.map((s) => s.assignment?.areaId).filter((x): x is number => x != null));
+  const crews = new Set([
+    ...sides.map((s) => s.assignment?.crewId).filter((x): x is number => x != null),
+    ...crewRows.filter((c) => c.areaId !== null && areaIds.has(c.areaId)).map((c) => c.id),
+  ]).size;
   return (
     <Sheet
       open={open}
@@ -208,7 +221,7 @@ export const AssignmentsPage = () => {
   const [selRect, setSelRect] = useState<OrientedRect | null>(null);
   const [drawSel, setDrawSel] = useState(false);
   const [target, setTarget] = useState<number | null>(null);
-  const [targetCrew, setTargetCrew] = useState<number | null>(null);
+  const [targetCrewIds, setTargetCrewIds] = useState<ReadonlySet<number>>(() => new Set());
   const [areaCrew, setAreaCrew] = useState<number | null>(null);
   const [areaDraft, setAreaDraft] = useState<OrientedRect | null>(null);
   const [drawArea, setDrawArea] = useState(false);
@@ -223,7 +236,16 @@ export const AssignmentsPage = () => {
     if (target !== null) cards.current.get(target)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [target]);
   const targetCrews = targetCompany ? targetCompany.crews.filter((c) => c.ccId === ccId) : [];
-  const crewPick = targetCrews.some((c) => c.id === targetCrew) ? targetCrew : null;
+  // Picked crews of the picked company at this CC, in crew order.
+  const crewPicks = useMemo(() => targetCrews.filter((c) => targetCrewIds.has(c.id)).map((c) => c.id), [targetCrews, targetCrewIds]);
+  const crewPickSet = useMemo(() => new Set(crewPicks), [crewPicks]);
+  const toggleCrew = (crewId: number): void =>
+    setTargetCrewIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(crewId)) next.delete(crewId);
+      else next.add(crewId);
+      return next;
+    });
 
   // #region mutations
   const refresh = (): void => {
@@ -269,6 +291,7 @@ export const AssignmentsPage = () => {
 
   // #region crew area
   const areaRow = crews.find((c) => c.id === areaCrew) ?? null;
+  const areaName = areaRow ? (areaRow.areaLabel ?? areaRow.name) : "";
   const savedArea = useMemo(() => (areaRow?.area ? rectFromRing(areaRow.area.coordinates[0] ?? []) : null), [areaRow]);
   const areaValue = areaCrew === null ? null : (areaDraft ?? savedArea);
   const onAreaChange = (r: OrientedRect): void => {
@@ -305,20 +328,30 @@ export const AssignmentsPage = () => {
       if (!s) return [];
       const a = s.assignment;
       let classes = !a ? `lrb-side-${s.band}` : a.dayId === dayId && a.ccId === ccId ? "lrb-side-here" : "lrb-side-away";
-      if (a && target !== null && a.companyId === target && a.dayId === dayId && (crewPick === null || a.crewId === crewPick)) classes += " lrb-side-focus";
+      const crewMatch =
+        crewPicks.length === 0 ||
+        (a?.crewId != null && crewPickSet.has(a.crewId)) ||
+        (a?.areaId != null && crews.some((c) => c.areaId === a.areaId && crewPickSet.has(c.id)));
+      if (a && target !== null && a.companyId === target && a.dayId === dayId && crewMatch) classes += " lrb-side-focus";
       if (sel.has(s.key)) classes += " lrb-side-sel";
       return [{ key: s.key, ring: sh.ring, classes }];
     });
-  }, [sides, shapesQ.data, dayId, ccId, target, crewPick, sel]);
+  }, [sides, shapesQ.data, dayId, ccId, target, crewPicks, crewPickSet, crews, sel]);
   useSidesLayer(map, drawn, onSide, drawSel || drawArea);
 
-  const areas = useMemo<DrawnArea[]>(
-    () => crews.filter((c) => c.ccId === ccId && c.area && c.id !== areaCrew).map((c) => ({ id: c.id, label: c.name, ring: c.area?.coordinates[0] ?? [] })),
-    [crews, ccId, areaCrew],
-  );
+  // One outline per area, labelled the way the company sheet prints it ("GM 9, GM 10 & GM 11").
+  const areas = useMemo<DrawnArea[]>(() => {
+    const editing = areaRow?.areaId ?? null;
+    const out = new Map<number, DrawnArea>();
+    for (const c of crews) {
+      if (c.ccId !== ccId || c.areaId === null || !c.area || c.areaId === editing || c.id === areaCrew) continue;
+      if (!out.has(c.areaId)) out.set(c.areaId, { id: c.areaId, label: c.areaLabel ?? c.name, ring: c.area.coordinates[0] ?? [] });
+    }
+    return [...out.values()];
+  }, [crews, ccId, areaCrew, areaRow]);
   useAreasLayer(map, areas);
 
-  const markers = useMemo<MapMarker[]>(() => (cc ? [{ id: `cc-${cc.id}`, kind: "cc", lat: cc.lat, lng: cc.lng, name: `CC ${cc.name}`, noFit: true }] : []), [cc]);
+  const markers = useMemo<MapMarker[]>(() => (cc ? [{ id: `cc-${cc.id}`, kind: "cc", lat: cc.lat, lng: cc.lng, name: `CC ${cc.name}`, letter: cc.letter, noFit: true }] : []), [cc]);
 
   const fitPoints = useMemo<Array<[number, number]>>(() => {
     const pts: Array<[number, number]> = [];
@@ -336,16 +369,23 @@ export const AssignmentsPage = () => {
   // Work assigned per crew, for the crew rows.
   const crewWork = useMemo(() => {
     const m = new Map<number, { high: number; low: number }>();
-    for (const s of sides) {
-      const id = s.assignment?.crewId;
-      if (id == null) continue;
+    const add = (id: number, high: number, low: number): void => {
       const w = m.get(id) ?? { high: 0, low: 0 };
-      w.high += s.high;
-      w.low += s.low;
+      w.high += high;
+      w.low += low;
       m.set(id, w);
+    };
+    for (const s of sides) {
+      const a = s.assignment;
+      if (a?.crewId != null) add(a.crewId, s.high, s.low);
+      else if (a?.areaId != null) {
+        // A shared area's sides are split at Publish; until then each crew carries an even share.
+        const members = crews.filter((c) => c.areaId === a.areaId);
+        for (const c of members) add(c.id, s.high / members.length, s.low / members.length);
+      }
     }
     return m;
-  }, [sides]);
+  }, [sides, crews]);
 
   const picked = useMemo(() => sides.filter((s) => sel.has(s.key)), [sides, sel]);
   const pickedWork = picked.reduce((n, s) => n + s.workCount, 0);
@@ -354,9 +394,12 @@ export const AssignmentsPage = () => {
 
   const doAssign = (): void => {
     if (dayId === null || ccId === null || target === null || picked.length === 0) return;
-    const who = crewPick !== null ? (targetCrews.find((c) => c.id === crewPick)?.name ?? "Crew") : (targetCompany?.name ?? "Company");
+    const names = targetCrews.filter((c) => crewPickSet.has(c.id)).map((c) => c.name);
+    const who = names.length > 0 ? joinNames(names) : (targetCompany?.name ?? "Company");
+    // Several crews share one area; the drawn rectangle, when there is one, is its outline.
+    const area = crewPicks.length > 1 && selRect ? rectPolygon(selRect) : null;
     assign.mutate(
-      { dayId, ccId, companyId: target, crewId: crewPick, keys: picked.map((s) => s.key) },
+      { dayId, ccId, companyId: target, crewIds: crewPicks, area, keys: picked.map((s) => s.key) },
       {
         onSuccess: (r) => {
           setNotice({ tone: "ok", text: `${plural(r.assigned, "side")} to ${who}` });
@@ -453,15 +496,17 @@ export const AssignmentsPage = () => {
                     cap={cap}
                     work={crewWork}
                     target={target === c.companyId}
-                    targetCrew={crewPick}
+                    targetCrews={target === c.companyId ? crewPickSet : new Set<number>()}
                     areaCrew={areaCrew}
                     onPick={() => {
                       setTarget(target === c.companyId ? null : c.companyId);
-                      setTargetCrew(null);
+                      setTargetCrewIds(new Set());
                     }}
                     onPickCrew={(id) => {
-                      setTarget(c.companyId);
-                      setTargetCrew(crewPick === id ? null : id);
+                      if (target !== c.companyId) {
+                        setTarget(c.companyId);
+                        setTargetCrewIds(new Set([id]));
+                      } else toggleCrew(id);
                     }}
                     onArea={editArea}
                     onHeadcount={(n) => headcount.mutate({ companyId: c.companyId, dayId, ccId: c.attendCcId, headcount: n })}
@@ -527,20 +572,12 @@ export const AssignmentsPage = () => {
                 value={target === null ? "" : String(target)}
                 onChange={(v) => {
                   setTarget(v === "" ? null : Number(v));
-                  setTargetCrew(null);
+                  setTargetCrewIds(new Set());
                 }}
               >
                 <option value="">Company</option>
                 {companies.map((c) => (
                   <option key={c.companyId} value={c.companyId}>
-                    {c.name}
-                  </option>
-                ))}
-              </InlineSelect>
-              <InlineSelect label="Crew" className="w-48" value={crewPick === null ? "" : String(crewPick)} onChange={(v) => setTargetCrew(v === "" ? null : Number(v))} disabled={targetCrews.length === 0}>
-                <option value="">Any crew</option>
-                {targetCrews.map((c) => (
-                  <option key={c.id} value={c.id}>
                     {c.name}
                   </option>
                 ))}
@@ -555,13 +592,24 @@ export const AssignmentsPage = () => {
                 Clear
               </Button>
             </div>
+            {targetCrews.length > 0 && (
+              <div role="group" aria-label="Crews" className="flex w-full flex-wrap items-center gap-2 border-t border-line pt-2">
+                <span className="text-sm font-semibold text-muted">Crews</span>
+                {targetCrews.map((c) => (
+                  <ToggleChip key={c.id} on={crewPickSet.has(c.id)} onChange={() => toggleCrew(c.id)}>
+                    {c.name}
+                  </ToggleChip>
+                ))}
+                {crewPicks.length > 1 && <span className="text-sm font-semibold">Shared, {joinNames(targetCrews.filter((c) => crewPickSet.has(c.id)).map((c) => c.name))}</span>}
+              </div>
+            )}
           </section>
           <div className="relative h-[60dvh] min-h-80 overflow-hidden rounded-2xl ring-1 ring-line lg:h-auto lg:flex-1">
             <MapView markers={markers} label="Assignments map" className="absolute inset-0" onReady={setMap} />
             {drawSel && <MapMode label="Select area" detail={selTool.step ? STEP_LABEL[selTool.step] : undefined} onCancel={() => setDrawSel(false)} />}
             {areaRow && (
               <MapMode
-                label={`Area, ${areaRow.name}`}
+                label={`Area, ${areaName}`}
                 detail={drawArea ? (areaTool.step ? STEP_LABEL[areaTool.step] : undefined) : areaValue ? rectSize(areaValue) : undefined}
                 onCancel={stopArea}
                 cancelLabel="Done"
@@ -638,6 +686,7 @@ export const AssignmentsPage = () => {
         open={publishOpen && day !== null}
         dayLabel={day?.label ?? ""}
         sides={daySides}
+        crewRows={crews}
         busy={publish.isPending}
         onClose={() => setPublishOpen(false)}
         onPublish={(resetAreas) => {

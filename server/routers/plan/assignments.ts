@@ -2,11 +2,12 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../db/index.ts";
-import { assignments, companies, companyDays, crews, lotPhotos, lots, type AreaPolygon, type Lot } from "../../db/schema.ts";
+import { assignments, companies, companyDays, crewAreas, crews, days, lotPhotos, lots, type AreaPolygon, type Lot } from "../../db/schema.ts";
 import { emitLot } from "../../lots-import.ts";
 import { areaAround, isWork, newestTags, outlinePoints, parcelsOnSides, workParcelsOnSides, type BlockSide } from "../../parcels.ts";
 import { createCrew } from "../../setup.ts";
 import { adminProcedure, router } from "../../trpc.ts";
+import { areaForCrews, dayAreas, pruneAreas, splitSides, type SplitSide } from "./areas.ts";
 import { blockSideRows } from "./blocks.ts";
 import { areaInput, badRequest, ccOfDay, crewOfDay, dayOfEvent, eventInput, eventOrActive, id, notFound, teamNames } from "./common.ts";
 
@@ -28,8 +29,11 @@ export interface PublishResult {
 /**
  * Writes lots for the tagged work parcels of every assigned block side (one
  * day, or all), keyed on event and parcel so a second publish updates rather
- * than duplicates. A done lot is left alone. Crews get an area around their
- * parcels, padded 15 m, when they have none yet or `resetAreas` is set.
+ * than duplicates. A done lot is left alone. A side assigned to a shared area
+ * goes to one of the area's crews (`splitSides`), so every crew keeps its own
+ * list. Crews get an area around their parcels, padded 15 m, when they have
+ * none yet or `resetAreas` is set; a shared area is padded around the parcels
+ * of all its crews.
  *
  * A parcel on an assigned side whose newest tag is no longer work (tagged
  * clear, or its tag undone) leaves the work list: its open survey lot is
@@ -47,20 +51,47 @@ export const publishAssignments = (eventId: number, opts: { dayId?: number | nul
   const res: PublishResult = { added: 0, updated: 0, kept: 0, removed: 0, areas: 0 };
   const touched = new Map<number, Lot>();
   const crewPoints = new Map<number, Array<{ lat: number; lng: number }>>();
+  const work = new Map(rows.map((a) => [a.blockSideKey, workParcelsOnSides(eventId, [a.blockSideKey])]));
+
+  // #region who works each side
+  const crewOfSide = new Map<string, number | null>();
+  const areaIds = [...new Set(rows.map((a) => a.areaId).filter((x): x is number => x !== null))];
+  const members = areaIds.length
+    ? db.select({ id: crews.id, areaId: crews.areaId }).from(crews).where(inArray(crews.areaId, areaIds)).orderBy(crews.number).all()
+    : [];
+  for (const areaId of areaIds) {
+    const sides: SplitSide[] = rows
+      .filter((a) => a.areaId === areaId)
+      .map((a) => {
+        const ps = work.get(a.blockSideKey) ?? [];
+        const n = Math.max(ps.length, 1);
+        return {
+          key: a.blockSideKey,
+          center: { lat: ps.reduce((t, p) => t + p.lat, 0) / n, lng: ps.reduce((t, p) => t + p.lng, 0) / n },
+          weight: ps.reduce((t, p) => t + (p.grade === "high" ? 2 : 1), 0),
+        };
+      });
+    const split = splitSides(sides, members.filter((m) => m.areaId === areaId).map((m) => m.id));
+    for (const sd of sides) crewOfSide.set(sd.key, split.get(sd.key) ?? null);
+  }
+  for (const a of rows) if (!crewOfSide.has(a.blockSideKey)) crewOfSide.set(a.blockSideKey, a.crewId);
+  // #endregion
+
   db.transaction((tx) => {
     for (const a of rows) {
-      for (const p of workParcelsOnSides(eventId, [a.blockSideKey])) {
-        if (a.crewId !== null) {
-          const pts = crewPoints.get(a.crewId) ?? [];
+      const crewId = crewOfSide.get(a.blockSideKey) ?? null;
+      for (const p of work.get(a.blockSideKey) ?? []) {
+        if (crewId !== null) {
+          const pts = crewPoints.get(crewId) ?? [];
           pts.push(...outlinePoints(p.geometry));
-          crewPoints.set(a.crewId, pts);
+          crewPoints.set(crewId, pts);
         }
         const existing = tx.select().from(lots).where(and(eq(lots.eventId, eventId), eq(lots.parcelId, p.parcelId))).get();
         if (existing?.status === "done") {
           res.kept++;
           continue;
         }
-        const set = { address: p.address, lat: p.lat, lng: p.lng, geometry: p.geometry, ccId: a.ccId, crewId: a.crewId };
+        const set = { address: p.address, lat: p.lat, lng: p.lng, geometry: p.geometry, ccId: a.ccId, crewId };
         const lot = existing
           ? tx.update(lots).set(set).where(eq(lots.id, existing.id)).returning().get()
           : tx.insert(lots).values({ ...set, eventId, parcelId: p.parcelId, source: "survey", status: "open" }).returning().get();
@@ -93,13 +124,26 @@ export const publishAssignments = (eventId: number, opts: { dayId?: number | nul
       }
     }
     // #endregion
-    for (const [crewId, pts] of crewPoints) {
-      const area = areaAround(pts, 15);
-      if (!area) continue;
-      const where = opts.resetAreas ? eq(crews.id, crewId) : and(eq(crews.id, crewId), isNull(crews.area));
-      const r = tx.update(crews).set({ area }).where(where).returning({ id: crews.id }).get();
+    // #region areas: one per crew, or one around every crew sharing it
+    const crewRows = crewPoints.size ? tx.select().from(crews).where(inArray(crews.id, [...crewPoints.keys()])).all() : [];
+    const areaPoints = new Map<number, Array<{ lat: number; lng: number }>>();
+    for (const crew of crewRows) {
+      const pts = crewPoints.get(crew.id) ?? [];
+      let areaId = crew.areaId;
+      if (areaId === null) {
+        areaId = tx.insert(crewAreas).values({ eventId, dayId: crew.dayId, polygon: null }).returning().get().id;
+        tx.update(crews).set({ areaId }).where(eq(crews.id, crew.id)).run();
+      }
+      areaPoints.set(areaId, [...(areaPoints.get(areaId) ?? []), ...pts]);
+    }
+    for (const [areaId, pts] of areaPoints) {
+      const polygon = areaAround(pts, 15);
+      if (!polygon) continue;
+      const where = opts.resetAreas ? eq(crewAreas.id, areaId) : and(eq(crewAreas.id, areaId), isNull(crewAreas.polygon));
+      const r = tx.update(crewAreas).set({ polygon }).where(where).returning({ id: crewAreas.id }).get();
       if (r) res.areas++;
     }
+    // #endregion
   });
   // One lot.changed per CC is enough for that CC's screens to refetch.
   for (const lot of touched.values()) emitLot(lot);
@@ -113,6 +157,7 @@ const companiesOfDay = (eventId: number, dayId: number, ccId: number | null) => 
   const attending = db.select().from(companyDays).where(eq(companyDays.dayId, dayId)).all();
   const crewRows = db.select().from(crews).where(eq(crews.dayId, dayId)).orderBy(crews.number).all();
   const names = teamNames(dayId);
+  const areas = new Map(dayAreas(dayId, names).map((a) => [a.id, a]));
   const sides = new Map<string, BlockSide>(blockSideRows(eventId).map((b) => [b.key, b]));
   const asg = db.select().from(assignments).where(and(eq(assignments.eventId, eventId), eq(assignments.dayId, dayId))).all();
   return all
@@ -140,7 +185,20 @@ const companiesOfDay = (eventId: number, dayId: number, ccId: number | null) => 
         headcount,
         /** Crews the headcount makes, one per 10. */
         crewCapacity: Math.ceil(headcount / CREW_SIZE),
-        crews: mine.map((r) => ({ id: r.id, number: r.number, name: names.get(r.id) ?? `Crew ${r.number}`, ccId: r.ccId, headcount: r.headcount, leadName: r.leadName, area: r.area })),
+        crews: mine.map((r) => {
+          const area = r.areaId !== null ? (areas.get(r.areaId) ?? null) : null;
+          return {
+            id: r.id,
+            number: r.number,
+            name: names.get(r.id) ?? `Crew ${r.number}`,
+            ccId: r.ccId,
+            headcount: r.headcount,
+            leadName: r.leadName,
+            areaId: area?.id ?? null,
+            areaLabel: area?.label ?? null,
+            area: area?.polygon ?? null,
+          };
+        }),
         assigned: { sides: sideCount, high, low, work: high + low },
       };
     })
@@ -178,16 +236,32 @@ export const assignmentsRouter = router({
         .returning()
         .get();
     }),
-  /** Hands block sides to a company (and a crew) on a day at a CC. A side already assigned moves. */
+  /**
+   * Hands block sides to a company, or to one or several of its crews, on a
+   * day at a CC. Several crews share one area (SPEC 19): `area` (the drawn
+   * rectangle) becomes its outline, else Publish pads one around the work.
+   * A side already assigned moves.
+   */
   set: adminProcedure
-    .input(z.object({ dayId: id, ccId: id, companyId: id.nullish(), crewId: id.nullish(), keys: z.array(z.string().min(1).max(300)).min(1).max(2000), ...eventInput }))
+    .input(
+      z.object({
+        dayId: id,
+        ccId: id,
+        companyId: id.nullish(),
+        crewIds: z.array(id).max(50).optional(),
+        area: areaInput.nullish(),
+        keys: z.array(z.string().min(1).max(300)).min(1).max(2000),
+        ...eventInput,
+      }),
+    )
     .mutation(({ input }) => {
       const eventId = eventOrActive(input.eventId);
       dayOfEvent(input.dayId, eventId);
       ccOfDay(input.ccId, input.dayId);
       let companyId = input.companyId ?? null;
-      if (input.crewId != null) {
-        const crew = crewOfDay(input.crewId, input.dayId);
+      const crewIds = [...new Set(input.crewIds ?? [])];
+      for (const crewId of crewIds) {
+        const crew = crewOfDay(crewId, input.dayId);
         if (companyId !== null && crew.companyId !== companyId) throw badRequest("Crew is in another company");
         companyId = crew.companyId;
       }
@@ -197,19 +271,22 @@ export const assignmentsRouter = router({
       const top = db.select({ n: max(assignments.order) }).from(assignments).where(eq(assignments.eventId, eventId)).get();
       let order = (top?.n ?? 0) + 1;
       const known = new Set(parcelsOnSides(input.keys).map((p) => p.blockSideKey));
-      const out = db.transaction((tx) =>
-        input.keys.map((key) => {
-          if (!known.has(key)) throw new TRPCError({ code: "NOT_FOUND", message: "Block side not found" });
-          const values = { eventId, dayId: input.dayId, ccId: input.ccId, companyId, crewId: input.crewId ?? null, blockSideKey: key, order: order++ };
+      for (const key of input.keys) if (!known.has(key)) throw new TRPCError({ code: "NOT_FOUND", message: "Block side not found" });
+      const out = db.transaction((tx) => {
+        const areaId = crewIds.length > 1 ? areaForCrews(tx, { eventId, dayId: input.dayId, crewIds, polygon: input.area ?? null }).id : null;
+        const crewId = crewIds.length === 1 ? crewIds[0]! : null;
+        const written = input.keys.map((key) => {
+          const values = { eventId, dayId: input.dayId, ccId: input.ccId, companyId, crewId, areaId, blockSideKey: key, order: order++ };
           return tx
             .insert(assignments)
             .values(values)
-            .onConflictDoUpdate({ target: [assignments.eventId, assignments.blockSideKey], set: { dayId: values.dayId, ccId: values.ccId, companyId, crewId: values.crewId } })
+            .onConflictDoUpdate({ target: [assignments.eventId, assignments.blockSideKey], set: { dayId: values.dayId, ccId: values.ccId, companyId, crewId, areaId } })
             .returning()
             .get();
-        }),
-      );
-      return { assigned: out.length };
+        });
+        return { written, areaId };
+      });
+      return { assigned: out.written.length, areaId: out.areaId };
     }),
   /** Takes block sides off their assignment. Published lots stay. */
   clear: adminProcedure.input(z.object({ keys: z.array(z.string().min(1).max(300)).min(1).max(2000), ...eventInput })).mutation(({ input }) => {
@@ -263,6 +340,7 @@ export const crewsRouter = router({
   list: adminProcedure.input(z.object({ dayId: id, ...eventInput })).query(({ input }) => {
     dayOfEvent(input.dayId, eventOrActive(input.eventId));
     const names = teamNames(input.dayId);
+    const areas = new Map(dayAreas(input.dayId, names).map((a) => [a.id, a]));
     return db
       .select({ crew: crews, company: companies })
       .from(crews)
@@ -280,14 +358,34 @@ export const crewsRouter = router({
         leadName: crew.leadName,
         leadPhone: crew.leadPhone,
         headcount: crew.headcount,
-        area: crew.area,
+        areaId: crew.areaId,
+        areaLabel: crew.areaId !== null ? (areas.get(crew.areaId)?.label ?? null) : null,
+        area: crew.areaId !== null ? (areas.get(crew.areaId)?.polygon ?? null) : null,
       }));
   }),
-  /** The rectangle printed on the crew's sheet; null clears it. */
+  /**
+   * The rectangle printed on the crew's sheet. A shared area changes for every
+   * crew in it. Null takes the crew out of its area (an area nobody holds goes).
+   */
   setArea: adminProcedure.input(z.object({ crewId: id, area: areaInput.nullable() })).mutation(({ input }) => {
-    const area: AreaPolygon | null = input.area;
-    const r = db.update(crews).set({ area }).where(eq(crews.id, input.crewId)).returning({ id: crews.id, area: crews.area }).get();
-    if (!r) throw notFound("Crew");
-    return r;
+    const crew = db.select().from(crews).where(eq(crews.id, input.crewId)).get();
+    if (!crew) throw notFound("Crew");
+    const polygon: AreaPolygon | null = input.area;
+    return db.transaction((tx) => {
+      if (polygon === null) {
+        tx.update(crews).set({ areaId: null }).where(eq(crews.id, crew.id)).run();
+        pruneAreas(crew.dayId, tx);
+        return { id: crew.id, areaId: null, area: null };
+      }
+      if (crew.areaId !== null) {
+        tx.update(crewAreas).set({ polygon }).where(eq(crewAreas.id, crew.areaId)).run();
+        return { id: crew.id, areaId: crew.areaId, area: polygon };
+      }
+      const day = db.select({ eventId: days.eventId }).from(days).where(eq(days.id, crew.dayId)).get();
+      if (!day) throw notFound("Day");
+      const area = tx.insert(crewAreas).values({ eventId: day.eventId, dayId: crew.dayId, polygon }).returning().get();
+      tx.update(crews).set({ areaId: area.id }).where(eq(crews.id, crew.id)).run();
+      return { id: crew.id, areaId: area.id, area: polygon };
+    });
   }),
 });

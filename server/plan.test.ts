@@ -21,6 +21,7 @@ const d = await import("./dispatch.ts");
 const p = await import("./parcels.ts");
 const { createSession } = await import("./auth.ts");
 const { planRouter } = await import("./routers/plan.ts");
+const { splitSides, joinNames } = await import("./routers/plan/areas.ts");
 const { eq } = await import("drizzle-orm");
 const { config } = await import("./config.ts");
 
@@ -158,7 +159,7 @@ describe("assignments and publish", () => {
   test("publish writes survey lots, never duplicates, leaves done lots alone and sets the crew area", async () => {
     await tagAll();
     const crew = setup.createCrew({ dayId, ccId, companyId: ford, headcount: 10 });
-    await admin.assignments.set({ dayId, ccId, crewId: crew.id, keys: [ODD, EVEN] });
+    await admin.assignments.set({ dayId, ccId, crewIds: [crew.id], keys: [ODD, EVEN] });
     const first = await admin.assignments.publish();
     expect(first).toMatchObject({ added: 3, updated: 0, kept: 0, areas: 1 });
     const lotsAfter = db.select().from(s.lots).where(eq(s.lots.eventId, eventId)).all();
@@ -167,7 +168,8 @@ describe("assignments and publish", () => {
 
     const done = lotsAfter.find((l) => l.parcelId === "Garland-3961.")!;
     db.update(s.lots).set({ status: "done", crewId: null }).where(eq(s.lots.id, done.id)).run();
-    const area = db.select().from(s.crews).where(eq(s.crews.id, crew.id)).get()!.area!;
+    const areaId = db.select().from(s.crews).where(eq(s.crews.id, crew.id)).get()!.areaId!;
+    const area = db.select().from(s.crewAreas).where(eq(s.crewAreas.id, areaId)).get()!.polygon!;
     expect(area.coordinates[0]).toHaveLength(5);
 
     const second = await admin.assignments.publish();
@@ -180,7 +182,7 @@ describe("assignments and publish", () => {
   test("review: a parcel tagged clear after a publish leaves the crew's work list on the next publish", async () => {
     await tagAll();
     const crew = setup.createCrew({ dayId, ccId, companyId: ford, headcount: 10 });
-    await admin.assignments.set({ dayId, ccId, crewId: crew.id, keys: [ODD, EVEN] });
+    await admin.assignments.set({ dayId, ccId, crewIds: [crew.id], keys: [ODD, EVEN] });
     await admin.assignments.publish();
     await admin.survey.tag({ parcelId: "Garland-3963.", grade: "clear" });
     await admin.assignments.publish();
@@ -192,7 +194,7 @@ describe("assignments and publish", () => {
   test("a cleared parcel's lot with photos is kept, off the crew and skipped", async () => {
     await tagAll();
     const crew = setup.createCrew({ dayId, ccId, companyId: ford, headcount: 10 });
-    await admin.assignments.set({ dayId, ccId, crewId: crew.id, keys: [ODD, EVEN] });
+    await admin.assignments.set({ dayId, ccId, crewIds: [crew.id], keys: [ODD, EVEN] });
     await admin.assignments.publish();
     const lot = db.select().from(s.lots).where(eq(s.lots.parcelId, "Garland-3963.")).get()!;
     db.insert(s.lotPhotos).values({ lotId: lot.id, kind: "before", role: "admin", at: Date.now(), width: 10, height: 10, bytes: 100 }).run();
@@ -206,7 +208,7 @@ describe("assignments and publish", () => {
     await tagAll();
     await admin.assignments.set({ dayId, ccId, companyId: ford, keys: [ODD] });
     const crew = setup.createCrew({ dayId, ccId, companyId: ford });
-    await admin.assignments.set({ dayId, ccId, crewId: crew.id, keys: [ODD] });
+    await admin.assignments.set({ dayId, ccId, crewIds: [crew.id], keys: [ODD] });
     const list = await admin.assignments.list();
     expect(list).toHaveLength(1);
     expect(list[0]!.assignment).toMatchObject({ companyName: "Ford", crewId: crew.id, crewName: "Ford 1" });
@@ -221,7 +223,7 @@ describe("assignments and publish", () => {
   test("totals and print sheets", async () => {
     await tagAll();
     const crew = setup.createCrew({ dayId, ccId, companyId: ford });
-    await admin.assignments.set({ dayId, ccId, crewId: crew.id, keys: [ODD, EVEN] });
+    await admin.assignments.set({ dayId, ccId, crewIds: [crew.id], keys: [ODD, EVEN] });
     await admin.assignments.publish();
     const totals = await admin.blocks.totals();
     expect(totals).toMatchObject({ workParcels: 3, high: 1, low: 2, sides: 2, assignedSides: 2, crewsNeeded: 1 });
@@ -241,8 +243,102 @@ describe("assignments and publish", () => {
     const crew = setup.createCrew({ dayId, ccId, companyId: ford });
     const ring = [[-82.99, 42.38], [-82.98, 42.38], [-82.98, 42.39], [-82.99, 42.39], [-82.99, 42.38]] as Array<[number, number]>;
     await admin.crews.setArea({ crewId: crew.id, area: { type: "Polygon", coordinates: [ring] } });
-    expect(db.select().from(s.crews).where(eq(s.crews.id, crew.id)).get()!.area).toEqual({ type: "Polygon", coordinates: [ring] });
+    const areaId = db.select().from(s.crews).where(eq(s.crews.id, crew.id)).get()!.areaId!;
+    expect(db.select().from(s.crewAreas).where(eq(s.crewAreas.id, areaId)).get()!.polygon).toEqual({ type: "Polygon", coordinates: [ring] });
     await admin.crews.setArea({ crewId: crew.id, area: null });
-    expect(db.select().from(s.crews).where(eq(s.crews.id, crew.id)).get()!.area).toBeNull();
+    expect(db.select().from(s.crews).where(eq(s.crews.id, crew.id)).get()!.areaId).toBeNull();
+    // Nobody holds the area any more, so it goes.
+    expect(db.select().from(s.crewAreas).where(eq(s.crewAreas.id, areaId)).get()).toBeUndefined();
+  });
+
+  test("crews are named from the company's short, else the first word of its name", async () => {
+    const gm = db.insert(s.companies).values({ eventId, name: "General Motors", short: "GM" }).returning().get().id;
+    const hfh = db.insert(s.companies).values({ eventId, name: "Henry Ford Health" }).returning().get().id;
+    await admin.assignments.setHeadcount({ companyId: gm, dayId, ccId, headcount: 20 });
+    await admin.assignments.setHeadcount({ companyId: hfh, dayId, ccId, headcount: 10 });
+    expect((await admin.assignments.buildCrews({ dayId, ccId, companyId: gm })).map((c) => c.name)).toEqual(["GM 1", "GM 2"]);
+    expect((await admin.assignments.buildCrews({ dayId, ccId, companyId: hfh })).map((c) => c.name)).toEqual(["Henry 1"]);
+  });
+
+  test("a shared area: one area for both crews, labelled with both, and publish splits its sides between them", async () => {
+    await tagAll();
+    const a = setup.createCrew({ dayId, ccId, companyId: ford, headcount: 9 });
+    const b = setup.createCrew({ dayId, ccId, companyId: ford, headcount: 8 });
+    const r = await admin.assignments.set({ dayId, ccId, crewIds: [a.id, b.id], keys: [ODD, EVEN] });
+    expect(r.areaId).not.toBeNull();
+    const rows = db.select().from(s.crews).where(eq(s.crews.dayId, dayId)).all();
+    expect(rows.map((c) => c.areaId)).toEqual([r.areaId, r.areaId]);
+    const list = await admin.assignments.list();
+    expect(list.map((x) => x.assignment?.crewName)).toEqual(["Ford 1 & Ford 2", "Ford 1 & Ford 2"]);
+
+    const res = await admin.assignments.publish();
+    expect(res).toMatchObject({ added: 3, areas: 1 });
+    const lotsAfter = db.select().from(s.lots).where(eq(s.lots.eventId, eventId)).all();
+    const byCrew = new Map<number | null, string[]>();
+    for (const l of lotsAfter) byCrew.set(l.crewId, [...(byCrew.get(l.crewId) ?? []), l.parcelId ?? ""]);
+    // Each crew gets one whole block side: the odd side (3961 high, 3963 low) and the even side (3964 low).
+    expect([...byCrew.keys()].sort()).toEqual([a.id, b.id].sort());
+    const sides = [...byCrew.values()].map((v) => v.sort().join(","));
+    expect(sides.sort()).toEqual(["Garland-3961.,Garland-3963.", "Garland-3964."]);
+    const area = db.select().from(s.crewAreas).where(eq(s.crewAreas.id, r.areaId!)).get()!;
+    expect(area.polygon?.coordinates[0]).toHaveLength(5);
+
+    // Assigning the same two again reuses their area instead of making another.
+    const again = await admin.assignments.set({ dayId, ccId, crewIds: [b.id, a.id], keys: [ODD] });
+    expect(again.areaId).toBe(r.areaId);
+    expect(db.select().from(s.crewAreas).all()).toHaveLength(1);
+  });
+
+  test("print: a company with a shared area gets a company sheet with headcounts and the joined label", async () => {
+    await tagAll();
+    db.update(s.commandCenters).set({ letter: "B", address: "3201 Webb St" }).where(eq(s.commandCenters.id, ccId)).run();
+    db.update(s.companies).set({ short: "GM" }).where(eq(s.companies.id, ford)).run();
+    const crews = [9, 8, 10].map((headcount) => setup.createCrew({ dayId, ccId, companyId: ford, headcount }));
+    await admin.assignments.set({ dayId, ccId, crewIds: [crews[0]!.id], keys: [EVEN] });
+    await admin.assignments.set({ dayId, ccId, crewIds: [crews[1]!.id, crews[2]!.id], keys: [ODD] });
+    await admin.assignments.publish();
+    const sheets = await admin.print.sheets({ dayId });
+    expect(sheets.companyPages).toHaveLength(1);
+    const page = sheets.companyPages[0]!;
+    expect(page).toMatchObject({ ccId, companyName: "Ford", short: "GM", headcount: 27 });
+    expect(page.crews.map((c) => [c.name, c.headcount])).toEqual([
+      ["GM 1", 9],
+      ["GM 2", 8],
+      ["GM 3", 10],
+    ]);
+    expect(page.areaIds).toHaveLength(2);
+    const cc = sheets.ccPages[0]!;
+    expect(cc).toMatchObject({ letter: "B", address: "3201 Webb St" });
+    expect(cc.areas.map((a) => a.name).sort()).toEqual(["GM 1", "GM 2 & GM 3"]);
+    expect(cc.areas.every((a) => page.areaIds.includes(a.areaId))).toBe(true);
+    // The day's area: one padded ring per area, wider than the area it pads.
+    expect(cc.dayArea).toHaveLength(2);
+    const [w, , e] = cc.dayBounds;
+    const areaLng = cc.areas.flatMap((a) => a.area.coordinates[0]!.map((p) => p[0]!));
+    expect(w).toBeLessThan(Math.min(...areaLng));
+    expect(e).toBeGreaterThan(Math.max(...areaLng));
+    // Crew sheets name the shared rectangle the same way.
+    const shared = sheets.crewPages.find((p) => p.crewId === crews[2]!.id)!;
+    expect(shared).toMatchObject({ teamName: "GM 3", areaName: "GM 2 & GM 3", ccLetter: "B" });
+    expect(shared.otherAreas.map((a) => a.name)).toEqual(["GM 1"]);
   });
 });
+
+describe("shared areas", () => {
+  test("labels join with commas and an ampersand", () => {
+    expect(joinNames(["GM 2"])).toBe("GM 2");
+    expect(joinNames(["GM 9", "GM 10"])).toBe("GM 9 & GM 10");
+    expect(joinNames(["GM 9", "GM 10", "GM 11"])).toBe("GM 9, GM 10 & GM 11");
+  });
+
+  test("splitSides gives each crew a run of neighbouring sides with about equal work", () => {
+    // Six sides in a row running north-east, out of order, the middle two heavy.
+    const sides = [3, 0, 5, 1, 4, 2].map((i) => ({ key: `s${i}`, center: { lat: 42.38 + i * 0.001, lng: -82.99 + i * 0.001 }, weight: i === 2 || i === 3 ? 6 : 2 }));
+    const split = splitSides(sides, [11, 12, 13]);
+    expect(["s0", "s1", "s2", "s3", "s4", "s5"].map((k) => split.get(k))).toEqual([11, 11, 12, 12, 13, 13]);
+    // More crews than sides: every side still goes to someone, one each.
+    const few = splitSides(sides.slice(0, 2), [1, 2, 3]);
+    expect([...few.values()].sort()).toEqual([1, 2]);
+  });
+});
+

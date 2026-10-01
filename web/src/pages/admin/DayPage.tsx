@@ -93,6 +93,7 @@ const CcSheet = ({
   const utils = trpc.useUtils();
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  const [letter, setLetter] = useState("");
   const [notes, setNotes] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const lookup = trpc.admin.ccs.addressAt.useQuery(at ?? { lat: 0, lng: 0 }, { enabled: open && !cc && at !== null, staleTime: Infinity, retry: false });
@@ -101,6 +102,7 @@ const CcSheet = ({
     if (!open) return;
     setName(cc?.name ?? "");
     setAddress(cc?.address ?? "");
+    setLetter(cc?.letter ?? "");
     setNotes(cc?.notes ?? "");
   }, [open, cc]);
   useEffect(() => {
@@ -127,8 +129,9 @@ const CcSheet = ({
 
   const submit = (): void => {
     if (!name.trim()) return;
-    if (cc) update.mutate({ id: cc.id, name: name.trim(), address: address.trim() || null, notes: notes.trim() || null });
-    else if (at) create.mutate({ dayId, name: name.trim(), lat: at.lat, lng: at.lng, address: address.trim() || null, notes: notes.trim() || null });
+    const l = letter.trim().toUpperCase() || null;
+    if (cc) update.mutate({ id: cc.id, name: name.trim(), address: address.trim() || null, letter: l, notes: notes.trim() || null });
+    else if (at) create.mutate({ dayId, name: name.trim(), lat: at.lat, lng: at.lng, address: address.trim() || null, letter: l, notes: notes.trim() || null });
   };
 
   return (
@@ -159,6 +162,15 @@ const CcSheet = ({
         >
           <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoComplete="off" />
           <Field label="Address" value={address} onChange={(e) => setAddress(e.target.value)} maxLength={200} autoComplete="off" />
+          <Field
+            label="Letter"
+            className="w-28"
+            value={letter}
+            onChange={(e) => setLetter(e.target.value.replace(/[^A-Za-z0-9]/g, "").slice(-1).toUpperCase())}
+            maxLength={1}
+            autoComplete="off"
+            autoCapitalize="characters"
+          />
           <TextArea label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} />
           {err && <p role="alert" className="text-sm font-semibold">{errorText(err)}</p>}
         </form>
@@ -508,10 +520,12 @@ const CcCard = ({
       className={selected ? "ring-2 ring-brand" : ""}
       title={
         <span className="flex items-center gap-2">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand text-on-brand ring-2 ring-on-brand" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="16" height="16">
-              <path fill="currentColor" d="M5 3h2v18H5zM7 4h11l-2 4 2 4H7z" />
-            </svg>
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand text-base font-extrabold text-on-brand ring-2 ring-on-brand" aria-hidden="true">
+            {cc.letter ?? (
+              <svg viewBox="0 0 24 24" width="16" height="16">
+                <path fill="currentColor" d="M5 3h2v18H5zM7 4h11l-2 4 2 4H7z" />
+              </svg>
+            )}
           </span>
           <span className="min-w-0">
             <span className="block truncate">CC {cc.name}</span>
@@ -660,6 +674,7 @@ export const DayPage = ({ id }: { id: number }) => {
         lat: c.lat,
         lng: c.lng,
         name: `CC ${c.name}`,
+        letter: c.letter,
         onClick: mode.kind === "idle" ? () => {
           setSelected(c.id);
           document.getElementById(`cc-card-${c.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });

@@ -42,29 +42,32 @@ export const ccOfDay = (ccId: number, dayId: number): CommandCenter => {
 // #endregion
 
 // #region crew names
+/** The abbreviation crews are named with: the company's short, else the first word of its name (SPEC 19). */
+export const shortOf = (c: { name: string; short: string | null }): string => c.short?.trim() || c.name.trim().split(/\s+/)[0] || c.name;
+
 /**
- * Portal names for a day's crews: company name plus the crew's place among
- * that company's crews by number, "Ford 1", "Ford 2". Crews without a company
- * keep "Crew 7".
+ * Portal names for a day's crews: the company's short plus the crew's place
+ * among that company's crews by number, "GM 1", "GM 2". Crews without a
+ * company keep "Crew 7".
  */
 export const teamNames = (dayId: number): Map<number, string> => {
   const rows = db
-    .select({ id: crews.id, number: crews.number, company: companies.name })
+    .select({ id: crews.id, number: crews.number, companyId: companies.id, company: companies.name, short: companies.short })
     .from(crews)
     .leftJoin(companies, eq(companies.id, crews.companyId))
     .where(eq(crews.dayId, dayId))
     .orderBy(crews.number)
     .all();
-  const seen = new Map<string, number>();
+  const seen = new Map<number, number>();
   const out = new Map<number, string>();
   for (const r of rows) {
-    if (!r.company) {
+    if (r.companyId === null || r.company === null) {
       out.set(r.id, `Crew ${r.number}`);
       continue;
     }
-    const n = (seen.get(r.company) ?? 0) + 1;
-    seen.set(r.company, n);
-    out.set(r.id, `${r.company} ${n}`);
+    const n = (seen.get(r.companyId) ?? 0) + 1;
+    seen.set(r.companyId, n);
+    out.set(r.id, `${shortOf({ name: r.company, short: r.short })} ${n}`);
   }
   return out;
 };

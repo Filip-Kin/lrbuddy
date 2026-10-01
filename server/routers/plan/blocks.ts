@@ -5,6 +5,7 @@ import { assignments, commandCenters, companies, days, parcels, type Assignment 
 import { blockSides, crewsNeeded, outlinePoints, SURVEY_RULES, type BlockSide } from "../../parcels.ts";
 import { adminProcedure, router } from "../../trpc.ts";
 import { eventInput, eventOrActive } from "./common.ts";
+import { areaLabels } from "./areas.ts";
 import { teamNames } from "./common.ts";
 
 export interface AssignmentInfo {
@@ -16,6 +17,9 @@ export interface AssignmentInfo {
   companyId: number | null;
   companyName: string | null;
   crewId: number | null;
+  /** Shared area the side went to; Publish splits its sides between the area's crews. */
+  areaId: number | null;
+  /** The crew's name, or the shared area's label ("GM 9 & GM 10"). */
   crewName: string | null;
   order: number;
 }
@@ -30,7 +34,12 @@ export const assignmentInfo = (eventId: number): Map<string, AssignmentInfo> => 
   const companyIds = [...new Set(rows.map((r) => r.companyId).filter((x): x is number => x !== null))];
   const companyRows = companyIds.length ? db.select().from(companies).where(inArray(companies.id, companyIds)).all() : [];
   const names = new Map<number, string>();
-  for (const d of dayRows) for (const [k, v] of teamNames(d.id)) names.set(k, v);
+  const labels = new Map<number, string>();
+  for (const d of dayRows) {
+    const dayNames = teamNames(d.id);
+    for (const [k, v] of dayNames) names.set(k, v);
+    for (const [k, v] of areaLabels(d.id, dayNames)) labels.set(k, v);
+  }
   for (const r of rows) {
     out.set(r.blockSideKey, {
       id: r.id,
@@ -41,7 +50,8 @@ export const assignmentInfo = (eventId: number): Map<string, AssignmentInfo> => 
       companyId: r.companyId,
       companyName: companyRows.find((c) => c.id === r.companyId)?.name ?? null,
       crewId: r.crewId,
-      crewName: r.crewId !== null ? (names.get(r.crewId) ?? null) : null,
+      areaId: r.areaId,
+      crewName: r.areaId !== null ? (labels.get(r.areaId) ?? null) : r.crewId !== null ? (names.get(r.crewId) ?? null) : null,
       order: r.order,
     });
   }

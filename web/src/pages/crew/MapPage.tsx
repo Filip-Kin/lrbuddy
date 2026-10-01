@@ -78,7 +78,7 @@ export const MapPage = () => {
     for (const c of d.companyCrews) {
       if (c.position) out.push({ id: `crew-${c.id}`, kind: "crew", lat: c.position.lat, lng: c.position.lng, label: `Crew ${c.number}`, muted: true, noFit: true, title: `Crew ${c.number}` });
     }
-    out.push({ id: "cc", kind: "cc", lat: d.cc.lat, lng: d.cc.lng, name: `CC ${d.cc.name}` });
+    out.push({ id: "cc", kind: "cc", lat: d.cc.lat, lng: d.cc.lng, name: `CC ${d.cc.name}`, letter: d.cc.letter });
     for (const t of d.trucks) {
       if (t.position) out.push({ id: `truck-${t.id}`, kind: "truck", lat: t.position.lat, lng: t.position.lng, name: t.name });
     }

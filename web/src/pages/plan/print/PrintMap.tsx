@@ -4,7 +4,7 @@ import type { LotGeometry } from "../../../../../server/db/schema.ts";
 import { ESRI_BASE, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM, TILE_ATTRIB } from "../../../lib/map/basemap.ts";
 import { escapeHtml } from "../../../lib/map/markers.ts";
 import { distance } from "../../../lib/format.ts";
-import { INK, LOT_FILL, PAPER, WORK, YELLOW, GREY } from "./paper.ts";
+import { BLUE, INK, LOT_FILL, PAPER, WORK, YELLOW, GREY } from "./paper.ts";
 
 // #region types
 export type LatLngPair = [number, number];
@@ -12,11 +12,24 @@ export type LatLngPair = [number, number];
 /**
  * What a printed map draws. Lots: `work` is any lot needing work (overview),
  * `high` and `low` are a crew's lots by survey grade (detail). Areas: `mine`
- * is the crew the sheet is for, `other` a neighbour, `crew` any crew on the CC sheet.
+ * is the crew the sheet is for, `other` a neighbour, `crew` any crew on the CC
+ * sheet, `company` one of the company sheet's own areas (thick blue, its name
+ * in a pill on the top edge) and `faint` another company's on that sheet.
+ * `tint` is the day's area, several rings filled as one.
  */
 export type PrintLayer =
   | { kind: "lot"; key: string; geometry: LotGeometry | null; lat: number; lng: number; tone: "work" | "high" | "low"; label?: string; badge?: string }
-  | { kind: "area"; key: string; ring: LatLngPair[]; tone: "mine" | "other" | "crew"; label?: string };
+  | { kind: "area"; key: string; ring: LatLngPair[]; tone: "mine" | "other" | "crew" | "company" | "faint"; label?: string }
+  | { kind: "tint"; key: string; rings: LatLngPair[][] };
+
+/** The CC on a printed map: its letter in a circle when it has one, else a star; `blue` is the company sheet's marker. */
+export interface PrintCc {
+  lat: number;
+  lng: number;
+  name: string;
+  letter?: string | null;
+  blue?: boolean;
+}
 
 export interface PrintMapProps {
   /** Reported to `onReady` so the page can wait for every map. */
@@ -25,8 +38,8 @@ export interface PrintMapProps {
   /** Points the view is fitted to, exactly. */
   fit: readonly LatLngPair[];
   layers: readonly PrintLayer[];
-  /** Star when inside the view, else an arrow on the map edge with the distance. */
-  cc?: { lat: number; lng: number; name: string } | null;
+  /** Star or lettered circle when inside the view, else an arrow on the map edge with the distance. */
+  cc?: PrintCc | null;
   /** Pixels kept clear around the fit. */
   padding?: number;
   className: string;
@@ -38,6 +51,13 @@ export interface PrintMapProps {
 /** Labels are measured on a canvas, so the font here and in `.lrb-pm-label` must match. */
 export const LABEL_FONT = '700 10px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 const LABEL_H = 15;
+/** The company sheet's area names: bigger, in a pill. Must match `.lrb-pm-pill`. */
+export const PILL_FONT = '800 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const PILL_H = 20;
+const PILL_PAD = 8;
+/** The company sheet's CC circle (SPEC 19). */
+const CC_BLUE_D = 28;
+const CC_DOT_D = 24;
 const LABEL_PAD = 3;
 const BADGE_W = 12;
 /** Grid step in pixels when a label has to search the whole frame for room. */
@@ -47,10 +67,10 @@ const STAR_SVG = `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="t
 const ARROW_SVG = `<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M2 8.5h11V3l9 9-9 9v-5.5H2z" fill="#000" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 
 let measureCtx: CanvasRenderingContext2D | null = null;
-const textWidth = (s: string): number => {
+const textWidth = (s: string, font = LABEL_FONT): number => {
   measureCtx ??= document.createElement("canvas").getContext("2d");
-  if (!measureCtx) return s.length * 6;
-  measureCtx.font = LABEL_FONT;
+  if (!measureCtx) return s.length * 7;
+  measureCtx.font = font;
   return measureCtx.measureText(s).width;
 };
 
@@ -125,12 +145,12 @@ const labelMarker = (m: L.Map, at: L.Point, box: Box, html: string, cls: string)
   });
 
 /** Thin line from what a label names to the nearest edge of the label, for one pushed away from it. */
-const leader = (m: L.Map, from: Box, box: Box): L.Polyline => {
+const leader = (m: L.Map, from: Box, box: Box, color = INK): L.Polyline => {
   const c = L.point(box.x + box.w / 2, box.y + box.h / 2);
   const a = L.point(Math.min(Math.max(c.x, from.x), from.x + from.w), Math.min(Math.max(c.y, from.y), from.y + from.h));
   const x = Math.min(Math.max(a.x, box.x), box.x + box.w);
   const y = Math.min(Math.max(a.y, box.y), box.y + box.h);
-  return L.polyline([m.containerPointToLatLng(a), m.containerPointToLatLng(L.point(x, y))], { color: INK, weight: 1, opacity: 0.8, interactive: false });
+  return L.polyline([m.containerPointToLatLng(a), m.containerPointToLatLng(L.point(x, y))], { color, weight: 1, opacity: 0.8, interactive: false });
 };
 
 const metres = (a: L.LatLng, b: L.LatLng): number => {
@@ -163,10 +183,24 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
   const taken: Box[] = [];
   const pt = (lat: number, lng: number): L.Point => m.latLngToContainerPoint([lat, lng]);
 
-  // Areas under lots: halo, then ink.
-  for (const a of layers) {
+  // The day's area first, under everything: one path, nonzero fill, so overlapping rings tint once.
+  for (const t of layers) {
+    if (t.kind !== "tint" || t.rings.length === 0) continue;
+    L.polygon(t.rings, { stroke: false, fillColor: YELLOW, fillOpacity: 0.15, fillRule: "nonzero", interactive: false }).addTo(group);
+  }
+  // Areas under lots: halo, then ink. Other companies' areas under this company's.
+  for (const a of [...layers].sort((x, y) => Number(x.kind === "area" && x.tone === "company") - Number(y.kind === "area" && y.tone === "company"))) {
     if (a.kind !== "area" || a.ring.length < 3) continue;
-    if (a.tone === "mine") {
+    if (a.tone === "company" || a.tone === "faint") {
+      L.polygon(a.ring, {
+        color: a.tone === "company" ? BLUE : GREY,
+        weight: a.tone === "company" ? 4 : 1.2,
+        opacity: a.tone === "company" ? 1 : 0.9,
+        fill: false,
+        interactive: false,
+        lineJoin: "miter",
+      }).addTo(group);
+    } else if (a.tone === "mine") {
       L.polygon(a.ring, { color: YELLOW, weight: 11, opacity: 1, fill: false, interactive: false, lineJoin: "round" }).addTo(group);
       L.polygon(a.ring, { color: INK, weight: 4, opacity: 1, fill: false, interactive: false, lineJoin: "round" }).addTo(group);
     } else {
@@ -192,21 +226,30 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
     anchors.push({ box, at: L.point(box.x + box.w / 2, box.y + box.h / 2), text: l.label, badge: l.badge });
   }
 
-  // CC: a star inside the view, else an arrow on the edge pointing at it.
+  // CC: a lettered circle (or a star) inside the view, else an arrow on the edge pointing at it.
   if (cc) {
     const p = pt(cc.lat, cc.lng);
     const margin = 16;
     const box = { x: margin, y: margin, w: size.x - 2 * margin, h: size.y - 2 * margin };
     if (p.x >= box.x && p.x <= box.x + box.w && p.y >= box.y && p.y <= box.y + box.h) {
-      L.marker([cc.lat, cc.lng], { interactive: false, keyboard: false, zIndexOffset: 1000, icon: L.divIcon({ className: "lrb-pm-star", html: STAR_SVG, iconSize: [24, 24], iconAnchor: [12, 12] }) }).addTo(group);
-      taken.push({ x: p.x - 12, y: p.y - 12, w: 24, h: 24 });
-      const text = `CC ${cc.name}`;
-      const w = labelWidth(text);
-      const placed = placeBox(around(p, 12), w, LABEL_H, taken, size);
-      if (placed) {
-        taken.push(placed.box);
-        if (placed.far) leader(m, around(p, 12), placed.box).addTo(group);
-        labelMarker(m, p, placed.box, labelHtml(text), "lrb-pm-cc").addTo(group);
+      const d = cc.blue ? CC_BLUE_D : CC_DOT_D;
+      // The company sheet's marker is always the blue circle, empty when the CC has no letter yet.
+      const circle = !!cc.letter || !!cc.blue;
+      const icon = circle
+        ? L.divIcon({ className: cc.blue ? "lrb-pm-ccb" : "lrb-pm-ccl", html: escapeHtml(cc.letter ?? ""), iconSize: [d, d], iconAnchor: [d / 2, d / 2] })
+        : L.divIcon({ className: "lrb-pm-star", html: STAR_SVG, iconSize: [24, 24], iconAnchor: [12, 12] });
+      L.marker([cc.lat, cc.lng], { interactive: false, keyboard: false, zIndexOffset: 1000, icon }).addTo(group);
+      const r = circle ? d / 2 : 12;
+      taken.push({ x: p.x - r, y: p.y - r, w: 2 * r, h: 2 * r });
+      // The company sheet names its CC in the header, so its circle carries no tag.
+      if (!cc.blue) {
+        const text = `CC ${cc.name}`;
+        const placed = placeBox(around(p, r), labelWidth(text), LABEL_H, taken, size);
+        if (placed) {
+          taken.push(placed.box);
+          if (placed.far) leader(m, around(p, r), placed.box).addTo(group);
+          labelMarker(m, p, placed.box, labelHtml(text), "lrb-pm-cc").addTo(group);
+        }
       }
     } else {
       const c = L.point(size.x / 2, size.y / 2);
@@ -234,6 +277,50 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
     }
   }
 
+  // Company sheet (SPEC 19): each area's name in a pill centred on its top edge,
+  // slid along the edge when another label is there, else the nearest free spot
+  // with a leader line. Never over another label, never past the frame.
+  const pills = layers.filter((a): a is Extract<PrintLayer, { kind: "area" }> => a.kind === "area" && a.tone === "company" && !!a.label && a.ring.length >= 3);
+  const tops = pills
+    .map((a) => {
+      const ps = a.ring.map(([lat, lng]) => pt(lat, lng));
+      if (ps.length > 1 && ps[0]!.distanceTo(ps[ps.length - 1]!) < 0.5) ps.pop();
+      let best: [L.Point, L.Point] = [ps[0]!, ps[1] ?? ps[0]!];
+      let bestY = Infinity;
+      for (let i = 0; i < ps.length; i++) {
+        const p = ps[i]!;
+        const q = ps[(i + 1) % ps.length]!;
+        const y = (p.y + q.y) / 2;
+        // A near-tie goes to the longer edge, the one the eye reads as the top.
+        if (y < bestY - 2 || (Math.abs(y - bestY) <= 2 && p.distanceTo(q) > best[0].distanceTo(best[1]))) {
+          best = [p, q];
+          bestY = Math.min(y, bestY);
+        }
+      }
+      return { a, edge: best };
+    })
+    .sort((x, y) => (x.edge[0].y + x.edge[1].y) / 2 - (y.edge[0].y + y.edge[1].y) / 2);
+  for (const { a, edge } of tops) {
+    const text = a.label ?? "";
+    const w = Math.ceil(textWidth(text, PILL_FONT)) + PILL_PAD * 2;
+    const h = PILL_H;
+    const [p, q] = edge;
+    let placed: { box: Box; far: boolean } | null = null;
+    for (const t of [0.5, 0.42, 0.58, 0.34, 0.66, 0.25, 0.75, 0.15, 0.85]) {
+      const box = { x: p.x + (q.x - p.x) * t - w / 2, y: p.y + (q.y - p.y) * t - h / 2, w, h };
+      if (inside(box, size, 2) && !taken.some((o) => overlaps(o, box))) {
+        placed = { box, far: false };
+        break;
+      }
+    }
+    const mid = L.point((p.x + q.x) / 2, (p.y + q.y) / 2);
+    placed ??= placeBox(around(mid, 3), w, h, taken, size);
+    if (!placed) continue;
+    taken.push(placed.box);
+    if (placed.far) leader(m, around(mid, 3), placed.box, BLUE).addTo(group);
+    labelMarker(m, mid, placed.box, `<span class="lrb-pm-text">${escapeHtml(text)}</span>`, "lrb-pm-pill").addTo(group);
+  }
+
   // Area names: this crew's first, inside the area where there is room.
   // Other names keep off this crew's outline (its halo, every few pixels along
   // each edge) and are dropped when there is no room for them elsewhere.
@@ -248,7 +335,9 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
       for (let k = 0; k <= steps; k++) guard.push(around(L.point(p.x + ((q.x - p.x) * k) / steps, p.y + ((q.y - p.y) * k) / steps), 6));
     }
   }
-  const areas = layers.filter((a): a is Extract<PrintLayer, { kind: "area" }> => a.kind === "area" && !!a.label && a.ring.length >= 3).sort((a, b) => Number(b.tone === "mine") - Number(a.tone === "mine"));
+  const areas = layers
+    .filter((a): a is Extract<PrintLayer, { kind: "area" }> => a.kind === "area" && a.tone !== "company" && a.tone !== "faint" && !!a.label && a.ring.length >= 3)
+    .sort((a, b) => Number(b.tone === "mine") - Number(a.tone === "mine"));
   for (const a of areas) {
     const b = L.latLngBounds(a.ring);
     const nw = pt(b.getNorth(), b.getWest());

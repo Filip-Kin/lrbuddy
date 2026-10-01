@@ -1,7 +1,7 @@
 import L from "leaflet";
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM } from "../../lib/map/basemap.ts";
-import { escapeHtml, routeLine } from "../../lib/map/markers.ts";
+import { ccBody, escapeHtml, routeLine } from "../../lib/map/markers.ts";
 import { usePrefersDark } from "../../lib/map/MapView.tsx";
 import { ahead, metresPerPixel, turn, type LatLng } from "../../pages/plan/survey/geo.ts";
 
@@ -45,10 +45,10 @@ const stopIcon = (n: number, active: boolean): L.DivIcon =>
     iconAnchor: [14, 14],
   });
 
-const ccStarIcon = (name: string): L.DivIcon =>
+const ccStarIcon = (name: string, letter: string | null): L.DivIcon =>
   L.divIcon({
     className: "lrb-cc",
-    html: `<span style="display:block;${UNROT}"><span class="lrb-cc-body">${STAR_SVG}</span><span class="lrb-tag">${escapeHtml(name)}</span></span>`,
+    html: `<span style="display:block;${UNROT}">${ccBody(letter, STAR_SVG)}<span class="lrb-tag">${escapeHtml(name)}</span></span>`,
     iconSize: [36, 36],
     iconAnchor: [18, 18],
   });
@@ -84,7 +84,7 @@ export const DriverMap = ({
   heading: number | null;
   line: ReadonlyArray<[number, number]>;
   stops: readonly DriverMapStop[];
-  cc: (LatLng & { name: string }) | null;
+  cc: (LatLng & { name: string; letter: string | null }) | null;
   follow: boolean;
   onUnfollow: () => void;
   onStop: (key: string) => void;
@@ -217,7 +217,7 @@ export const DriverMap = ({
     const g = markLayer.current;
     if (!g) return;
     g.clearLayers();
-    if (cc) L.marker([cc.lat, cc.lng], { icon: ccStarIcon(cc.name), keyboard: false, interactive: false }).addTo(g);
+    if (cc) L.marker([cc.lat, cc.lng], { icon: ccStarIcon(cc.name, cc.letter), keyboard: false, interactive: false }).addTo(g);
     // Later stops under earlier ones, the next stop on top.
     for (const s of [...stops].reverse()) {
       L.marker([s.lat, s.lng], { icon: stopIcon(s.n, s.active), title: s.name, alt: s.name, zIndexOffset: s.active ? 500 : 0 })

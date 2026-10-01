@@ -3,13 +3,14 @@ import type { AreaPolygon } from "../../../../../server/db/schema.ts";
 import { dayDate, phoneText, plural } from "../../../components/admin/format.ts";
 import { lotTitle } from "../../../lib/format.ts";
 import type { RouterOutputs } from "../../../lib/trpc.ts";
-import { GREY, INK, LOT_FILL, WORK, YELLOW } from "./paper.ts";
+import { BLUE, GREY, INK, LOT_FILL, WORK, YELLOW } from "./paper.ts";
 import { PrintMap, type LatLngPair, type PrintLayer } from "./PrintMap.tsx";
 
 // #region types and helpers
 export type Sheets = RouterOutputs["plan"]["print"]["sheets"];
 export type CrewSheet = Sheets["crewPages"][number];
 export type CcSheet = Sheets["ccPages"][number];
+export type CompanySheet = Sheets["companyPages"][number];
 type Shirt = CrewSheet["greenShirts"][number];
 type PrintLot = CrewSheet["lots"][number];
 export type OnReady = (key: string, ready: boolean) => void;
@@ -45,6 +46,13 @@ export const crewMapKeys = (page: CrewSheet, ccs: readonly CcSheet[]): string[] 
   ...(detailFit(page).length > 0 ? [`crew-${page.crewId}-detail`] : []),
 ];
 export const ccMapKey = (cc: CcSheet): string => `cc-${cc.ccId}`;
+export const companyMapKey = (page: CompanySheet): string => page.key;
+
+/** "Monday" from "2026-09-28". */
+const weekday = (ymd: string): string => {
+  const d = new Date(`${ymd}T12:00:00Z`);
+  return Number.isNaN(d.getTime()) ? ymd : d.toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
+};
 
 const workLayers = (cc: CcSheet): PrintLayer[] =>
   cc.workLots.map((l) => ({ kind: "lot", key: `w${l.id}`, geometry: l.geometry, lat: l.lat, lng: l.lng, tone: "work" }));
@@ -54,8 +62,8 @@ const workLayers = (cc: CcSheet): PrintLayer[] =>
 const Caps = ({ children }: { children: ReactNode }) => <div className="text-[10px] font-bold tracking-wider uppercase">{children}</div>;
 
 /** One Letter page. On screen it is drawn at paper size from 640 px up. */
-const Paper = ({ children }: { children: ReactNode }) => (
-  <article className="lrb-sheet lrb-paper mx-auto flex w-full min-w-0 flex-col overflow-x-auto sm:overflow-x-visible rounded-xl bg-white p-4 shadow-lg ring-1 ring-black/10 sm:min-h-[11in] sm:w-[8.5in] sm:p-[0.45in]">
+const Paper = ({ kind, children }: { kind: "crew" | "cc"; children: ReactNode }) => (
+  <article data-sheet={kind} className="lrb-sheet lrb-sheet-port lrb-paper mx-auto flex w-full min-w-0 flex-col overflow-x-auto sm:overflow-x-visible rounded-xl bg-white p-4 shadow-lg ring-1 ring-black/10 sm:min-h-[11in] sm:w-[8.5in] sm:p-[0.45in]">
     {children}
   </article>
 );
@@ -99,7 +107,7 @@ const Shirts = ({ shirts }: { shirts: readonly Shirt[] }) => (
 );
 
 /** Legend swatches drawn with the same strokes and fills as the map. */
-const Swatch = ({ kind }: { kind: "high" | "low" | "work" | "mine" | "other" | "crew" | "cc" }) => (
+const Swatch = ({ kind, letter }: { kind: "high" | "low" | "work" | "mine" | "other" | "crew" | "cc"; letter?: string | null }) => (
   <svg viewBox="0 0 22 14" width="22" height="14" aria-hidden="true" className="shrink-0">
     {kind === "high" || kind === "low" || kind === "work" ? (
       <rect x="2" y="2" width="18" height="10" fill={WORK} fillOpacity={LOT_FILL[kind]} stroke={INK} strokeWidth={kind === "work" ? 1 : 1.5} strokeDasharray={kind === "work" ? undefined : "4 3"} />
@@ -110,17 +118,24 @@ const Swatch = ({ kind }: { kind: "high" | "low" | "work" | "mine" | "other" | "
       </>
     ) : kind === "other" || kind === "crew" ? (
       <rect x="2" y="2" width="18" height="10" fill="none" stroke={kind === "other" ? GREY : INK} strokeWidth={kind === "other" ? 1.2 : 2} />
+    ) : letter ? (
+      <>
+        <circle cx="11" cy="7" r="6.4" fill="#000" stroke="#fff" strokeWidth="1" />
+        <text x="11" y="7" dy="0.35em" textAnchor="middle" fontSize="8" fontWeight="800" fill="#fff">
+          {letter}
+        </text>
+      </>
     ) : (
       <path d="M11 0.8l2.4 4.4 4.9.6-3.6 3.3 1 4.8L11 11.5l-4.7 2.4 1-4.8-3.6-3.3 4.9-.6z" fill="#000" stroke="#fff" strokeWidth="1" />
     )}
   </svg>
 );
 
-const Legend = ({ items }: { items: ReadonlyArray<[Parameters<typeof Swatch>[0]["kind"], string]> }) => (
+const Legend = ({ items, letter }: { items: ReadonlyArray<[Parameters<typeof Swatch>[0]["kind"], string]>; letter?: string | null }) => (
   <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-semibold">
     {items.map(([kind, label]) => (
       <li key={kind} className="flex items-center gap-1.5">
-        <Swatch kind={kind} />
+        <Swatch kind={kind} letter={kind === "cc" ? letter : undefined} />
         {label}
       </li>
     ))}
@@ -145,11 +160,11 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
   const overview = useMemo(() => {
     if (!cc) return null;
     const layers: PrintLayer[] = [
-      ...page.otherAreas.map((a): PrintLayer => ({ kind: "area", key: `a${a.crewId}`, ring: ring(a.area), tone: "other", label: a.name })),
+      ...page.otherAreas.map((a): PrintLayer => ({ kind: "area", key: `a${a.areaId}`, ring: ring(a.area), tone: "other", label: a.name })),
       ...workLayers(cc),
-      { kind: "area", key: "mine", ring: ring(page.area), tone: "mine", label: page.teamName },
+      { kind: "area", key: "mine", ring: ring(page.area), tone: "mine", label: page.areaName ?? page.teamName },
     ];
-    return { fit: ccFit(cc), layers, cc: { lat: cc.lat, lng: cc.lng, name: cc.name } };
+    return { fit: ccFit(cc), layers, cc: { lat: cc.lat, lng: cc.lng, name: cc.name, letter: cc.letter } };
   }, [page, cc]);
 
   const detail = useMemo(() => {
@@ -170,13 +185,13 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
         }),
       ),
     ];
-    return { fit, layers, cc: page.cc && page.ccName ? { lat: page.cc.lat, lng: page.cc.lng, name: page.ccName } : null };
+    return { fit, layers, cc: page.cc && page.ccName ? { lat: page.cc.lat, lng: page.cc.lng, name: page.ccName, letter: page.ccLetter } : null };
   }, [page]);
 
   const lead = [page.leadName, page.leadPhone ? phoneText(page.leadPhone) : null].filter((s): s is string => !!s).join(", ");
 
   return (
-    <Paper>
+    <Paper kind="crew">
       <Header event={event} day={day} />
       <div className="mt-3 flex items-start justify-between gap-4">
         <div className="min-w-0">
@@ -240,11 +255,12 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
       )}
       <div className="mt-1.5">
         <Legend
+          letter={page.ccLetter}
           items={[
             ["high", "High"],
             ["low", "Low"],
             ["work", "Other work"],
-            ["mine", page.teamName],
+            ["mine", page.areaName ?? page.teamName],
             ["other", "Other crews"],
             ["cc", "CC"],
           ]}
@@ -293,13 +309,13 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
   const overview = useMemo(
     () => ({
       fit: ccFit(page),
-      layers: [...workLayers(page), ...page.areas.map((a): PrintLayer => ({ kind: "area", key: `a${a.crewId}`, ring: ring(a.area), tone: "crew", label: a.name }))],
-      cc: { lat: page.lat, lng: page.lng, name: page.name },
+      layers: [...workLayers(page), ...page.areas.map((a): PrintLayer => ({ kind: "area", key: `a${a.areaId}`, ring: ring(a.area), tone: "crew", label: a.name }))],
+      cc: { lat: page.lat, lng: page.lng, name: page.name, letter: page.letter },
     }),
     [page],
   );
   return (
-    <Paper>
+    <Paper kind="cc">
       <Header event={event} day={day} />
       <div className="mt-3 flex items-start justify-between gap-4">
         <div className="min-w-0">
@@ -333,6 +349,7 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
       </MapBlock>
       <div className="mt-1.5">
         <Legend
+          letter={page.letter}
           items={[
             ["work", "Work lot"],
             ["crew", "Crew area"],
@@ -408,6 +425,115 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
         </tbody>
       </table>
     </Paper>
+  );
+};
+// #endregion
+
+// #region company sheet
+/** One landscape Letter page. On screen it is drawn at paper size from 640 px up. */
+const Landscape = ({ children }: { children: ReactNode }) => (
+  <article
+    data-sheet="company"
+    className="lrb-sheet lrb-sheet-land lrb-paper mx-auto flex w-full min-w-0 flex-col overflow-x-auto rounded-xl bg-white p-4 shadow-lg ring-1 ring-black/10 sm:h-[8.5in] sm:w-[11in] sm:overflow-hidden sm:p-[0.4in]"
+  >
+    {children}
+  </article>
+);
+
+const AreaSwatch = ({ tone }: { tone: "company" | "faint" | "tint" | "cc" }) => (
+  <svg viewBox="0 0 26 16" width="26" height="16" aria-hidden="true" className="shrink-0">
+    {tone === "company" ? (
+      <rect x="3" y="3" width="20" height="10" fill="none" stroke={BLUE} strokeWidth="3" />
+    ) : tone === "faint" ? (
+      <rect x="3" y="3" width="20" height="10" fill="none" stroke={GREY} strokeWidth="1.2" />
+    ) : tone === "tint" ? (
+      <rect x="1" y="1" width="24" height="14" fill={YELLOW} fillOpacity="0.3" stroke="none" />
+    ) : (
+      <circle cx="13" cy="8" r="7" fill={BLUE} stroke="#fff" strokeWidth="1.5" />
+    )}
+  </svg>
+);
+
+/**
+ * SPEC 19, modelled on the printed "group maps" sheet: title with the
+ * weekday and the CC's letter, the CC's address at the right, the company and
+ * its crews with headcounts down the left, and the CC's day on the map: the
+ * day's area tinted, this company's areas in thick blue with their names on
+ * the top edge, other companies' areas thin grey, the CC as a blue lettered circle.
+ */
+export const CompanyPage = ({ page, cc, day, onReady }: { page: CompanySheet; cc: CcSheet; day: Sheets["day"]; onReady: OnReady }) => {
+  const map = useMemo(() => {
+    const [w, s, e, n] = cc.dayBounds;
+    const mine = new Set(page.areaIds);
+    const layers: PrintLayer[] = [
+      { kind: "tint", key: "day", rings: cc.dayArea.map((r) => r.map(([lng, lat]) => [lat, lng] as LatLngPair)) },
+      ...cc.areas.map((a): PrintLayer => ({ kind: "area", key: `a${a.areaId}`, ring: ring(a.area), tone: mine.has(a.areaId) ? "company" : "faint", label: mine.has(a.areaId) ? a.name : undefined })),
+    ];
+    const fit: LatLngPair[] = [
+      [s, w],
+      [n, e],
+    ];
+    return { fit, layers, cc: { lat: cc.lat, lng: cc.lng, name: cc.name, letter: cc.letter, blue: true } };
+  }, [page, cc]);
+  const title = `${weekday(day.date)} group maps, ${cc.letter ?? cc.name}`;
+  return (
+    <Landscape>
+      <header className="flex items-end justify-between gap-4 border-b-2 border-[#0e3038] pb-2">
+        <h2 className="text-3xl leading-none font-black tracking-tight">{title}</h2>
+        <p className="text-right text-lg leading-tight font-bold">
+          CC{cc.address ? `, ${cc.address}` : `, ${cc.name}`}
+        </p>
+      </header>
+      <div className="mt-3 flex min-h-0 flex-1 flex-col gap-4 sm:flex-row">
+        <section aria-label="Legend" className="flex shrink-0 flex-col sm:w-[2.3in]">
+          <div className="flex items-baseline justify-between gap-2 border-b-2 border-[#1f6fe5] pb-1 text-lg font-black text-[#1f6fe5]">
+            <span className="min-w-0 truncate">{page.companyName}</span>
+            <span className="tabular-nums">{page.headcount}</span>
+          </div>
+          <table className="mt-1 w-full text-left text-sm">
+            <caption className="sr-only">Crews</caption>
+            <tbody>
+              {page.crews.map((c) => (
+                <tr key={c.crewId} className="border-b border-[#d1d3d4]">
+                  <td className="py-1 pr-2 font-bold">{c.name}</td>
+                  <td className="py-1 text-right tabular-nums">{c.headcount ?? ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <ul className="mt-auto space-y-1.5 pt-4 text-xs font-semibold">
+            <li className="flex items-center gap-2">
+              <AreaSwatch tone="company" />
+              {page.short} areas
+            </li>
+            <li className="flex items-center gap-2">
+              <AreaSwatch tone="faint" />
+              Other companies
+            </li>
+            <li className="flex items-center gap-2">
+              <AreaSwatch tone="tint" />
+              {day.label} area
+            </li>
+            <li className="flex items-center gap-2">
+              <AreaSwatch tone="cc" />
+              CC {cc.name}
+            </li>
+          </ul>
+        </section>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md ring-1 ring-[#0e3038]">
+          <PrintMap
+            readyKey={companyMapKey(page)}
+            onReady={onReady}
+            fit={map.fit}
+            layers={map.layers}
+            cc={map.cc}
+            padding={20}
+            className="h-[5in] w-full sm:h-auto sm:min-h-0 sm:flex-1"
+            label={`${page.companyName} areas at CC ${cc.name}`}
+          />
+        </div>
+      </div>
+    </Landscape>
   );
 };
 // #endregion

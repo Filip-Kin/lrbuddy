@@ -5,13 +5,39 @@ import { config } from "../../config.ts";
 import { db } from "../../db/index.ts";
 import { commandCenters, companies, crews, events, greenCodes, greenShirts, lots, trucks, type AreaPolygon, type Lot } from "../../db/schema.ts";
 import { crewLabel } from "../../dispatch.ts";
-import { bboxOf, type BBox } from "../../geo.ts";
+import { bboxOf, padBBox, type BBox } from "../../geo.ts";
 import { newestTags, outlinePoints } from "../../parcels.ts";
 import { siteCcIds } from "../../queries.ts";
 import { adminProcedure, router } from "../../trpc.ts";
-import { dayOfEvent, eventInput, eventOrActive, id, teamNames } from "./common.ts";
+import { dayAreas } from "./areas.ts";
+import { convexHull, type Ring } from "./blocks.ts";
+import { dayOfEvent, eventInput, eventOrActive, id, shortOf, teamNames } from "./common.ts";
 
 const areaPoints = (a: AreaPolygon): Array<{ lat: number; lng: number }> => outlinePoints(a);
+
+/** Metres the tinted day area reaches past the crew areas (SPEC 19). */
+export const DAY_AREA_PAD_M = 60;
+
+/**
+ * An area grown by `m` metres all round: the hull of a circle of points
+ * around each corner. Rings come out counter-clockwise, all the same way, so
+ * a nonzero fill draws several as one union.
+ */
+export const padRing = (ring: ReadonlyArray<readonly number[]>, m: number): Ring => {
+  const pts: Array<[number, number]> = [];
+  for (const p of ring) {
+    const lng = p[0];
+    const lat = p[1];
+    if (lng === undefined || lat === undefined) continue;
+    const dLat = m / 111320;
+    const dLng = m / (111320 * Math.cos((lat * Math.PI) / 180));
+    for (let k = 0; k < 16; k++) {
+      const a = (k * Math.PI) / 8;
+      pts.push([lng + dLng * Math.cos(a), lat + dLat * Math.sin(a)]);
+    }
+  }
+  return convexHull(pts);
+};
 
 const lotView = (l: Lot, grade: "high" | "low" | "clear" | null) => ({
   id: l.id,
@@ -58,7 +84,11 @@ export const printRouter = router({
     const grades = newestTags(eventId, [...lotRows, ...crewLots].map((l) => l.parcelId).filter((p): p is string => p !== null));
     const gradeOf = (l: Lot) => (l.parcelId ? (grades.get(l.parcelId)?.grade ?? null) : null);
 
-    const areas = crewRows.map(({ crew }) => ({ crewId: crew.id, ccId: crew.ccId, name: names.get(crew.id) ?? crewLabel(crew), area: crew.area }));
+    // One entry per area, shared or not, labelled the way the sheets print it.
+    const areas = dayAreas(day.id, names)
+      .filter((a): a is typeof a & { polygon: AreaPolygon } => a.polygon !== null && a.ccId !== null)
+      .map((a) => ({ areaId: a.id, ccId: a.ccId ?? 0, companyId: a.companyId, crewIds: a.crewIds, name: a.label, area: a.polygon }));
+    const areaOfCrew = new Map(areas.flatMap((a) => a.crewIds.map((c) => [c, a] as const)));
     const loginUrl = `${config.publicUrl}/login`;
     const loginQrSvg = await QRCode.toString(loginUrl, { type: "svg", margin: 1 });
 
@@ -71,12 +101,24 @@ export const printRouter = router({
       const site = new Set(siteOf.get(cc.id) ?? [cc.id]);
       const work = lotRows.filter((l) => l.ccId !== null && site.has(l.ccId) && (l.status === "open" || l.status === "in_progress"));
       const ccAreas = areas.filter((a) => a.ccId === cc.id);
-      const pts = [{ lat: cc.lat, lng: cc.lng }, ...work, ...ccAreas.flatMap((a) => (a.area ? areaPoints(a.area) : []))];
+      const pts = [{ lat: cc.lat, lng: cc.lng }, ...work, ...ccAreas.flatMap((a) => areaPoints(a.area))];
       const bounds: BBox = bboxOf(pts) ?? [cc.lng, cc.lat, cc.lng, cc.lat];
+      // SPEC 19: the day's area is every crew area at the CC, else the work lots' box, padded 60 m.
+      const lotBox = bboxOf(work);
+      const dayArea: Ring[] = ccAreas.length
+        ? ccAreas.map((a) => padRing(a.area.coordinates[0] ?? [], DAY_AREA_PAD_M))
+        : lotBox
+          ? [padRing([[lotBox[0], lotBox[1]], [lotBox[2], lotBox[1]], [lotBox[2], lotBox[3]], [lotBox[0], lotBox[3]]], DAY_AREA_PAD_M)]
+          : [];
+      const dayPts = dayArea.flat().map(([lng, lat]) => ({ lat, lng }));
+      const dayBounds: BBox = bboxOf([{ lat: cc.lat, lng: cc.lng }, ...dayPts]) ?? padBBox([cc.lng, cc.lat, cc.lng, cc.lat], 300);
       return {
         ccId: cc.id,
         name: cc.name,
+        letter: cc.letter,
         address: cc.address,
+        dayArea,
+        dayBounds,
         lat: cc.lat,
         lng: cc.lng,
         bounds,
@@ -119,6 +161,7 @@ export const printRouter = router({
           leadPhone: crew.leadPhone,
           ccId: crew.ccId,
           ccName: cc?.name ?? null,
+          ccLetter: cc?.letter ?? null,
           ccAddress: cc?.address ?? null,
           cc: cc ? { lat: cc.lat, lng: cc.lng } : null,
           url,
@@ -126,13 +169,38 @@ export const printRouter = router({
           code: crew.token,
           loginUrl,
           qrSvg: await QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" }),
-          area: crew.area,
+          area: areaOfCrew.get(crew.id)?.area ?? null,
+          /** The name on the crew's rectangle; a shared area names every crew in it. */
+          areaName: areaOfCrew.get(crew.id)?.name ?? null,
           lots: mine.map((l) => lotView(l, gradeOf(l))),
-          otherAreas: areas.filter((a) => a.ccId === crew.ccId && a.crewId !== crew.id),
+          otherAreas: areas.filter((a) => a.ccId === crew.ccId && a.areaId !== areaOfCrew.get(crew.id)?.areaId),
           greenShirts: shirts.filter((g) => g.ccId === crew.ccId).map((g) => ({ name: g.name, phone: g.phone, roleLabel: g.roleLabel })),
         };
       }),
     );
-    return { event: event ? { id: event.id, name: event.name } : null, day, crewPages, ccPages };
+
+    // SPEC 19: one landscape sheet per company per CC: legend with headcounts, the company's areas on the CC's map.
+    const companyPages = ccs.flatMap((cc) => {
+      const here = crewRows.filter((r) => r.crew.ccId === cc.id && r.company !== null);
+      const byCompany = new Map<number, typeof here>();
+      for (const r of here) byCompany.set(r.company!.id, [...(byCompany.get(r.company!.id) ?? []), r]);
+      return [...byCompany.values()]
+        .sort((a, b) => a[0]!.company!.name.localeCompare(b[0]!.company!.name))
+        .map((list) => {
+          const company = list[0]!.company!;
+          const headcount = list.reduce((n, r) => n + (r.crew.headcount ?? 0), 0);
+          return {
+            key: `company-${cc.id}-${company.id}`,
+            ccId: cc.id,
+            companyId: company.id,
+            companyName: company.name,
+            short: shortOf(company),
+            headcount,
+            crews: list.map(({ crew }) => ({ crewId: crew.id, name: names.get(crew.id) ?? crewLabel(crew), headcount: crew.headcount })),
+            areaIds: [...new Set(list.map(({ crew }) => areaOfCrew.get(crew.id)?.areaId).filter((x): x is number => x !== undefined))],
+          };
+        });
+    });
+    return { event: event ? { id: event.id, name: event.name } : null, day, companyPages, crewPages, ccPages };
   }),
 });

@@ -79,10 +79,19 @@ export const eventIdOfDay = (dayId: number): number => {
 };
 
 /** New CC with its green code. */
-export const createCc = (input: { dayId: number; name: string; lat: number; lng: number; address?: string | null; notes?: string | null; code?: string }): CommandCenter => {
+export const createCc = (input: {
+  dayId: number;
+  name: string;
+  lat: number;
+  lng: number;
+  address?: string | null;
+  notes?: string | null;
+  letter?: string | null;
+  code?: string;
+}): CommandCenter => {
   const cc = db
     .insert(commandCenters)
-    .values({ dayId: input.dayId, name: input.name, lat: input.lat, lng: input.lng, address: input.address ?? null, notes: input.notes ?? null })
+    .values({ dayId: input.dayId, name: input.name, lat: input.lat, lng: input.lng, address: input.address ?? null, notes: input.notes ?? null, letter: input.letter ?? null })
     .returning()
     .get();
   db.insert(greenCodes).values({ ccId: cc.id, code: input.code ?? uniqueCode() }).run();
@@ -171,7 +180,7 @@ export const copySetupFromPreviousDay = (dayId: number): { ccs: number; trucks: 
   let truckCount = 0;
   const prevCcs = db.select().from(commandCenters).where(eq(commandCenters.dayId, prev.id)).all();
   for (const pc of prevCcs) {
-    const cc = createCc({ dayId, name: pc.name, lat: pc.lat, lng: pc.lng, address: pc.address, notes: pc.notes });
+    const cc = createCc({ dayId, name: pc.name, lat: pc.lat, lng: pc.lng, address: pc.address, notes: pc.notes, letter: pc.letter });
     ccCount++;
     for (const g of db.select().from(greenShirts).where(eq(greenShirts.ccId, pc.id)).all()) {
       db.insert(greenShirts).values({ ccId: cc.id, name: g.name, phone: g.phone, roleLabel: g.roleLabel }).run();

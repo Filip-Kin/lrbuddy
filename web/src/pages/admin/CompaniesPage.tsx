@@ -14,19 +14,27 @@ import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
 type Company = RouterOutputs["admin"]["companies"]["list"][number];
 
+/** The short crew names fall back to: the first word of the name (SPEC 19). */
+const firstWord = (name: string): string => name.trim().split(/\s+/)[0] ?? name;
+
 const RenameSheet = ({ company, onClose, notify }: { company: Company | null; onClose: () => void; notify: (n: NoticeValue) => void }) => {
   const utils = trpc.useUtils();
   const [name, setName] = useState("");
+  const [short, setShort] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => {
-    if (company) setName(company.name);
+    if (company) {
+      setName(company.name);
+      setShort(company.short ?? "");
+    }
     setConfirmDelete(false);
   }, [company]);
-  const rename = trpc.admin.companies.rename.useMutation({
+  const rename = trpc.admin.companies.update.useMutation({
     onSuccess: (c) => {
       void utils.admin.companies.list.invalidate();
       void utils.admin.crews.list.invalidate();
-      notify({ tone: "ok", text: `Renamed to ${c.name}` });
+      void utils.plan.invalidate();
+      notify({ tone: "ok", text: `${c.name} saved` });
       onClose();
     },
   });
@@ -38,8 +46,9 @@ const RenameSheet = ({ company, onClose, notify }: { company: Company | null; on
       onClose();
     },
   });
+  const changed = !!company && (name.trim() !== company.name || short.trim() !== (company.short ?? ""));
   const submit = (): void => {
-    if (company && name.trim() && name.trim() !== company.name) rename.mutate({ id: company.id, name: name.trim() });
+    if (company && name.trim() && changed) rename.mutate({ id: company.id, name: name.trim(), short: short.trim() || null });
   };
   return (
     <>
@@ -52,8 +61,8 @@ const RenameSheet = ({ company, onClose, notify }: { company: Company | null; on
             <Button variant="danger" size="lg" onClick={() => setConfirmDelete(true)}>
               Remove
             </Button>
-            <Button size="lg" className="flex-1" busy={rename.isPending} disabled={!name.trim() || name.trim() === company?.name} onClick={submit}>
-              Rename
+            <Button size="lg" className="flex-1" busy={rename.isPending} disabled={!name.trim() || !changed} onClick={submit}>
+              Save
             </Button>
           </div>
         }
@@ -66,6 +75,15 @@ const RenameSheet = ({ company, onClose, notify }: { company: Company | null; on
           }}
         >
           <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="off" />
+          <Field
+            label="Short name"
+            hint={`Crew names, ${short.trim() || firstWord(name) || "GM"} 1`}
+            value={short}
+            onChange={(e) => setShort(e.target.value)}
+            placeholder={firstWord(name)}
+            maxLength={16}
+            autoComplete="off"
+          />
           {rename.error && <p role="alert" className="text-sm font-semibold">{errorText(rename.error)}</p>}
         </form>
       </Sheet>
@@ -137,7 +155,10 @@ export const CompaniesPage = () => {
                 <li key={c.id}>
                   <button type="button" onClick={() => setEditing(c)} className="flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left hover:bg-surface-2">
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-semibold">{c.name}</span>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate font-semibold">{c.name}</span>
+                        {c.short && <span className="shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 text-xs font-bold ring-1 ring-line">{c.short}</span>}
+                      </span>
                       <span className="block text-sm text-muted">
                         {c.crewCount === 0 ? "No crews" : `${plural(c.crewCount, "crew")}${c.headcount > 0 ? `, ${plural(c.headcount, "person", "people")}` : ""}`}
                       </span>

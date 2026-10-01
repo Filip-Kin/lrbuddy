@@ -114,8 +114,8 @@ const main = async (): Promise<void> => {
   const typeId = (key: string): number => types.find((t) => t.key === key)!.id;
 
   // #region command centers
-  const east = createCc({ dayId: day1.id, name: "East", lat: 42.3786, lng: -82.9911, address: "Anchor Detroit, East Warren Ave", code: "EAST01" });
-  const west = createCc({ dayId: day1.id, name: "West", lat: 42.3701, lng: -83.0209, address: "Chandler Park Dr and Conner St", code: "WEST01" });
+  const east = createCc({ dayId: day1.id, name: "East", lat: 42.3786, lng: -82.9911, address: "Anchor Detroit, East Warren Ave", code: "EAST01", letter: "A" });
+  const west = createCc({ dayId: day1.id, name: "West", lat: 42.3701, lng: -83.0209, address: "Chandler Park Dr and Conner St", code: "WEST01", letter: "B" });
   const shirts: Array<[number, string, string, string]> = [
     [east.id, "Dana Brooks", "313-555-0101", "Site lead"],
     [east.id, "Marcus Hill", "313-555-0102", "Supplies"],
@@ -128,8 +128,14 @@ const main = async (): Promise<void> => {
   // #endregion
 
   // #region companies and crews
-  const companyNames = ["Ford", "Rocket", "DTE", "Henry Ford Health", "GM"];
-  const companyIds = companyNames.map((name) => db.insert(companies).values({ eventId: ev.id, name }).returning().get().id);
+  const companyNames: Array<[string, string]> = [
+    ["Ford", "FORD"],
+    ["Rocket", "ROCKET"],
+    ["DTE", "DTE"],
+    ["Henry Ford Health", "HFH"],
+    ["GM", "GM"],
+  ];
+  const companyIds = companyNames.map(([name, short]) => db.insert(companies).values({ eventId: ev.id, name, short }).returning().get().id);
   const leads = [
     "Jordan Reed", "Casey Lee", "Morgan Diaz", "Riley Chen", "Taylor Brooks", "Avery Kim",
     "Quinn Patel", "Jamie Fox", "Drew Evans", "Sam Rivera", "Alex Moore", "Robin Clark",
@@ -318,14 +324,14 @@ const main = async (): Promise<void> => {
     ["driver", "Truck 3 (West)", `TRUCK3  ${base}/t/TRUCK3`],
     ...crewRows.map((cr): [string, string, string] => [
       "crew",
-      `Crew ${cr.number} (${companyNames[(cr.number - 1) % companyNames.length]}, ${cr.ccId === east.id ? "East" : "West"})`,
+      `Crew ${cr.number} (${companyNames[(cr.number - 1) % companyNames.length]?.[0] ?? ""}, ${cr.ccId === east.id ? "East" : "West"})`,
       `${base}/j/${cr.token}`,
     ]),
   ];
   const w0 = Math.max(...rows.map((r) => r[0].length));
   const w1 = Math.max(...rows.map((r) => r[1].length));
   console.log(`\nSeeded "${EVENT_NAME}": ${allLots.length} lots (${lotSource}), ${crewRows.length} crews, 3 trucks, ${seedReqs.length} requests, ${photographed} photo pairs`);
-  console.log(`Plan: ${plan.parcels}, ${plan.tags} survey tags, ${plan.assigned} block sides assigned, ${plan.published} lots published, ${plan.areas} crew areas\n`);
+  console.log(`Plan: ${plan.parcels}, ${plan.tags} survey tags, ${plan.assigned} block sides assigned, ${plan.shared} shared areas, ${plan.published} lots published, ${plan.areas} crew areas\n`);
   console.log(`${"role".padEnd(w0)}  ${"who".padEnd(w1)}  code or join link`);
   console.log(`${"-".repeat(w0)}  ${"-".repeat(w1)}  ${"-".repeat(40)}`);
   for (const [role, who, code] of rows) console.log(`${role.padEnd(w0)}  ${who.padEnd(w1)}  ${code}`);

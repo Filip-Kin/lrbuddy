@@ -129,6 +129,8 @@ export const commandCenters = sqliteTable(
     lng: real("lng").notNull(),
     address: text("address"),
     notes: text("notes"),
+    /** The CC's letter for the day ("A", "B"), drawn in its map marker and on the sheets (SPEC 19). */
+    letter: text("letter"),
   },
   (t) => [index("cc_day_idx").on(t.dayId)],
 );
@@ -155,8 +157,31 @@ export const companies = sqliteTable(
       .notNull()
       .references(() => events.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    /** Abbreviation for crew names ("GM" makes "GM 1"); null falls back to the first word of the name. */
+    short: text("short"),
   },
   (t) => [index("companies_event_idx").on(t.eventId)],
+);
+
+/**
+ * A printed work area (SPEC 19): one rectangle shared by one or more crews of a
+ * day. `polygon` is null until Publish or a drag sets it; `label` overrides the
+ * crews' names joined ("GM 9, GM 10 & GM 11") and is normally null.
+ */
+export const crewAreas = sqliteTable(
+  "crew_areas",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    dayId: integer("day_id")
+      .notNull()
+      .references(() => days.id, { onDelete: "cascade" }),
+    polygon: text("polygon", { mode: "json" }).$type<AreaPolygon>(),
+    label: text("label"),
+  },
+  (t) => [index("crew_areas_day_idx").on(t.dayId)],
 );
 
 export const crews = sqliteTable(
@@ -178,8 +203,8 @@ export const crews = sqliteTable(
     headcount: integer("headcount"),
     notes: text("notes"),
     lastSeenAt: integer("last_seen_at"),
-    /** Rectangle printed on the crew's sheet (SPEC 16); null until Publish or a drag sets it. */
-    area: text("area", { mode: "json" }).$type<AreaPolygon>(),
+    /** The crew's printed area, possibly shared with other crews (SPEC 19); null until Publish or a drag sets it. */
+    areaId: integer("area_id").references(() => crewAreas.id, { onDelete: "set null" }),
   },
   (t) => [index("crews_day_idx").on(t.dayId), index("crews_cc_idx").on(t.ccId)],
 );
@@ -576,6 +601,8 @@ export const assignments = sqliteTable(
       .references(() => commandCenters.id, { onDelete: "cascade" }),
     companyId: integer("company_id").references(() => companies.id, { onDelete: "set null" }),
     crewId: integer("crew_id").references(() => crews.id, { onDelete: "set null" }),
+    /** Set when the side went to several crews at once: Publish splits the area's sides between them. */
+    areaId: integer("area_id").references(() => crewAreas.id, { onDelete: "set null" }),
     blockSideKey: text("block_side_key").notNull(),
     order: integer("order").notNull().default(0),
   },
@@ -609,4 +636,5 @@ export type ParcelRow = typeof parcels.$inferSelect;
 export type SurveyTag = typeof surveyTags.$inferSelect;
 export type CompanyDay = typeof companyDays.$inferSelect;
 export type Assignment = typeof assignments.$inferSelect;
+export type CrewArea = typeof crewAreas.$inferSelect;
 // #endregion

@@ -284,7 +284,7 @@ export const MapPage = () => {
     () => stops.map((s, i) => ({ key: s.key, lat: s.lat, lng: s.lng, n: i + 1, active: i === 0, name: s.name })),
     [stops],
   );
-  const cc = useMemo(() => (q ? { lat: q.cc.lat, lng: q.cc.lng, name: `CC ${q.cc.name}` } : null), [q]);
+  const cc = useMemo(() => (q ? { lat: q.cc.lat, lng: q.cc.lng, name: `CC ${q.cc.name}`, letter: q.cc.letter } : null), [q]);
   const line = r.data?.geometry ?? [];
 
   const target: Target | null = next

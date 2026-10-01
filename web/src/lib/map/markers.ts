@@ -75,9 +75,13 @@ export const lotIcon = (status: LotStatus, mine = true, selected = false): L.Div
     iconAnchor: [14, 14],
   });
 
-/** Parcel outline: 2 px stroke in the status colour, filled at 30 %. Colours come from CSS. */
-export const lotShape = (geometry: LotGeometry, status: LotStatus, mine = true, selected = false): L.GeoJSON =>
+/**
+ * Parcel outline: 2 px stroke in the status colour, filled at 30 %. Colours come from CSS.
+ * `opts` passes a pane or renderer through to the outline (the driver map draws lots in their own pane).
+ */
+export const lotShape = (geometry: LotGeometry, status: LotStatus, mine = true, selected = false, opts: Pick<L.PathOptions, "pane" | "renderer"> = {}): L.GeoJSON =>
   L.geoJSON(geometry, {
+    ...opts,
     style: () => ({
       className: `lrb-lot-shape lrb-lot-shape-${status}${mine ? "" : " lrb-lot-shape-other"}${selected ? " lrb-lot-shape-selected" : ""}`,
       weight: 2,

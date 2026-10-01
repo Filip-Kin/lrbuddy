@@ -23,10 +23,12 @@ const AREAS_PANE = "lrb-dayof-areas";
  */
 export const useDayOfLayer = (
   map: L.Map | null,
-  plan: DayOfPlan | undefined,
+  plan: Pick<DayOfPlan, "areas" | "sides"> | undefined,
   visible: boolean,
   onArea: (id: number) => void,
   onSide: (key: string) => void,
+  /** Stacking of the rectangles' pane; 405 sits over the lot outlines, the driver map puts them under its route. */
+  areasZ = "405",
 ): void => {
   const group = useRef<L.LayerGroup | null>(null);
   const renderers = useRef<{ sides: L.Renderer; areas: L.Renderer } | null>(null);
@@ -39,7 +41,7 @@ export const useDayOfLayer = (
     if (!map) return;
     for (const [name, z] of [
       [SIDES_PANE, "390"],
-      [AREAS_PANE, "405"],
+      [AREAS_PANE, areasZ],
     ] as const) {
       const pane = map.getPane(name) ?? map.createPane(name);
       pane.style.zIndex = z;
@@ -54,7 +56,7 @@ export const useDayOfLayer = (
       group.current = null;
       renderers.current = null;
     };
-  }, [map]);
+  }, [map, areasZ]);
 
   useEffect(() => {
     const g = group.current;

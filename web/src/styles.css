@@ -548,6 +548,10 @@
 .lrb-dayof-pill-dnt::before {
   border-color: var(--warn);
 }
+/* The driver map turns heading up; its rectangle names stay upright. */
+.lrb-driver-map .lrb-dayof-pill {
+  transform: translate(-50%, -50%) rotate(var(--lrb-unrot, 0deg));
+}
 /* #endregion */
 
 @media print {

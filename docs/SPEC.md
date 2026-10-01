@@ -688,6 +688,22 @@ Replaces the Driver rows in section 5. The driver has one screen while driving.
   drivers).
 - Gate: driver routes become `/`, `/stock`, `/settings`; the card plus banner together are under
   36 % of the viewport height at 390x844; Queue button at least 56 px; overflow 0.
+- Work on the map (built 2026-10-01): under the route line the map draws every lot at the truck's CC
+  site as its parcel outline in the status colour (the shared `lotShape`, squares for lots without an
+  outline), every crew area rectangle of the CC on the truck's day with its name pill (the green map's
+  `useDayOfLayer`, block sides left out), and each crew's red dot with "Crew 7". Lots sit in their own
+  SVG pane under the route; rectangles sit under the route too; pills and crew names stay upright on the
+  heading-up map. A **Lots** toggle (at least 44 px, `data-lots-toggle`) sits bottom left above
+  Recenter and hides the lots and rectangles; on by default. Crew dots always show.
+- Tap a lot: the shared LotSheet with **Open** / **In progress** / **Done** / **Skip**, the lot's crew,
+  and the Before and After tiles. `driver.setLotStatus` takes lots whose CC is the truck's site (SPEC 8),
+  sets no crew in `status_by_crew_id`, and emits lot.changed; the map recolours at once and rolls back
+  if the server refuses. While the map follows the truck, the first tap takes the map; the next tap opens
+  the lot.
+- Tap a rectangle's name pill: a card with the area's crews (sheet name, crew number, lead), the company,
+  "Lots done, n of total", and **Call** / **Text** for each lead. No Reassign, Done or Do not touch.
+- Queries: `driver.lots` (lots and rectangles, refetched on lot.changed) and `driver.crews` (names,
+  leads, positions, refetched on position events).
 
 ## 18. Sign-in and access requests (replaces section 4's code field)
 

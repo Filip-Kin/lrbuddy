@@ -3,10 +3,11 @@ import { and, between, eq } from "drizzle-orm";
 import { z } from "zod";
 import { bus } from "../bus.ts";
 import { db } from "../db/index.ts";
-import { lots, routes, sessions, trucks, type CommandCenter, type Manoeuvre, type Route, type Truck } from "../db/schema.ts";
+import { companies, crews, LOT_STATUSES, lots, routes, sessions, trucks, type CommandCenter, type Manoeuvre, type Route, type Truck } from "../db/schema.ts";
 import {
   adjustStock,
   cancelRequest,
+  crewLabel,
   deliverStop,
   getRequest,
   legEtaAt,
@@ -20,7 +21,10 @@ import {
   type StockRow,
 } from "../dispatch.ts";
 import { bboxAround, directionsUrl, haversine, type LatLng } from "../geo.ts";
-import { requestViews } from "../queries.ts";
+import { dayOfAreas } from "../dayof.ts";
+import { emitLot } from "../lots-import.ts";
+import { latestPositions, lotsAt, requestViews, siteCcIds } from "../queries.ts";
+import { teamNames } from "./plan/common.ts";
 import { driverProcedure, liveFor, readCcScope, router, sameCc } from "../trpc.ts";
 
 // #region constants
@@ -248,6 +252,65 @@ export const driverRouter = router({
       for (const r of rows) cancelRequest(r.id, "driver", input.note);
       return buildQueue(ctx.truck.id, ctx.cc, ctx.event.id);
     }),
+
+  // #region lots and crews on the map (SPEC 17)
+  /** Every lot at the truck's CC site with its outline, and the CC's rectangles on the truck's day. */
+  lots: driverProcedure.query(({ ctx }) => ({
+    lots: lotsAt(ctx.cc.id, ctx.day.id).map((l) => ({
+      id: l.id,
+      lat: l.lat,
+      lng: l.lng,
+      address: l.address,
+      parcelId: l.parcelId,
+      geometry: l.geometry,
+      status: l.status,
+      statusAt: l.statusAt,
+      crewId: l.crewId,
+      note: l.note,
+    })),
+    areas: dayOfAreas({ cc: ctx.cc, day: ctx.day }),
+  })),
+
+  /** Crews at the truck's CC on its day: dots on the map, names and leads for the rectangle card. */
+  crews: driverProcedure.query(({ ctx }) => {
+    const rows = db
+      .select({ crew: crews, company: companies })
+      .from(crews)
+      .leftJoin(companies, eq(companies.id, crews.companyId))
+      .where(and(eq(crews.ccId, ctx.cc.id), eq(crews.dayId, ctx.day.id)))
+      .orderBy(crews.number)
+      .all();
+    const pos = latestPositions("crew", rows.map((r) => r.crew.id));
+    const team = teamNames(ctx.day.id);
+    return rows.map(({ crew, company }) => {
+      const p = pos.get(crew.id);
+      return {
+        id: crew.id,
+        name: crewLabel(crew),
+        team: team.get(crew.id) ?? crewLabel(crew),
+        companyName: company?.name ?? null,
+        leadName: crew.leadName,
+        leadPhone: crew.leadPhone,
+        areaId: crew.areaId,
+        position: p ? { lat: p.lat, lng: p.lng } : null,
+      };
+    });
+  }),
+
+  /**
+   * Status of a lot at the truck's CC site, for a crew that forgot to mark it.
+   * Sets no crew in `status_by_crew_id`: the driver made the call.
+   */
+  setLotStatus: driverProcedure.input(z.object({ lotId: z.number().int(), status: z.enum(LOT_STATUSES) })).mutation(({ ctx, input }) => {
+    const lot = db.select().from(lots).where(eq(lots.id, input.lotId)).get();
+    if (!lot || lot.eventId !== ctx.event.id) throw new TRPCError({ code: "NOT_FOUND", message: "Lot not found" });
+    if (lot.ccId === null || !siteCcIds(ctx.cc.id).includes(lot.ccId)) throw new TRPCError({ code: "FORBIDDEN", message: "Lot not at this command center" });
+    if (lot.status === input.status) return lot;
+    const updated = db.update(lots).set({ status: input.status, statusByCrewId: null, statusAt: Date.now() }).where(eq(lots.id, lot.id)).returning().get();
+    emitLot(updated);
+    return updated;
+  }),
+  // #endregion
 
   stock: driverProcedure.query(({ ctx }): StockRow[] => stockFor(ctx.truck.id)),
 

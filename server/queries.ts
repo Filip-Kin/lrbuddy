@@ -7,12 +7,14 @@ import {
   days,
   events,
   greenShirts,
+  lots,
   positions,
   requests,
   requestTypes,
   routes,
   trucks,
   type Event,
+  type Lot,
   type PositionKind,
   type Request,
   type RequestType,
@@ -41,6 +43,21 @@ export const siteCcIds = (ccId: number): number[] => {
 /** Crew ids on the day, for telling a lot's crew from today apart from one left over from another day. */
 export const crewIdsOnDay = (dayId: number): Set<number> =>
   new Set(db.select({ id: crews.id }).from(crews).where(eq(crews.dayId, dayId)).all().map((r) => r.id));
+
+/**
+ * Lots at the CC's site, on any day's row of it. A crew assignment left over
+ * from another day reads as no crew: crews are rows for one day.
+ */
+export const lotsAt = (ccId: number, dayId: number): Lot[] => {
+  const today = crewIdsOnDay(dayId);
+  return db
+    .select()
+    .from(lots)
+    .where(inArray(lots.ccId, siteCcIds(ccId)))
+    .orderBy(lots.address)
+    .all()
+    .map((l) => (l.crewId !== null && !today.has(l.crewId) ? { ...l, crewId: null } : l));
+};
 
 export const activeEvent = (): Event | undefined => db.select().from(events).where(eq(events.active, true)).get();
 

@@ -160,12 +160,11 @@ export interface DayOfSide {
   counts: Counts;
 }
 
-/** Rectangles and block sides at the CC for the green map, with lot counts, and the companies a rectangle can go to. */
-export const dayOfMap = (scope: Scope) => {
-  const s = snapshot(scope);
+/** The CC's rectangles with their lot counts. */
+const areaViews = (scope: Scope, s: Snapshot): DayOfArea[] => {
   const companyRows = db.select().from(companies).where(eq(companies.eventId, scope.day.eventId)).all();
   const companyName = (id: number | null): string | null => companyRows.find((c) => c.id === id)?.name ?? null;
-  const areas: DayOfArea[] = s.areas.flatMap((a) => {
+  return s.areas.flatMap((a) => {
     const ring = (a.polygon?.coordinates[0] ?? []).map((p): [number, number] => [p[0] ?? 0, p[1] ?? 0]);
     if (ring.length < 4) return [];
     return [
@@ -182,6 +181,16 @@ export const dayOfMap = (scope: Scope) => {
       },
     ];
   });
+};
+
+/** The CC's rectangles on its day with lot counts, without block sides (the driver map). */
+export const dayOfAreas = (scope: Scope): DayOfArea[] => areaViews(scope, snapshot(scope));
+
+/** Rectangles and block sides at the CC for the green map, with lot counts, and the companies a rectangle can go to. */
+export const dayOfMap = (scope: Scope) => {
+  const s = snapshot(scope);
+  const companyRows = db.select().from(companies).where(eq(companies.eventId, scope.day.eventId)).all();
+  const areas = areaViews(scope, s);
   const shapes = new Map(sideShapes(s.sides.map((x) => x.key)).map((x) => [x.key, x.ring]));
   const sides: DayOfSide[] = s.sides.flatMap((x) => {
     const ring = shapes.get(x.key);

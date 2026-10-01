@@ -66,6 +66,7 @@ const invalidate = (utils: Utils, kind: Kind): void => {
       void utils.green.overview.invalidate();
       void utils.green.crews.invalidate();
       void utils.green.trucks.invalidate();
+      void utils.driver.crews.invalidate();
       break;
     case "route":
       void utils.driver.queue.invalidate();
@@ -79,6 +80,7 @@ const invalidate = (utils: Utils, kind: Kind): void => {
       void utils.crew.lots.invalidate();
       void utils.crew.map.invalidate();
       void utils.green.lots.invalidate();
+      void utils.driver.lots.invalidate();
       void utils.green.overview.invalidate();
       void utils.green.plan.invalidate();
       void utils.green.stats.invalidate();

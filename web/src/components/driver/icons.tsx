@@ -102,3 +102,10 @@ export const ListIcon = ({ size }: { size?: number }) => (
     <circle cx="4.5" cy="18" r="1" />
   </Svg>
 );
+
+export const LayersIcon = ({ size }: { size?: number }) => (
+  <Svg size={size}>
+    <path d="M12 3l9 5-9 5-9-5z" />
+    <path d="M3 13l9 5 9-5" />
+  </Svg>
+);

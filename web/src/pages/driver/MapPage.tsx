@@ -5,13 +5,14 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { Sheet } from "../../components/Sheet.tsx";
 import { StatusPill } from "../../components/StatusPill.tsx";
 import { CancelSheet } from "../../components/driver/CancelSheet.tsx";
-import { DriverMap, type DriverMapStop } from "../../components/driver/DriverMap.tsx";
+import { DriverMap, type DriverMapCrew, type DriverMapLot, type DriverMapStop } from "../../components/driver/DriverMap.tsx";
 import { etaText, itemsSummary } from "../../components/driver/format.ts";
 import { compass, manoeuvreAngle, manoeuvreLabel, nextManoeuvre, straightLine, type Manoeuvre } from "../../components/driver/guidance.ts";
 import { useDistanceFrom, useDriverActions, useNewStopBuzz, useNow, useWakeLock, type DriverActions, type DriverQueue, type QueueStop } from "../../components/driver/hooks.ts";
-import { ArrowIcon, FlagIcon, ListIcon, NavigateIcon, PhoneIcon, PinIcon, RecenterIcon, TruckIcon } from "../../components/driver/icons.tsx";
+import { ArrowIcon, FlagIcon, LayersIcon, ListIcon, NavigateIcon, PhoneIcon, PinIcon, RecenterIcon, TruckIcon } from "../../components/driver/icons.tsx";
+import { AreaCard, DriverLotSheet } from "../../components/driver/WorkSheets.tsx";
 import { CcStopCard, ErrorLine, NewPill, StopDetails, StopRow, isNew, stopEta, useArmed } from "../../components/driver/StopCard.tsx";
-import { distance, duration, telHref } from "../../lib/format.ts";
+import { distance, duration, lotTitle, telHref } from "../../lib/format.ts";
 import { useMyFix } from "../../lib/position.ts";
 import { trpc } from "../../lib/trpc.ts";
 import { nextHeading } from "../plan/survey/drive.ts";
@@ -271,6 +272,11 @@ export const MapPage = () => {
   const [queueOpen, setQueueOpen] = useState(false);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [cancelKey, setCancelKey] = useState<string | null>(null);
+  const work = trpc.driver.lots.useQuery(undefined, { refetchInterval: 60_000 });
+  const crewList = trpc.driver.crews.useQuery(undefined, { refetchInterval: 30_000 });
+  const [showLots, setShowLots] = useState(true);
+  const [lotId, setLotId] = useState<number | null>(null);
+  const [areaId, setAreaId] = useState<number | null>(null);
 
   const stops = q?.stops ?? [];
   const next = stops[0] ?? null;
@@ -286,6 +292,18 @@ export const MapPage = () => {
   );
   const cc = useMemo(() => (q ? { lat: q.cc.lat, lng: q.cc.lng, name: `CC ${q.cc.name}`, letter: q.cc.letter } : null), [q]);
   const line = r.data?.geometry ?? [];
+
+  const mapLots = useMemo<DriverMapLot[]>(
+    () => (work.data?.lots ?? []).map((l) => ({ id: l.id, lat: l.lat, lng: l.lng, status: l.status, geometry: l.geometry, title: lotTitle(l) })),
+    [work.data],
+  );
+  const mapCrews = useMemo<DriverMapCrew[]>(
+    () => (crewList.data ?? []).flatMap((c) => (c.position ? [{ id: c.id, lat: c.position.lat, lng: c.position.lng, label: c.name }] : [])),
+    [crewList.data],
+  );
+  const crewsAll = crewList.data ?? [];
+  const selLot = work.data?.lots.find((l) => l.id === lotId) ?? null;
+  const selArea = work.data?.areas.find((a) => a.id === areaId) ?? null;
 
   const target: Target | null = next
     ? { key: next.key, lat: next.lat, lng: next.lng, name: next.name, navigateUrl: next.navigateUrl }
@@ -307,6 +325,12 @@ export const MapPage = () => {
         follow={follow}
         onUnfollow={() => setFollow(false)}
         onStop={(key) => setOpenKey(key)}
+        lots={mapLots}
+        areas={work.data?.areas}
+        crews={mapCrews}
+        showLots={showLots}
+        onLot={setLotId}
+        onArea={setAreaId}
       />
 
       <div className="pointer-events-none absolute inset-x-2 top-2 z-[1000] mx-auto max-w-lg space-y-2">
@@ -336,14 +360,25 @@ export const MapPage = () => {
         {target && at && <GuidanceBanner target={target} at={at} heading={follow ? heading : null} line={line} steps={steps} />}
       </div>
 
-      {!follow && (
-        <div className="pointer-events-none absolute bottom-[max(2.25rem,env(safe-area-inset-bottom))] left-3 z-[1000]">
+      <div className="pointer-events-none absolute bottom-[max(2.25rem,env(safe-area-inset-bottom))] left-3 z-[1000] flex flex-col items-start gap-2">
+        <Button
+          data-lots-toggle
+          variant="secondary"
+          size="lg"
+          aria-pressed={showLots}
+          className={`pointer-events-auto px-4 shadow-lg ${showLots ? "bg-surface! ring-2! ring-ink!" : "bg-surface! text-muted!"}`}
+          onClick={() => setShowLots((v) => !v)}
+        >
+          <LayersIcon />
+          Lots
+        </Button>
+        {!follow && (
           <Button variant="secondary" size="lg" className="pointer-events-auto bg-surface! px-4 shadow-lg" onClick={() => setFollow(true)}>
             <RecenterIcon />
             Recenter
           </Button>
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="pointer-events-none absolute right-4 bottom-[max(2.25rem,env(safe-area-inset-bottom))] z-[1000]">
         <Button data-queue-button size="lg" className="pointer-events-auto min-h-16 min-w-16 px-6 text-xl shadow-lg" onClick={() => setQueueOpen(true)} aria-label={`Queue, ${stops.length} ${stops.length === 1 ? "stop" : "stops"}`}>
@@ -374,6 +409,8 @@ export const MapPage = () => {
           </div>
         )}
       </Sheet>
+      <DriverLotSheet lot={selLot} crew={crewsAll.find((c) => c.id === selLot?.crewId) ?? null} onClose={() => setLotId(null)} />
+      <AreaCard area={selArea} crews={crewsAll} onClose={() => setAreaId(null)} />
       <CancelSheet stop={cancelStop} actions={actions} onClose={() => setCancelKey(null)} />
     </div>
   );

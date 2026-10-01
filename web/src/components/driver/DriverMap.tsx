@@ -1,15 +1,29 @@
 import L from "leaflet";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM } from "../../lib/map/basemap.ts";
-import { ccBody, escapeHtml, routeLine } from "../../lib/map/markers.ts";
+import type { LotGeometry } from "../../../../server/db/schema.ts";
+import { ccBody, escapeHtml, lotIcon, lotShape, routeLine, type LotStatus } from "../../lib/map/markers.ts";
 import { usePrefersDark } from "../../lib/map/MapView.tsx";
 import { ahead, metresPerPixel, turn, type LatLng } from "../../pages/plan/survey/geo.ts";
+import { useDayOfLayer, type DayOfArea } from "../green/dayOfLayer.ts";
 
 export interface DriverMapStop extends LatLng {
   key: string;
   n: number;
   active: boolean;
   name: string;
+}
+
+export interface DriverMapLot extends LatLng {
+  id: number;
+  status: LotStatus;
+  geometry: LotGeometry | null;
+  title: string;
+}
+
+export interface DriverMapCrew extends LatLng {
+  id: number;
+  label: string;
 }
 
 /** Zoom while following the truck: a few blocks ahead. */
@@ -45,6 +59,15 @@ const stopIcon = (n: number, active: boolean): L.DivIcon =>
     iconAnchor: [14, 14],
   });
 
+/** Red crew dot with its name, kept upright on the turned map. */
+const crewDotIcon = (label: string): L.DivIcon =>
+  L.divIcon({
+    className: "lrb-crew",
+    html: `<span style="display:block;${UNROT}"><span class="lrb-crew-dot"></span><span class="lrb-tag">${escapeHtml(label)}</span></span>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  });
+
 const ccStarIcon = (name: string, letter: string | null): L.DivIcon =>
   L.divIcon({
     className: "lrb-cc",
@@ -53,6 +76,14 @@ const ccStarIcon = (name: string, letter: string | null): L.DivIcon =>
     iconAnchor: [18, 18],
   });
 // #endregion
+
+/** Lot outlines sit in their own pane under the route line (overlay pane, 400) and the rectangles (395). */
+const LOTS_PANE = "lrb-driver-lots";
+const AREAS_Z = "395";
+/** A tap that takes the map from following snaps it north up; whatever lands under the finger then is not what was aimed at. */
+const TAKE_GRACE_MS = 600;
+const NO_SIDES: [] = [];
+const noSide = (): void => undefined;
 
 const setInteractive = (m: L.Map, on: boolean): void => {
   for (const h of [m.dragging, m.touchZoom, m.scrollWheelZoom, m.doubleClickZoom]) {
@@ -79,6 +110,12 @@ export const DriverMap = ({
   follow,
   onUnfollow,
   onStop,
+  lots,
+  areas,
+  crews,
+  showLots,
+  onLot,
+  onArea,
 }: {
   at: LatLng | null;
   heading: number | null;
@@ -88,6 +125,12 @@ export const DriverMap = ({
   follow: boolean;
   onUnfollow: () => void;
   onStop: (key: string) => void;
+  lots: readonly DriverMapLot[];
+  areas: readonly DayOfArea[] | undefined;
+  crews: readonly DriverMapCrew[];
+  showLots: boolean;
+  onLot: (id: number) => void;
+  onArea: (id: number) => void;
 }) => {
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
@@ -96,6 +139,11 @@ export const DriverMap = ({
   const lineLayer = useRef<L.LayerGroup | null>(null);
   const markLayer = useRef<L.LayerGroup | null>(null);
   const truckLayer = useRef<L.LayerGroup | null>(null);
+  const lotLayer = useRef<L.LayerGroup | null>(null);
+  const crewLayer = useRef<L.LayerGroup | null>(null);
+  const lotRenderer = useRef<L.Renderer | null>(null);
+  const tookAt = useRef(0);
+  const [leaflet, setLeaflet] = useState<L.Map | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const rot = useRef(0);
   const followRef = useRef(follow);
@@ -104,6 +152,8 @@ export const DriverMap = ({
   unfollowRef.current = onUnfollow;
   const onStopRef = useRef(onStop);
   onStopRef.current = onStop;
+  const onLotRef = useRef(onLot);
+  onLotRef.current = onLot;
   const dark = usePrefersDark();
 
   useEffect(() => {
@@ -126,13 +176,20 @@ export const DriverMap = ({
       maxZoom: MAX_ZOOM,
     }).setView(DEFAULT_CENTER, FOLLOW_ZOOM);
     setInteractive(m, false);
+    m.createPane(LOTS_PANE).style.zIndex = "380";
+    lotRenderer.current = L.svg({ pane: LOTS_PANE });
+    lotLayer.current = L.layerGroup().addTo(m);
+    crewLayer.current = L.layerGroup().addTo(m);
     lineLayer.current = L.layerGroup().addTo(m);
     markLayer.current = L.layerGroup().addTo(m);
     truckLayer.current = L.layerGroup().addTo(m);
     map.current = m;
+    setLeaflet(m);
     return () => {
+      setLeaflet(null);
       m.remove();
       map.current = null;
+      lotRenderer.current = null;
       tiles.current = [];
     };
   }, []);
@@ -148,6 +205,7 @@ export const DriverMap = ({
       const sq = inner.current;
       if (!m || !sq) return;
       followRef.current = false;
+      tookAt.current = Date.now();
       rot.current = 0;
       sq.style.transition = "none";
       sq.style.transform = "rotate(0deg)";
@@ -226,8 +284,38 @@ export const DriverMap = ({
     }
   }, [stops, cc]);
 
+  // Lots at the truck's CC in their status colour (SPEC 13), the same outline or square every map draws.
+  useEffect(() => {
+    const g = lotLayer.current;
+    const renderer = lotRenderer.current;
+    if (!g || !renderer) return;
+    g.clearLayers();
+    if (!showLots) return;
+    for (const l of lots) {
+      const layer = l.geometry
+        ? lotShape(l.geometry, l.status, true, false, { pane: LOTS_PANE, renderer })
+        : L.marker([l.lat, l.lng], { icon: lotIcon(l.status), zIndexOffset: -200, title: l.title, alt: l.title, keyboard: false });
+      layer.on("click", (e: L.LeafletEvent) => {
+        L.DomEvent.stopPropagation(e as L.LeafletMouseEvent);
+        if (Date.now() - tookAt.current < TAKE_GRACE_MS) return;
+        onLotRef.current(l.id);
+      });
+      g.addLayer(layer);
+    }
+  }, [lots, showLots]);
+
+  useEffect(() => {
+    const g = crewLayer.current;
+    if (!g) return;
+    g.clearLayers();
+    for (const c of crews) L.marker([c.lat, c.lng], { icon: crewDotIcon(c.label), interactive: false, keyboard: false, zIndexOffset: 200 }).addTo(g);
+  }, [crews]);
+
+  const plan = useMemo(() => (areas ? { areas: [...areas], sides: NO_SIDES } : undefined), [areas]);
+  useDayOfLayer(leaflet, plan, showLots, onArea, noSide, AREAS_Z);
+
   return (
-    <div ref={outer} role="region" aria-label="Route map" className="absolute inset-0 overflow-hidden bg-surface-2">
+    <div ref={outer} role="region" aria-label="Route map" className="lrb-driver-map absolute inset-0 overflow-hidden bg-surface-2">
       <div
         ref={inner}
         className="absolute transition-transform duration-500 ease-linear motion-reduce:transition-none"

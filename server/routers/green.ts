@@ -21,7 +21,7 @@ import { dayOfMap, markArea, markSide, reassignArea } from "../dayof.ts";
 import { emitLot } from "../lots-import.ts";
 import { filterPairs, pairState, photoCounts, photoPairs, photoSummary, sitePhotos } from "../photos.ts";
 import { pushToCc } from "../push.ts";
-import { catalogFor, crewIdsOnDay, latestPositions, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
+import { catalogFor, latestPositions, lotsAt, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
 import { greenProcedure, router } from "../trpc.ts";
 
 const ACTIVE_CREW_MS = 30 * 60_000;
@@ -87,21 +87,6 @@ const trucksAt = (ccId: number, dayId: number) => {
       lowStock: stock.some(isLow),
     };
   });
-};
-
-/**
- * Lots at the CC's site, on any day's row of it. A crew assignment left over
- * from another day reads as no crew: crews are rows for one day.
- */
-const lotsAt = (ccId: number, dayId: number): Lot[] => {
-  const today = crewIdsOnDay(dayId);
-  return db
-    .select()
-    .from(lots)
-    .where(inArray(lots.ccId, siteCcIds(ccId)))
-    .orderBy(lots.address)
-    .all()
-    .map((l) => (l.crewId !== null && !today.has(l.crewId) ? { ...l, crewId: null } : l));
 };
 
 const scopedRequest = (id: number, ccId: number) => {

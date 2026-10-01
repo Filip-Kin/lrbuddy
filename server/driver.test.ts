@@ -20,6 +20,7 @@ const setup = await import("./setup.ts");
 const { createSession } = await import("./auth.ts");
 const { driverRouter } = await import("./routers/driver.ts");
 const { eq, and } = await import("drizzle-orm");
+const { bus } = await import("./bus.ts");
 
 afterAll(() => {
   d.cancelScheduledRoutes();
@@ -217,5 +218,82 @@ describe("driver actions", () => {
     const t = addTruck(w, "Truck 1", CC, now);
     await driverOf(t.id, w.ccId).setName({ name: "Pat" });
     expect(db.select().from(s.trucks).where(eq(s.trucks.id, t.id)).get()!.driverName).toBe("Pat");
+  });
+});
+
+describe("driver lots", () => {
+  const addLot = (eventId: number, ccId: number | null, address: string) =>
+    db.insert(s.lots).values({ eventId, ccId, address, lat: CC.lat + 0.001, lng: CC.lng, source: "manual" }).returning().get();
+
+  const listen = () => {
+    const got: number[] = [];
+    const off = bus.subscribe((m) => {
+      if (m.type === "lot.changed") got.push(m.payload.lot.id);
+    });
+    return { got, off };
+  };
+
+  test("a lot at the truck's CC: shown on the map, Done saved with no crew, lot.changed emitted", async () => {
+    const now = Date.now();
+    const t = addTruck(w, "Truck 1", CC, now);
+    const other = setup.createCc({ dayId: w.dayId, name: "West", lat: CC.lat, lng: CC.lng + 0.02, address: "West" });
+    const here = addLot(w.eventId, w.ccId, "100 Here St");
+    const there = addLot(w.eventId, other.id, "200 There St");
+    const caller = driverOf(t.id, w.ccId);
+
+    const map = await caller.lots();
+    expect(map.lots.map((l) => l.id)).toEqual([here.id]);
+    expect(map.lots.map((l) => l.id)).not.toContain(there.id);
+
+    const l = listen();
+    const saved = await caller.setLotStatus({ lotId: here.id, status: "done" });
+    l.off();
+    expect(saved.status).toBe("done");
+    expect(saved.statusByCrewId).toBeNull();
+    expect(l.got).toContain(here.id);
+    expect((await caller.lots()).lots[0]!.status).toBe("done");
+
+    await caller.setLotStatus({ lotId: here.id, status: "open" });
+    expect(db.select().from(s.lots).where(eq(s.lots.id, here.id)).get()!.status).toBe("open");
+  });
+
+  test("lots at another CC, at no CC, or in another event are refused", async () => {
+    const now = Date.now();
+    const t = addTruck(w, "Truck 1", CC, now);
+    const other = setup.createCc({ dayId: w.dayId, name: "West", lat: CC.lat, lng: CC.lng + 0.02, address: "West" });
+    const caller = driverOf(t.id, w.ccId);
+    const there = addLot(w.eventId, other.id, "200 There St");
+    const loose = addLot(w.eventId, null, "300 Loose St");
+    const ev2 = setup.createEvent({ name: "Other", year: 2026, startDate: "2026-10-05", dayCount: 1, active: false });
+    const foreign = addLot(ev2.id, null, "400 Other Event St");
+
+    await expect(caller.setLotStatus({ lotId: there.id, status: "done" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.setLotStatus({ lotId: loose.id, status: "done" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.setLotStatus({ lotId: foreign.id, status: "done" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    for (const id of [there.id, loose.id, foreign.id]) expect(db.select().from(s.lots).where(eq(s.lots.id, id)).get()!.status).toBe("open");
+  });
+
+  test("a lot placed at the same site on another day counts as the truck's CC", async () => {
+    const now = Date.now();
+    const ev = setup.createEvent({ name: "Two days", year: 2026, startDate: "2026-10-01", dayCount: 2, active: true });
+    const [d1, d2] = db.select().from(s.days).where(eq(s.days.eventId, ev.id)).orderBy(s.days.date).all();
+    const cc1 = setup.createCc({ dayId: d1!.id, name: "North", ...CC, address: "North" });
+    const cc2 = setup.createCc({ dayId: d2!.id, name: "north", ...CC, address: "North" });
+    const t = setup.createTruck({ dayId: d2!.id, ccId: cc2.id, name: "Truck N" });
+    db.update(s.trucks).set({ lastSeenAt: now }).where(eq(s.trucks.id, t.id)).run();
+    const lot = addLot(ev.id, cc1.id, "500 Site St");
+    const saved = await driverOf(t.id, cc2.id).setLotStatus({ lotId: lot.id, status: "in_progress" });
+    expect(saved.status).toBe("in_progress");
+  });
+
+  test("crews at the CC come with their lead and position", async () => {
+    const now = Date.now();
+    const t = addTruck(w, "Truck 1", CC, now);
+    const c = addCrew(w, north(0.2), now);
+    db.update(s.crews).set({ leadName: "Lee", leadPhone: "3135550100" }).where(eq(s.crews.id, c.id)).run();
+    const list = await driverOf(t.id, w.ccId).crews();
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ id: c.id, name: `Crew ${c.number}`, leadName: "Lee", leadPhone: "3135550100" });
+    expect(list[0]!.position).not.toBeNull();
   });
 });

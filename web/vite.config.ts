@@ -23,6 +23,12 @@ export default defineConfig({
       "/auth": api,
       "/j/": api,
       "/health": api,
+      "/admin/photos.zip": api,
+      // Photo files and uploads; GET /photos itself is the green gallery page.
+      "/photos": {
+        target: api,
+        bypass: (req) => (req.method === "GET" && !/^\/photos\/\d/.test(req.url ?? "") ? "/index.html" : undefined),
+      },
     },
   },
 });

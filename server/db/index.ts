@@ -10,7 +10,7 @@ import * as schema from "./schema.ts";
  * directly rather than through config.ts so tests and the seed can point it at
  * a temp directory without supplying the auth secrets.
  */
-const dataDir = process.env.DATA_DIR && process.env.DATA_DIR.trim() !== "" ? process.env.DATA_DIR : "./data";
+export const dataDir = process.env.DATA_DIR && process.env.DATA_DIR.trim() !== "" ? process.env.DATA_DIR : "./data";
 mkdirSync(dataDir, { recursive: true });
 
 export const dbPath = join(dataDir, "lrbuddy.db");

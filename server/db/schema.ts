@@ -38,6 +38,9 @@ export type LotSource = (typeof LOT_SOURCES)[number];
 export const LOT_STATUSES = ["open", "in_progress", "done", "skipped"] as const;
 export type LotStatus = (typeof LOT_STATUSES)[number];
 
+export const PHOTO_KINDS = ["before", "after"] as const;
+export type PhotoKind = (typeof PHOTO_KINDS)[number];
+
 export const ROUTE_ENGINES = ["osrm", "fallback"] as const;
 export type RouteEngine = (typeof ROUTE_ENGINES)[number];
 // #endregion
@@ -326,6 +329,38 @@ export const lots = sqliteTable(
   ],
 );
 
+/**
+ * Before and after photos of a lot. The JPEGs live at `$DATA_DIR/photos/<id>.jpg`
+ * and `<id>.thumb.jpg`, never in the database. `session_id` names the session
+ * that took it (no foreign key: the photo outlives a sign-out). CC and day
+ * fall to null if an admin deletes that CC row, so the photo stays with its lot.
+ */
+export const lotPhotos = sqliteTable(
+  "lot_photos",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    lotId: integer("lot_id")
+      .notNull()
+      .references(() => lots.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: PHOTO_KINDS }).notNull(),
+    sessionId: text("session_id"),
+    takenBy: text("taken_by"),
+    role: text("role", { enum: ROLES }).notNull(),
+    crewId: integer("crew_id").references(() => crews.id, { onDelete: "set null" }),
+    truckId: integer("truck_id").references(() => trucks.id, { onDelete: "set null" }),
+    ccId: integer("cc_id").references(() => commandCenters.id, { onDelete: "set null" }),
+    dayId: integer("day_id").references(() => days.id, { onDelete: "set null" }),
+    at: integer("at").notNull(),
+    lat: real("lat"),
+    lng: real("lng"),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    bytes: integer("bytes").notNull(),
+    deletedAt: integer("deleted_at"),
+  },
+  (t) => [index("lot_photos_lot_idx").on(t.lotId), index("lot_photos_day_cc_idx").on(t.dayId, t.ccId)],
+);
+
 export const pushSubscriptions = sqliteTable("push_subscriptions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   sessionId: text("session_id")
@@ -393,4 +428,5 @@ export type Lot = typeof lots.$inferSelect;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type Broadcast = typeof broadcasts.$inferSelect;
 export type Route = typeof routes.$inferSelect;
+export type LotPhoto = typeof lotPhotos.$inferSelect;
 // #endregion

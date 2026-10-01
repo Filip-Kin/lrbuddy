@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { bus } from "../bus.ts";
 import { db } from "../db/index.ts";
-import { broadcasts, companies, crews, lots, requests, trucks, type Lot } from "../db/schema.ts";
+import { broadcasts, companies, crews, LOT_STATUSES, lots, requests, trucks, type Lot } from "../db/schema.ts";
 import {
   cancelRequest,
   createRequest,
@@ -18,6 +18,7 @@ import {
   stopsForTruck,
 } from "../dispatch.ts";
 import { emitLot } from "../lots-import.ts";
+import { filterPairs, pairState, photoCounts, photoPairs, photoSummary, sitePhotos } from "../photos.ts";
 import { pushToCc } from "../push.ts";
 import { catalogFor, crewIdsOnDay, latestPositions, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
 import { greenProcedure, router } from "../trpc.ts";
@@ -193,7 +194,8 @@ export const greenRouter = router({
   catalog: greenProcedure.query(({ ctx }) => catalogFor(ctx.event.id)),
 
   lots: greenProcedure.query(({ ctx }) => {
-    const rows = lotsAt(ctx.cc.id, ctx.day.id);
+    const summary = photoSummary(ctx.event.id);
+    const rows = lotsAt(ctx.cc.id, ctx.day.id).map((l) => ({ ...l, photos: pairState(summary.get(l.id)) }));
     const crewList = crewsAt(ctx.cc.id, ctx.day.id);
     const byCrew = new Map<number | null, Record<Lot["status"], number>>();
     for (const l of rows) {
@@ -224,6 +226,30 @@ export const greenRouter = router({
         .all();
       for (const l of updated) emitLot(l);
       return { updated: updated.length };
+    }),
+
+  /** Before and after pairs at this CC's site, newest first, with the filter options. */
+  photos: greenProcedure
+    .input(
+      z
+        .object({
+          companyId: z.number().int().nullish(),
+          crewId: z.number().int().nullish(),
+          status: z.enum(LOT_STATUSES).nullish(),
+          missingAfter: z.boolean().nullish(),
+        })
+        .optional(),
+    )
+    .query(({ ctx, input }) => {
+      const all = photoPairs(sitePhotos(ctx.cc.id));
+      const crewList = crewsAt(ctx.cc.id, ctx.day.id);
+      const companyIds = new Set([...crewList.map((c) => c.companyId), ...all.map((p) => p.companyId)].filter((x): x is number => x !== null));
+      return {
+        pairs: filterPairs(all, input ?? {}),
+        total: all.length,
+        crews: crewList.map((c) => ({ id: c.id, name: c.name, companyId: c.companyId })),
+        companies: companyIds.size === 0 ? [] : db.select().from(companies).where(inArray(companies.id, [...companyIds])).orderBy(companies.name).all(),
+      };
     }),
 
   crews: greenProcedure.query(({ ctx }) => crewsAt(ctx.cc.id, ctx.day.id)),
@@ -266,7 +292,11 @@ export const greenRouter = router({
     const lotRows = lotsAt(ctx.cc.id, ctx.day.id);
     const lotsByStatus: Record<Lot["status"], number> = { open: 0, in_progress: 0, done: 0, skipped: 0 };
     for (const l of lotRows) lotsByStatus[l.status]++;
+    const photographed = photoCounts(lotRows.map((l) => l.id), photoSummary(ctx.event.id));
     return {
+      /** Lots with a before and an after photo, and lots with a before and no after. */
+      photographed: photographed.both,
+      missingAfter: photographed.missingAfter,
       requestsByType: [...byType.values()].sort((a, b) => b.count - a.count),
       medianDeliverMs: median(deliverMs),
       delivered: deliverMs.length,

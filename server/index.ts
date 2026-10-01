@@ -1,10 +1,12 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { existsSync } from "node:fs";
 import { join, normalize } from "node:path";
-import { allowLogin, clearCookie, deleteSession, joinWithToken, loginWithCode, sessionCookie, sessionIdFrom, setSessionName } from "./auth.ts";
+import { allowLogin, clearCookie, deleteSession, getSession, joinWithToken, loginWithCode, sessionCookie, sessionIdFrom, setSessionName } from "./auth.ts";
 import { config } from "./config.ts";
 import { sqlite } from "./db/index.ts";
 import { startRouteRefresh } from "./dispatch.ts";
+import { eventPhotos, handlePhotoUpload, photoZipStream, servePhoto, sweepPhotoFiles } from "./photos.ts";
+import { activeEvent } from "./queries.ts";
 import { appRouter } from "./routers/index.ts";
 import { createContextFor } from "./trpc.ts";
 
@@ -113,6 +115,29 @@ const server = Bun.serve({
       return new Response(null, { status: 302, headers: { location: "/", "set-cookie": sessionCookie(session.id) } });
     }
 
+    // #region photos
+    if (path === "/photos" && req.method === "POST") return handlePhotoUpload(req);
+
+    const photo = /^\/photos\/(\d+)(\/thumb)?\/?$/.exec(path);
+    if (photo && (req.method === "GET" || req.method === "HEAD")) return servePhoto(req, Number(photo[1]), photo[2] !== undefined);
+
+    if (path === "/admin/photos.zip" && req.method === "GET") {
+      if (getSession(sessionIdFrom(req))?.role !== "admin") return new Response("Sign in", { status: 401 });
+      const ev = activeEvent();
+      if (!ev) return new Response("No active event", { status: 404 });
+      const id = (k: string): number | null => {
+        const n = Number(url.searchParams.get(k) ?? "");
+        return Number.isInteger(n) && n > 0 ? n : null;
+      };
+      const rows = eventPhotos(ev.id, { dayId: id("day"), ccId: id("cc") });
+      const stamp = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Detroit" });
+      const name = `lrbuddy-photos-${stamp}.zip`;
+      return new Response(photoZipStream(rows), {
+        headers: { "content-type": "application/zip", "content-disposition": `attachment; filename="${name}"`, "cache-control": "no-store" },
+      });
+    }
+    // #endregion
+
     if (path === "/trpc" || path.startsWith("/trpc/")) {
       const ip = clientIp(req, srv);
       return fetchRequestHandler({
@@ -132,6 +157,8 @@ const server = Bun.serve({
 });
 
 startRouteRefresh();
+const swept = sweepPhotoFiles();
+if (swept > 0) console.log(`[lrbuddy] removed ${swept} photo files with no live row`);
 
 if (!existsSync(join(DIST, "index.html"))) console.warn(`[lrbuddy] web build missing at ${DIST}; run: bun run build`);
 console.log(`[lrbuddy] ${config.version} listening on :${server.port}, data in ${config.dataDir}`);

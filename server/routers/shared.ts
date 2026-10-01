@@ -10,6 +10,7 @@ import {
   crews,
   days,
   events,
+  lots,
   positions,
   trucks,
   type CommandCenter,
@@ -22,6 +23,7 @@ import {
 } from "../db/schema.ts";
 import { crewLabel, markTruckSeen, onCrewMoved, onTruckMoved } from "../dispatch.ts";
 import { subscribe, unsubscribe, vapidPublicKey } from "../push.ts";
+import { canViewLot, deletePhoto, lotPhotoList, photoScope } from "../photos.ts";
 import { activeEvent, catalogFor, ccCard } from "../queries.ts";
 import { authedProcedure, ccProcedure, liveFor, publicProcedure, readCcScope, router, sameCc, type ScopeChanged } from "../trpc.ts";
 
@@ -200,6 +202,23 @@ export const sharedRouter = router({
     const card = ccCard(ctx.cc.id);
     if (!card) throw new TRPCError({ code: "NOT_FOUND" });
     return card;
+  }),
+
+  /** Every live photo of a lot, newest first, for the lot sheet and the viewer. */
+  lotPhotos: authedProcedure.input(z.object({ lotId: z.number().int() })).query(({ ctx, input }) => {
+    const scope = photoScope(ctx.session);
+    if (!scope) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in" });
+    const lot = db.select().from(lots).where(eq(lots.id, input.lotId)).get();
+    if (!lot || !canViewLot(scope, lot)) throw new TRPCError({ code: "NOT_FOUND", message: "Lot not found" });
+    return lotPhotoList(scope, lot);
+  }),
+
+  deletePhoto: authedProcedure.input(z.object({ id: z.number().int() })).mutation(({ ctx, input }) => {
+    const scope = photoScope(ctx.session);
+    if (!scope) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in" });
+    const r = deletePhoto(scope, input.id);
+    if (!r.ok) throw new TRPCError({ code: r.code, message: r.code === "NOT_FOUND" ? "Photo not found" : "Not allowed" });
+    return { id: r.photo.id, lotId: r.photo.lotId };
   }),
 
   latestBroadcast: ccProcedure.query(({ ctx }) =>

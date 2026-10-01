@@ -7,6 +7,7 @@ import { crews, LOT_STATUSES, lots, requests, trucks, type CommandCenter, type C
 import { cancelRequest, createRequest, getRequest, getType, latestPosition } from "../dispatch.ts";
 import { bboxAround, haversine, type LatLng } from "../geo.ts";
 import { emitLot } from "../lots-import.ts";
+import { photoSummary } from "../photos.ts";
 import { latestPositions, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
 import { crewProcedure, liveFor, readCcScope, router, sameCc } from "../trpc.ts";
 
@@ -22,6 +23,8 @@ const crewPoint = (crew: Crew, cc: CommandCenter): LatLng => {
 export interface CrewLot extends Lot {
   distanceM: number;
   mine: boolean;
+  /** Newest live before and after photo ids, for the inline thumbs. */
+  photos: { before: number | null; after: number | null };
 }
 
 /**
@@ -53,7 +56,13 @@ const lotsForCrew = (crew: Crew, cc: CommandCenter, eventId: number): CrewLot[] 
       .filter((l) => haversine(at, l) <= NEARBY_LOT_M)
       .map((l) => ({ ...l, mine: false }));
   }
-  return rows.map((l) => ({ ...l, distanceM: haversine(at, l) })).sort((a, b) => a.distanceM - b.distanceM);
+  const photos = rows.length > 0 ? photoSummary(eventId) : new Map<number, { before: number | null; after: number | null }>();
+  return rows
+    .map((l) => {
+      const p = photos.get(l.id);
+      return { ...l, distanceM: haversine(at, l), photos: { before: p?.before ?? null, after: p?.after ?? null } };
+    })
+    .sort((a, b) => a.distanceM - b.distanceM);
 };
 
 export const crewRouter = router({

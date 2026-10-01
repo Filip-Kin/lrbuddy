@@ -15,6 +15,7 @@ import {
   events,
   greenCodes,
   greenShirts,
+  lotPhotos,
   lots,
   positions,
   requests,
@@ -40,6 +41,7 @@ import {
   importVacantParcels,
   parcelAtPoint,
 } from "../lots-import.ts";
+import { eventPhotos, filterPairs, photoFileNames, photoPairs, sweepPhotoFiles } from "../photos.ts";
 import { activeEvent, catalogFor, requestViews } from "../queries.ts";
 import { copySetupFromPreviousDay, createCc, createCrew, createEvent, createTruck, setActiveEvent, stockTypeOnTrucks } from "../setup.ts";
 import { adminProcedure, liveFor, readAdmin, router } from "../trpc.ts";
@@ -771,10 +773,12 @@ const lotsRouter = router({
       )
       .returning({ id: lots.id })
       .all();
+    sweepPhotoFiles();
     return { deleted: r.length };
   }),
   delete: adminProcedure.input(z.object({ ids: z.array(id).min(1).max(5000) })).mutation(({ input }) => {
     const r = db.delete(lots).where(inArray(lots.id, input.ids)).returning({ id: lots.id }).all();
+    sweepPhotoFiles();
     return { deleted: r.length };
   }),
 });
@@ -838,8 +842,16 @@ const exportRouter = router({
     const eventId = eventOrActive(input?.eventId);
     const dayIds = db.select({ id: days.id }).from(days).where(eq(days.eventId, eventId)).all().map((d) => d.id);
     const n = (q: { n: number } | undefined): number => q?.n ?? 0;
+    const photos = n(
+      db
+        .select({ n: sql<number>`count(*)` })
+        .from(lotPhotos)
+        .innerJoin(lots, eq(lots.id, lotPhotos.lotId))
+        .where(and(eq(lots.eventId, eventId), isNull(lotPhotos.deletedAt)))
+        .get(),
+    );
     if (dayIds.length === 0) {
-      return { requests: 0, lots: n(db.select({ n: sql<number>`count(*)` }).from(lots).where(eq(lots.eventId, eventId)).get()), positions: 0, stockMoves: 0 };
+      return { requests: 0, lots: n(db.select({ n: sql<number>`count(*)` }).from(lots).where(eq(lots.eventId, eventId)).get()), positions: 0, stockMoves: 0, photos };
     }
     const crewIds = db.select({ id: crews.id }).from(crews).where(inArray(crews.dayId, dayIds)).all().map((c) => c.id);
     const truckIds = db.select({ id: trucks.id }).from(trucks).where(inArray(trucks.dayId, dayIds)).all().map((t) => t.id);
@@ -850,6 +862,7 @@ const exportRouter = router({
       lots: n(db.select({ n: sql<number>`count(*)` }).from(lots).where(eq(lots.eventId, eventId)).get()),
       positions: posCount("crew", crewIds) + posCount("truck", truckIds),
       stockMoves: truckIds.length ? n(db.select({ n: sql<number>`count(*)` }).from(stockMoves).where(inArray(stockMoves.truckId, truckIds)).get()) : 0,
+      photos,
     };
   }),
   requests: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
@@ -988,6 +1001,71 @@ const exportRouter = router({
       })),
     );
   }),
+  /** One row per live photo; `file` is its name inside the zip download. */
+  photos: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
+    const eventId = eventOrActive(input?.eventId);
+    const names = eventNames(eventId);
+    const rows = eventPhotos(eventId);
+    const files = photoFileNames(rows);
+    const pairs = new Map(photoPairs(rows).map((p) => [p.lotId, p]));
+    const fields = [
+      "id", "file", "day", "cc", "lot_id", "parcel_id", "address", "kind", "taken_by", "role", "crew", "company",
+      "taken_at", "lat", "lng", "width", "height", "bytes",
+    ] as const;
+    const crewIds = [...new Set(rows.map((p) => p.crewId).filter((x): x is number => x !== null))];
+    const crewNum = new Map(crewIds.length ? db.select().from(crews).where(inArray(crews.id, crewIds)).all().map((c) => [c.id, c.number]) : []);
+    return toCsv(
+      fields,
+      rows.map((p) => {
+        const pair = pairs.get(p.lotId);
+        const takerCrew = p.crewId !== null ? crewNum.get(p.crewId) : undefined;
+        return {
+          id: p.id,
+          file: files.get(p.id) ?? "",
+          day: p.dayId !== null ? (names.day.get(p.dayId) ?? "") : "",
+          cc: p.ccId !== null ? (names.cc.get(p.ccId) ?? "") : "",
+          lot_id: p.lotId,
+          parcel_id: pair?.parcelId ?? "",
+          address: pair?.address ?? "",
+          kind: p.kind,
+          taken_by: p.takenBy,
+          role: p.role,
+          crew: takerCrew !== undefined ? crewLabel({ number: takerCrew }) : (pair?.crewName ?? ""),
+          company: pair?.companyName ?? "",
+          taken_at: iso(p.at),
+          lat: p.lat,
+          lng: p.lng,
+          width: p.width,
+          height: p.height,
+          bytes: p.bytes,
+        };
+      }),
+    );
+  }),
+});
+// #endregion
+
+// #region photos
+const photosRouter = router({
+  /** Before and after pairs across the event, from photos taken on the day and at the CC row given. */
+  list: adminProcedure
+    .input(
+      z
+        .object({
+          dayId: id.nullish(),
+          ccId: id.nullish(),
+          companyId: id.nullish(),
+          crewId: id.nullish(),
+          status: z.enum(LOT_STATUSES).nullish(),
+          missingAfter: z.boolean().nullish(),
+        })
+        .optional(),
+    )
+    .query(({ input }) => {
+      const eventId = requireActive().id;
+      const all = photoPairs(eventPhotos(eventId, { dayId: input?.dayId, ccId: input?.ccId }));
+      return { pairs: filterPairs(all, input ?? {}), total: all.length };
+    }),
 });
 // #endregion
 
@@ -1004,6 +1082,7 @@ export const adminRouter = router({
   lots: lotsRouter,
   print: printRouter,
   export: exportRouter,
+  photos: photosRouter,
   /** Active event with its days, for the Event screen header. */
   overview: adminProcedure.query(() => {
     const ev = activeEvent() ?? null;

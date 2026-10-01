@@ -3,7 +3,7 @@ import type { ConfirmationResult } from "firebase/auth";
 import { useSearch } from "wouter";
 import { Button } from "../../components/Button.tsx";
 import { Field } from "../../components/Field.tsx";
-import { firebaseOptions } from "../../lib/firebaseConfig.ts";
+import { firebaseOptions, googleEnabled } from "../../lib/firebaseConfig.ts";
 import { login, signInWithIdToken } from "../../lib/session.ts";
 import { trpc } from "../../lib/trpc.ts";
 
@@ -21,7 +21,7 @@ const FIREBASE_ERRORS: Record<string, string> = {
   "auth/invalid-phone-number": "Check the mobile number",
   "auth/missing-phone-number": "Enter a mobile number",
   "auth/too-many-requests": "Too many tries, wait a few minutes",
-  "auth/quota-exceeded": "Text messages are paused, use Google or wait",
+  "auth/quota-exceeded": "Text messages are paused, try again later",
   "auth/invalid-verification-code": "Wrong code",
   "auth/code-expired": "Code expired, send a new one",
   "auth/network-request-failed": "No connection",
@@ -271,16 +271,20 @@ export const LoginPage = () => {
                 <div ref={recaptchaRef} />
               </form>
 
-              <div className="flex items-center gap-3 text-sm font-semibold text-muted" aria-hidden="true">
-                <span className="h-px flex-1 bg-line" />
-                or
-                <span className="h-px flex-1 bg-line" />
-              </div>
+              {googleEnabled && (
+                <>
+                  <div className="flex items-center gap-3 text-sm font-semibold text-muted" aria-hidden="true">
+                    <span className="h-px flex-1 bg-line" />
+                    or
+                    <span className="h-px flex-1 bg-line" />
+                  </div>
 
-              <Button variant="secondary" size="lg" block busy={busy === "google"} disabled={busy !== null && busy !== "google"} onClick={() => void google()}>
-                <GoogleMark />
-                Google
-              </Button>
+                  <Button variant="secondary" size="lg" block busy={busy === "google"} disabled={busy !== null && busy !== "google"} onClick={() => void google()}>
+                    <GoogleMark />
+                    Google
+                  </Button>
+                </>
+              )}
             </>
           )
         )}

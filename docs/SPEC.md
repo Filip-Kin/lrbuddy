@@ -850,3 +850,10 @@ Marks (from the photos of the same sheet during the day; legend confirmed by Fil
   an ink outline every 60 m along the way pointing in the travel direction. Legend entry "One way".
   Fetched when a CC is placed or its area changes, and by `bun run oneway <ccId>`; falls back to
   nothing when Overpass fails.
+- **Stock above capacity.** Capacity is the expected load, not a ceiling: the driver's plus button and
+  `driver.adjustStock` accept any quantity at or above zero; the bar simply fills past 100 %. Low
+  stock stays "under 25 % of capacity".
+- **Expected stock is editable where the driver stands.** The Stock page gets an **Expected** control
+  per row (tap the "of 30 cases" text) that sets the truck's capacity for that item; admin keeps the
+  Day page capacity sheet. Gas cans are not tracked by default: `gas_mower` and `gas_trimmer` seed
+  with `tracks_stock = false` (requests for gas still work, nothing is decremented).

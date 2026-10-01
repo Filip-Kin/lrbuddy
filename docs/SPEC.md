@@ -124,7 +124,7 @@ positions         id, kind ('crew'|'truck'), ref_id, lat, lng, accuracy, heading
 lots              id, event_id, parcel_id, address, lat, lng, source ('dlba'|'parcel'|'csv'|'manual'|'survey'),
                   geometry (nullable text, GeoJSON Polygon or MultiPolygon in WGS84, the parcel outline),
                   cc_id (nullable, stands for the CC's site across days, section 8), crew_id (nullable),
-                  status ('open'|'in_progress'|'done'|'skipped'),
+                  status ('open'|'in_progress'|'done'|'do_not_touch'|'not_todo', section 21), grade ('high'|'low', nullable),
                   status_by_crew_id, status_at, note
                   unique (event_id, parcel_id) where parcel_id not null
 push_subscriptions id, session_id, endpoint (unique), p256dh, auth, created_at
@@ -134,6 +134,11 @@ routes            truck_id PK, computed_at, stop_order (json array of request id
                   key is 'crew:<id>', 'req:<id>' or 'cc'; steps are the OSRM manoeuvres on the way to that stop,
                   [{type, modifier, name, lat, lng, atM}], absent when the fallback routed the leg), distance_m, duration_s, ends_at_cc (bool),
                   engine ('osrm'|'fallback'), origin_lat, origin_lng (truck position used, for the 250 m check)
+oneway_ways       id, bbox_key, osm_id, geometry (json [[lat,lng]...]), direction (1 along the points, -1 against),
+                  name, min_lat, min_lng, max_lat, max_lng, fetched_at   -- section 20, cached per fetched bbox
+alleys            id, event_id, day_id, cc_id, osm_id, polygon (GeoJSON, centreline buffered 3 m each side), centerline,
+                  between_street_1, between_street_2, from_cross, to_cross, status ('open'|'in_progress'|'done'|'do_not_touch'),
+                  crew_id, status_at, fetched_at   unique (cc_id, osm_id)   -- section 19, from OSM service=alley
 ```
 
 Default request types seeded for every new event, in this order:
@@ -142,8 +147,8 @@ Default request types seeded for every new event, in this order:
 |---|---|---|---|---|
 | water | Water | case | 3 | yes |
 | snacks | Snacks | box | 2 | yes |
-| gas_mower | Gas, mower | can | 3 | yes |
-| gas_trimmer | Gas, weed whip | can | 3 | yes |
+| gas_mower | Gas, mower | can | 3 | no |
+| gas_trimmer | Gas, weed whip | can | 3 | no |
 | swap_mower | Mower swap | each | 2 | yes |
 | swap_trimmer | Weed whip swap | each | 2 | yes |
 | mower | Mower | each | 2 | yes |
@@ -428,7 +433,7 @@ Life Remodeled's brand: yellow, green, dark teal. Define these as CSS variables 
 | `--warn` | `#e55b00` | `#ff8a3d` | Low stock, urgent request age, skipped lots. |
 
 Status pills: open `--crew`, assigned `--ink` on `--surface-2`, en route `--brand`, delivered `--brand-green`,
-cancelled `--muted`. Lot status: open `--line` outline, in progress `--brand`, done `--brand-green`, skipped `--warn`.
+cancelled `--muted`. Lot status: the table in section 21 (Not todo outline, Todo `--crew`, In progress `--brand`, Done `--brand-green`, Do not touch `--warn` hatched).
 Map markers: me = blue dot (`#2f80ed`, the one exception, so it reads as "you" like every other map),
 CC = `--ink` flag with a yellow fill, truck = yellow rounded square with the truck name, crew = red dot,
 lots = the parcel outline (2 px stroke in the status colour, same colour filled at 30 % opacity; lots
@@ -831,7 +836,7 @@ Marks (from the photos of the same sheet during the day; legend confirmed by Fil
   reassignment for a written company name. First pass is done by hand with the photo and the plan
   procedures; a portal "Import marked map" (photo upload, proposed list, confirm) comes later.
 - Alleys are work units too: `alleys` (id, event_id, day_id, cc_id, polygon or centreline GeoJSON,
-  between_street_1, between_street_2, from_cross, to_cross, status open|done|skipped, crew_id).
+  between_street_1, between_street_2, from_cross, to_cross, status open|in_progress|done|do_not_touch, crew_id).
   Drawn as a dashed line on maps and sheets, assignable like a block side, markable done by a crew.
 - Green map, day of: tap a rectangle label for a sheet with **Reassign** (pick another company and
   its crews at this CC), **Done** (marks every open lot in the rectangle done, with a confirm that
@@ -901,3 +906,27 @@ Status, one set of words everywhere, for every parcel in a CC's day area:
   never the occupied parcels. Red shirts see only the lots inside their own assigned rectangle (and
   bare parcels inside it so they can mark one Todo); nothing outside it, unless a green reassigns
   them to another rectangle, which moves their view with them.
+
+## 22. Flag screen: morning sweep with the camera (Filip, 2026-10-01, preview approved)
+
+Who: the B&B lead and the green shirts doing the morning sweep before crews arrive, on a phone, on
+foot or from the truck window. Not red shirts.
+
+`/flag` (green and admin; also reachable from the green map's menu as **Flag**):
+- Full-screen camera view (`getUserMedia`, rear camera). Over it: the parcel the phone is standing at
+  and facing, named top left ("4014 St Clair · vacant · GM 2") and outlined on the preview as a
+  yellow frame; a heading chip top right ("facing NE").
+- Which parcel: from the GPS fix and the compass heading (`deviceorientationabsolute`, iOS needs the
+  permission prompt on first use), cast a ray 4 to 30 m ahead and pick the first cached parcel it
+  enters; if the heading is unavailable, the nearest parcel within 25 m. Recomputed every second.
+- One big **Todo** shutter: takes the photo, saves it as that lot's Before (section 15), creates or
+  updates the lot as Todo with the crew whose rectangle contains it, and shows the last-flag card
+  ("Last: 3998 St Clair · Todo · 00:12 ago") with **Undo** for 20 s (undo deletes the photo and
+  reverts the status). Two side buttons: **Do not touch** (same, status do_not_touch, photo kept)
+  and **Wrong lot** (north-up mini map with the heading cone, tap the right parcel, **Todo here**).
+- Works offline-ish: flags queue in memory and post in order; a queued count shows on the shutter.
+- No camera permission or no GPS: the screen says which one in a label and still allows Wrong lot
+  tapping with Todo and no photo.
+- Gate: at 390x844 the shutter is at least 84 px, side buttons 56 px, overflow 0; a Playwright run
+  with a fake camera (`--use-fake-device-for-media-stream`) and `set_geolocation` flags a parcel and
+  the lot appears Todo with a Before photo.

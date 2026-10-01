@@ -14,6 +14,7 @@ import {
   type ConfirmationResult,
 } from "firebase/auth";
 import { emulatorUrl, firebaseOptions } from "./firebaseConfig.ts";
+import { mediaMatches } from "./safe.ts";
 
 /**
  * Phone and Google sign-in (SPEC 18). Loaded on demand by the sign-in page and
@@ -49,9 +50,7 @@ export const currentIdToken = async (): Promise<string | null> => {
  * needs the auth handler on our own domain (server proxies /__/auth/*).
  */
 const useRedirect = (): boolean =>
-  window.matchMedia("(display-mode: standalone)").matches ||
-  window.matchMedia("(display-mode: fullscreen)").matches ||
-  window.matchMedia("(pointer: coarse)").matches;
+  mediaMatches("(display-mode: standalone)") || mediaMatches("(display-mode: fullscreen)") || mediaMatches("(pointer: coarse)");
 
 let verifier: RecaptchaVerifier | null = null;
 

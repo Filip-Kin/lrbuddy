@@ -1,6 +1,7 @@
 import { errorText as baseErrorText } from "../../lib/errors.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
+import { storageGet, storageSet } from "../../lib/safe.ts";
 
 export type GreenRequest = RouterOutputs["green"]["requests"][number];
 export type GreenTruck = RouterOutputs["green"]["trucks"][number];
@@ -42,10 +43,10 @@ const SOUND_KEY = "lrb.green.sound";
 
 /** Off by default; remembered per device. */
 export const useSoundSetting = (): [boolean, (on: boolean) => void] => {
-  const [on, setOn] = useState(() => typeof window !== "undefined" && window.localStorage.getItem(SOUND_KEY) === "1");
+  const [on, setOn] = useState(() => storageGet("local", SOUND_KEY) === "1");
   const set = useCallback((v: boolean) => {
     setOn(v);
-    window.localStorage.setItem(SOUND_KEY, v ? "1" : "0");
+    storageSet("local", SOUND_KEY, v ? "1" : "0");
     if (v) void chime();
   }, []);
   return [on, set];

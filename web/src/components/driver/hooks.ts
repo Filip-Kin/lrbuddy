@@ -2,6 +2,7 @@ import { errorText } from "../../lib/errors.ts";
 import { useEffect, useRef, useState } from "react";
 import { useMyFix } from "../../lib/position.ts";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
+import { storageGet, storageSet } from "../../lib/safe.ts";
 
 export type DriverQueue = RouterOutputs["driver"]["queue"];
 export type QueueStop = DriverQueue["stops"][number];
@@ -41,9 +42,9 @@ export const useDistanceFrom = (): ((p: { lat: number; lng: number }, fallback: 
 // #region screen on
 const WAKE_KEY = "lrb.driver.wake";
 
-export const wakePreference = (): boolean => window.localStorage.getItem(WAKE_KEY) !== "off";
+export const wakePreference = (): boolean => storageGet("local", WAKE_KEY) !== "off";
 export const setWakePreference = (on: boolean): void => {
-  window.localStorage.setItem(WAKE_KEY, on ? "on" : "off");
+  storageSet("local", WAKE_KEY, on ? "on" : "off");
   window.dispatchEvent(new Event("lrb-wake"));
 };
 

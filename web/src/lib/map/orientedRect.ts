@@ -11,6 +11,7 @@
  */
 import L from "leaflet";
 import { useEffect, useRef, useState } from "react";
+import { mediaMatches } from "../safe.ts";
 
 // #region geometry
 export interface LatLng {
@@ -196,7 +197,7 @@ interface ToolCallbacks {
 }
 
 /** Hit box of a handle: 44 px on a touch screen, 30 px with a mouse. The dot drawn inside stays 14 px. */
-const handleHit = (): number => (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches ? 44 : 30);
+const handleHit = (): number => (mediaMatches("(pointer: coarse)") ? 44 : 30);
 
 const handleIcon = (kind: "corner" | "edge" | "rot" | "dot"): L.DivIcon => {
   const hit = handleHit();

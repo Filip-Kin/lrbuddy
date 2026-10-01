@@ -11,6 +11,7 @@ import { distanceM, type LatLng } from "./geo.ts";
 import { GradeSheet, type SheetParcel } from "./GradeSheet.tsx";
 import { TagQueue } from "./queue.ts";
 import { GRADE_LABEL, houseNumber, type Grade } from "./style.ts";
+import { geolocation } from "../../../lib/safe.ts";
 
 // #region constants
 /** Cached parcels are fetched this far around the car (m)... */
@@ -105,11 +106,12 @@ export const DrivePage = () => {
 
   // #region gps
   useEffect(() => {
-    if (!("geolocation" in navigator)) {
+    const geo = geolocation();
+    if (!geo) {
       setGps("unavailable");
       return;
     }
-    const id = navigator.geolocation.watchPosition(
+    const id = geo.watchPosition(
       (pos) => {
         const c = pos.coords;
         const f: Fix = {
@@ -130,7 +132,7 @@ export const DrivePage = () => {
       (err) => setGps(err.code === err.PERMISSION_DENIED ? "denied" : "unavailable"),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 },
     );
-    return () => navigator.geolocation.clearWatch(id);
+    return () => geo.clearWatch(id);
   }, []);
   // #endregion
 

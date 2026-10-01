@@ -4,13 +4,14 @@ import { trpc } from "../lib/trpc.ts";
 import { since } from "./crew/format.ts";
 import { CloseIcon, MegaphoneIcon } from "./crew/Icons.tsx";
 import { useNow } from "./crew/useNow.ts";
+import { storageGet, storageSet } from "../lib/safe.ts";
 
 const KEY = "lrb.broadcast.seen";
 /** Older broadcasts stay on the command center page only. */
 const FRESH_MS = 2 * 60 * 60_000;
 
 const seenId = (): number => {
-  const v = Number(window.localStorage.getItem(KEY));
+  const v = Number(storageGet("local", KEY));
   return Number.isInteger(v) ? v : 0;
 };
 
@@ -27,7 +28,7 @@ export const BroadcastBanner = ({ ccHref }: { ccHref?: string }) => {
   const b = latest.data;
   if (!b || (ccHref !== undefined && loc === ccHref) || b.id <= seen || now - b.at > FRESH_MS) return null;
   const close = (): void => {
-    window.localStorage.setItem(KEY, String(b.id));
+    storageSet("local", KEY, String(b.id));
     setSeen(b.id);
   };
   const text = (

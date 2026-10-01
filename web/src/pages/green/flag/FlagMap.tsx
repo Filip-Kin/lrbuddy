@@ -120,7 +120,7 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
     const o = overlay.current;
     if (!o) return;
     o.group.clearLayers();
-    if (fix && heading !== null) {
+    if (fix && heading !== null && Number.isFinite(heading) && Number.isFinite(fix.lat) && Number.isFinite(fix.lng)) {
       o.group.addLayer(L.polygon(cone(fix, heading), { renderer: o.renderer, pane: PICK_PANE, className: "lrb-flag-cone", weight: 1, interactive: false }));
     }
     if (picked?.geometry) {

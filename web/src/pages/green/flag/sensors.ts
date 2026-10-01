@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { finite, geolocation } from "../../../lib/safe.ts";
 
 // #region camera
 export type CameraState = "starting" | "on" | "denied" | "none";
@@ -78,19 +79,23 @@ export const useFix = () => {
   const [fix, setFix] = useState<Fix | null>(null);
   const [state, setState] = useState<FixState>("waiting");
   useEffect(() => {
-    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+    const geo = geolocation();
+    if (!geo) {
       setState("none");
       return;
     }
-    const id = navigator.geolocation.watchPosition(
+    const id = geo.watchPosition(
       (p) => {
-        setFix({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy ?? null, heading: p.coords.heading ?? null, speed: p.coords.speed ?? null });
+        const lat = finite(p.coords.latitude);
+        const lng = finite(p.coords.longitude);
+        if (lat === null || lng === null) return;
+        setFix({ lat, lng, accuracy: finite(p.coords.accuracy), heading: finite(p.coords.heading), speed: finite(p.coords.speed) });
         setState("on");
       },
       (e) => setState(e.code === e.PERMISSION_DENIED ? "denied" : "none"),
       { enableHighAccuracy: true, maximumAge: 2000, timeout: 20_000 },
     );
-    return () => navigator.geolocation.clearWatch(id);
+    return () => geo.clearWatch(id);
   }, []);
   return { fix, state };
 };
@@ -122,13 +127,17 @@ export const useCompass = () => {
 
   useEffect(() => {
     if (typeof window === "undefined" || needsAsk) return;
+    const fromAlpha = (alpha: number | null): number | null => {
+      const a = finite(alpha);
+      return a === null ? null : (((360 - a) % 360) + 360) % 360;
+    };
     const onAbsolute = (e: DeviceOrientationEvent): void => {
-      if (e.alpha !== null) setHeading((360 - e.alpha) % 360);
+      const h = fromAlpha(e.alpha);
+      if (h !== null) setHeading(h);
     };
     const onRelative = (e: DeviceOrientationEvent): void => {
-      const h = webkitHeading(e);
+      const h = webkitHeading(e) ?? (e.absolute ? fromAlpha(e.alpha) : null);
       if (h !== null) setHeading(h);
-      else if (e.absolute && e.alpha !== null) setHeading((360 - e.alpha) % 360);
     };
     window.addEventListener("deviceorientationabsolute", onAbsolute as EventListener);
     window.addEventListener("deviceorientation", onRelative);

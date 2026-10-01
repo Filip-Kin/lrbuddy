@@ -10,13 +10,14 @@ import { postPhoto, prepareFrame, useInvalidatePhotos } from "../../../lib/photo
 import { trpc } from "../../../lib/trpc.ts";
 import { compassPoint, pickParcel, type Candidate } from "./pick.ts";
 import { useCamera, useCompass, useFix } from "./sensors.ts";
+import { storageGet, storageSet } from "../../../lib/safe.ts";
 
 /** Undo stays on the last-flag card this long (SPEC 22). */
 export const UNDO_MS = 20_000;
 const RETRY_MS = [2000, 4000, 8000, 15_000] as const;
 /** The map strip's state for the session (SPEC 22, map strip). */
 const MAP_KEY = "lrb.flag.map";
-const readExpanded = (): boolean => typeof window !== "undefined" && window.sessionStorage.getItem(MAP_KEY) === "full";
+const readExpanded = (): boolean => storageGet("session", MAP_KEY) === "full";
 
 // #region types
 interface Target extends Candidate {
@@ -148,7 +149,7 @@ export const FlagPage = () => {
   const setExpandedRaw = useCallback((on: boolean): void => {
     setExpandedState(on);
     setTapped(null);
-    window.sessionStorage.setItem(MAP_KEY, on ? "full" : "strip");
+    storageSet("session", MAP_KEY, on ? "full" : "strip");
   }, []);
   // #endregion
 

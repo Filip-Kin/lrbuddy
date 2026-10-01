@@ -6,6 +6,7 @@
  */
 import L from "leaflet";
 import { useEffect, useRef } from "react";
+import { mediaMatches } from "../safe.ts";
 
 export interface LatLng {
   lat: number;
@@ -13,7 +14,7 @@ export interface LatLng {
 }
 
 /** Hit box of a point: 44 px on a touch screen, 30 px with a mouse; the dot inside stays 14 px. */
-const hitPx = (): number => (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches ? 44 : 30);
+const hitPx = (): number => (mediaMatches("(pointer: coarse)") ? 44 : 30);
 
 const vertexIcon = (first: boolean): L.DivIcon => {
   const hit = hitPx();

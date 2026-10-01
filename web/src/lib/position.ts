@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "./trpc.ts";
+import { geolocation } from "./safe.ts";
 
 export type LocationStatus = "off" | "waiting" | "on" | "denied" | "unavailable";
 
@@ -77,7 +78,8 @@ export const usePositionReporter = (enabled: boolean, truck = false): void => {
   const maxGap = truck ? TRUCK_MAX_GAP_MS : MAX_GAP_MS;
   useEffect(() => {
     if (!enabled) return;
-    if (!("geolocation" in navigator)) {
+    const geo = geolocation();
+    if (!geo) {
       setStatus("unavailable");
       return;
     }
@@ -134,17 +136,17 @@ export const usePositionReporter = (enabled: boolean, truck = false): void => {
     const start = (): void => {
       if (watchId !== null) return;
       setStatus(status === "on" ? "on" : "waiting");
-      watchId = navigator.geolocation.watchPosition(onFix, onError, { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 });
+      watchId = geo.watchPosition(onFix, onError, { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 });
     };
     const stop = (): void => {
-      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      if (watchId !== null) geo.clearWatch(watchId);
       watchId = null;
     };
 
     // watchPosition only fires on movement; a stationary crew still posts every 30 s.
     const heartbeat = window.setInterval(() => {
       if (document.visibilityState !== "visible" || watchId === null) return;
-      navigator.geolocation.getCurrentPosition(onFix, () => undefined, { maximumAge: 20_000, timeout: 20_000 });
+      geo.getCurrentPosition(onFix, () => undefined, { maximumAge: 20_000, timeout: 20_000 });
     }, maxGap);
 
     const onVisibility = (): void => {

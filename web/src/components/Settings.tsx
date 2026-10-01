@@ -4,6 +4,7 @@ import { disablePush, enablePush, pushState, PUSH_LABELS, type PushState } from 
 import { Button } from "./Button.tsx";
 import { Field } from "./Field.tsx";
 import { Switch } from "./Switch.tsx";
+import { geolocation } from "../lib/safe.ts";
 
 // Settings rows shared by the crew and driver settings pages.
 
@@ -131,13 +132,14 @@ export const LocationRow = () => {
   const sub = denied ? LOCATION_LABELS.denied : perm === "prompt" ? "Not allowed yet" : LOCATION_LABELS[status];
   const tone: Tone = denied ? "warn" : status === "on" ? "green" : "muted";
   const ask = (): void => {
-    if (!("geolocation" in navigator)) return;
+    const geo = geolocation();
+    if (!geo) return;
     setAsking(true);
     const done = (): void => {
       setAsking(false);
       void locationPermission().then(setPerm);
     };
-    navigator.geolocation.getCurrentPosition(done, done, { enableHighAccuracy: true, timeout: 20_000 });
+    geo.getCurrentPosition(done, done, { enableHighAccuracy: true, timeout: 20_000 });
   };
   return (
     <SettingsRow label="Location" sub={sub} tone={tone}>

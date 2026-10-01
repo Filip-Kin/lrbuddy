@@ -64,6 +64,11 @@ export const usePaintStroke = (map: L.Map | null, opts: PaintStrokeOptions): { z
     map.dragging.disable();
     map.doubleClickZoom.disable();
     map.boxZoom.disable();
+    // With dragging off, Leaflet leaves the container at touch-action pan-x pan-y, so Android
+    // takes a one-finger drag as a scroll and fires pointercancel a few pixels in, which killed
+    // every stroke. Own the touches while painting; Leaflet's pinch zoom still works.
+    const prevTouchAction = el.style.touchAction;
+    el.style.touchAction = "none";
 
     const touches = new Set<number>();
     let stroke: {
@@ -199,6 +204,7 @@ export const usePaintStroke = (map: L.Map | null, opts: PaintStrokeOptions): { z
       window.removeEventListener("pointercancel", up, true);
       el.removeEventListener("click", click, true);
       el.removeEventListener("dblclick", click, true);
+      el.style.touchAction = prevTouchAction;
       if (wasDragging) map.dragging.enable();
       if (wasDbl) map.doubleClickZoom.enable();
       if (wasBox) map.boxZoom.enable();

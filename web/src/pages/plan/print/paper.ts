@@ -9,6 +9,8 @@ export const GREY = "#5b6b70";
 export const PAPER = "#f2f3f5";
 /** The company sheet's blue (SPEC 19): its areas, their names and the CC circle. */
 export const BLUE = "#1f6fe5";
+/** The sharpie line along a block side with work (SPEC 19, Marks). */
+export const MARK = "#111111";
 
 /**
  * Lot fills on paper. High and low are dashed at two fills; work (another

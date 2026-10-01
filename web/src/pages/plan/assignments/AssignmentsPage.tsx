@@ -112,11 +112,14 @@ const CompanyCard = ({
                   className={`flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-sm ${picked ? "bg-brand text-on-brand" : "hover:bg-surface-2"}`}
                 >
                   <span className="shrink-0 font-semibold">{c.name}</span>
-                  <span className={`min-w-0 truncate ${picked ? "" : "text-muted"}`}>
-                    {c.areaLabel && c.areaLabel !== c.name ? c.areaLabel : (c.leadName ?? "")}
-                  </span>
+                  <span className={`min-w-0 truncate ${picked ? "" : "text-muted"}`}>{c.leadName ?? ""}</span>
+                  {c.areaLabel && c.areaLabel !== c.name && (
+                    <span title={c.areaLabel} className="shrink-0 rounded-md px-1.5 py-0.5 text-xs font-bold ring-1 ring-current">
+                      Shared
+                    </span>
+                  )}
                   <span className="ml-auto flex shrink-0 items-center gap-1.5 tabular-nums">
-                    {w.high + w.low}
+                    {Math.round(w.high + w.low)}
                     <span aria-hidden="true" className="h-1.5 w-10 overflow-hidden rounded-full bg-surface-2 ring-1 ring-line ring-inset">
                       <span className={`block h-full rounded-full ${over ? "bg-warn" : "bg-brand-green"}`} style={{ width: `${Math.min(100, l * 100)}%` }} />
                     </span>

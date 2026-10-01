@@ -10,6 +10,7 @@ import { newestTags, outlinePoints } from "../../parcels.ts";
 import { siteCcIds } from "../../queries.ts";
 import { adminProcedure, router } from "../../trpc.ts";
 import { dayAreas } from "./areas.ts";
+import { sideMarks } from "./marks.ts";
 import { convexHull, type Ring } from "./blocks.ts";
 import { dayOfEvent, eventInput, eventOrActive, id, shortOf, teamNames } from "./common.ts";
 
@@ -119,6 +120,8 @@ export const printRouter = router({
         address: cc.address,
         dayArea,
         dayBounds,
+        /** SPEC 19 Marks: a sharpie line along every block side with work, for the company sheet. */
+        marks: sideMarks(eventId, dayBounds),
         lat: cc.lat,
         lng: cc.lng,
         bounds,

@@ -180,6 +180,29 @@ BUTTONS_JS = """() => [...document.querySelectorAll('button, a[role=button], [ro
   .map(b => { const r = b.getBoundingClientRect(); return { h: r.height, w: r.width, t: (b.innerText||b.getAttribute('aria-label')||'').trim().slice(0,30) }; })
   .filter(b => b.h > 0)"""
 
+# Printed maps: every label inside its map and clear of every other label (SPEC 16, 19), and the
+# company sheets (SPEC 19): landscape, area names in pills, a lettered CC circle.
+PRINT_MAPS_JS = """() => {
+  const maps = [...document.querySelectorAll('.lrb-pm')].map(m => {
+    const r = m.getBoundingClientRect();
+    const labels = [...m.querySelectorAll('.lrb-pm-label')].map(l => {
+      const b = l.getBoundingClientRect();
+      return { x: b.left, y: b.top, w: b.width, h: b.height, t: l.innerText.trim().slice(0, 40), clip: l.scrollWidth > l.clientWidth + 1 };
+    });
+    return { name: m.getAttribute('aria-label') || '', x: r.left, y: r.top, w: r.width, h: r.height, labels };
+  });
+  const sheets = [...document.querySelectorAll('[data-sheet=company]')].map(s => {
+    const r = s.getBoundingClientRect();
+    return {
+      w: r.width, h: r.height,
+      pills: [...s.querySelectorAll('.lrb-pm-pill')].map(p => p.innerText.trim()),
+      cc: [...s.querySelectorAll('.lrb-pm-ccb')].map(c => c.innerText.trim()),
+      title: (s.querySelector('h2') || {}).innerText || '',
+    };
+  });
+  return { maps, sheets };
+}"""
+
 CAMERA_JS = """() => [...document.querySelectorAll('[data-camera]')]
   .filter(b => b.offsetParent !== null)
   .map(b => { const r = b.getBoundingClientRect(); return { h: r.height, w: r.width, t: (b.getAttribute('aria-label')||b.innerText||'').trim().slice(0,40) }; })"""
@@ -312,6 +335,30 @@ def dynamic_checks() -> None:
                             fail(f"{tag}: navigation failed {type(e).__name__}")
                             continue
                         page.screenshot(path=str(OUT / f"{tag}.png"), full_page=(route in PRINT_ROUTES))
+                        if route in PRINT_ROUTES:
+                            pm = page.evaluate(PRINT_MAPS_JS)
+                            for m in pm["maps"]:
+                                ls = m["labels"]
+                                for i, l in enumerate(ls):
+                                    if l["clip"]:
+                                        fail(f"{tag}: label '{l['t']}' cut off inside its box on '{m['name']}'")
+                                    if l["x"] < m["x"] - 0.5 or l["y"] < m["y"] - 0.5 or l["x"] + l["w"] > m["x"] + m["w"] + 0.5 or l["y"] + l["h"] > m["y"] + m["h"] + 0.5:
+                                        fail(f"{tag}: label '{l['t']}' runs past the edge of '{m['name']}'")
+                                    for o in ls[i + 1:]:
+                                        if l["x"] < o["x"] + o["w"] - 0.5 and o["x"] < l["x"] + l["w"] - 0.5 and l["y"] < o["y"] + o["h"] - 0.5 and o["y"] < l["y"] + l["h"] - 0.5:
+                                            fail(f"{tag}: labels '{l['t']}' and '{o['t']}' overlap on '{m['name']}'")
+                            sheets = pm["sheets"]
+                            if not sheets:
+                                fail(f"{tag}: no company map sheet ([data-sheet=company])")
+                            for sh in sheets:
+                                if sh["w"] <= sh["h"]:
+                                    fail(f"{tag}: company sheet '{sh['title']}' is not landscape ({sh['w']:.0f}x{sh['h']:.0f})")
+                                if not sh["pills"]:
+                                    fail(f"{tag}: company sheet '{sh['title']}' names no area on its map")
+                                if len(sh["cc"]) != 1:
+                                    fail(f"{tag}: company sheet '{sh['title']}' has {len(sh['cc'])} CC circles, expected 1")
+                            if sheets and not any("&" in p for sh in sheets for p in sh["pills"]):
+                                fail(f"{tag}: no company sheet shows a shared area label with '&' (the seed has one per CC)")
                         over = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
                         if over != 0:
                             fail(f"{tag}: horizontal overflow {over}px")

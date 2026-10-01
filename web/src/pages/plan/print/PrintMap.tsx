@@ -4,7 +4,7 @@ import type { LotGeometry } from "../../../../../server/db/schema.ts";
 import { ESRI_BASE, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM, TILE_ATTRIB } from "../../../lib/map/basemap.ts";
 import { escapeHtml } from "../../../lib/map/markers.ts";
 import { distance } from "../../../lib/format.ts";
-import { BLUE, INK, LOT_FILL, PAPER, WORK, YELLOW, GREY } from "./paper.ts";
+import { BLUE, INK, LOT_FILL, MARK, PAPER, WORK, YELLOW, GREY } from "./paper.ts";
 
 // #region types
 export type LatLngPair = [number, number];
@@ -18,9 +18,11 @@ export type LatLngPair = [number, number];
  * `tint` is the day's area, several rings filled as one.
  */
 export type PrintLayer =
-  | { kind: "lot"; key: string; geometry: LotGeometry | null; lat: number; lng: number; tone: "work" | "high" | "low"; label?: string; badge?: string }
+  | { kind: "lot"; key: string; geometry: LotGeometry | null; lat: number; lng: number; tone: "work" | "high" | "low"; label?: string; badge?: string; plain?: boolean }
   | { kind: "area"; key: string; ring: LatLngPair[]; tone: "mine" | "other" | "crew" | "company" | "faint"; label?: string }
-  | { kind: "tint"; key: string; rings: LatLngPair[][] };
+  | { kind: "tint"; key: string; rings: LatLngPair[][] }
+  /** A block side with work, drawn over the lot fills like the sharpie line on the paper sheet. */
+  | { kind: "mark"; key: string; line: LatLngPair[] };
 
 /** The CC on a printed map: its letter in a circle when it has one, else a star; `blue` is the company sheet's marker. */
 export interface PrintCc {
@@ -212,7 +214,9 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
     if (l.kind !== "lot") continue;
     let box: Box;
     if (l.geometry) {
-      const b = L.geoJSON(l.geometry, { style: () => lotStyle(l.tone), interactive: false }).addTo(group).getBounds();
+      // `plain` lots (the company sheet) are fill only, so the block side marks over them read first.
+      const style = l.plain ? { ...lotStyle(l.tone), stroke: false } : lotStyle(l.tone);
+      const b = L.geoJSON(l.geometry, { style: () => style, interactive: false }).addTo(group).getBounds();
       const nw = pt(b.getNorth(), b.getWest());
       const se = pt(b.getSouth(), b.getEast());
       box = { x: nw.x, y: nw.y, w: Math.max(se.x - nw.x, 4), h: Math.max(se.y - nw.y, 4) };
@@ -224,6 +228,12 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
     if (!l.label || box.x + box.w < 0 || box.y + box.h < 0 || box.x > size.x || box.y > size.y) continue;
     taken.push(box);
     anchors.push({ box, at: L.point(box.x + box.w / 2, box.y + box.h / 2), text: l.label, badge: l.badge });
+  }
+
+  // Block side marks over the lot fills, under every label.
+  for (const k of layers) {
+    if (k.kind !== "mark" || k.line.length < 2) continue;
+    L.polyline(k.line, { color: MARK, weight: 4, opacity: 0.9, lineCap: "round", interactive: false }).addTo(group);
   }
 
   // CC: a lettered circle (or a star) inside the view, else an arrow on the edge pointing at it.

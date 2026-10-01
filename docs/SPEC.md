@@ -799,12 +799,15 @@ Seed
 Marks (from the second photo, the same sheet after a morning in the field)
 - The B&B lead marks the paper with a sharpie: a thick line along the stretch of a block side that
   needs work, an X across a rectangle that is done, a company name ("DTE") written over a rectangle
-  that was handed to another company, small dots for single lots.
-- Printed sheet: in addition to the lot fills, draw every block side with `work_count > 0` as a thick
-  (4 px at print scale) dark line offset 6 m onto that side of the street centreline, spanning the
-  parcels that need work, so the sheet reads the way the sharpie version does. Block sides with no
-  work get nothing.
+  that was handed to another company, small dots for single lots. Filip will photograph the marked
+  sheet at the end of the day.
+- Maps and sheets keep drawing lots as parcel polygons. The sharpie sheet is an import source, not a
+  style: the marks are read off the photo, each marked stretch is matched to its block side (street,
+  cross streets, odd or even side) in the cached parcels, and loaded as survey tags (`high` for a
+  full line, `low` for dots), lot status `done` for an X, and a reassignment for a written company
+  name. First pass is done by hand with the photo and `plan.survey.tag`; a portal "Import marked map"
+  (photo upload, proposed block-side list, confirm) comes later.
 - Green map, day of: tap a rectangle label for a sheet with **Reassign** (pick another company and
   its crews at this CC) and **Done** (marks every open lot in the rectangle done, with a confirm that
-  states the count); tap a block side's mark for **Done** on that side only. Both emit lot.changed and
-  show on the admin Assignments page. The crews involved get a push ("Reassigned: W Boston Blvd to DTE").
+  states the count); tap a block side for **Done** on that side only. Both emit lot.changed and show
+  on the admin Assignments page. The crews involved get a push ("Reassigned: W Boston Blvd to DTE").

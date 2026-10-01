@@ -3,7 +3,7 @@ import type { AreaPolygon } from "../../../../../server/db/schema.ts";
 import { dayDate, phoneText, plural } from "../../../components/admin/format.ts";
 import { lotTitle } from "../../../lib/format.ts";
 import type { RouterOutputs } from "../../../lib/trpc.ts";
-import { BLUE, GREY, INK, LOT_FILL, WORK, YELLOW } from "./paper.ts";
+import { BLUE, GREY, INK, LOT_FILL, MARK, WORK, YELLOW } from "./paper.ts";
 import { PrintMap, type LatLngPair, type PrintLayer } from "./PrintMap.tsx";
 
 // #region types and helpers
@@ -440,12 +440,18 @@ const Landscape = ({ children }: { children: ReactNode }) => (
   </article>
 );
 
-const AreaSwatch = ({ tone }: { tone: "company" | "faint" | "tint" | "cc" }) => (
+const AreaSwatch = ({ tone }: { tone: "company" | "faint" | "tint" | "mark" | "cc" }) => (
   <svg viewBox="0 0 26 16" width="26" height="16" aria-hidden="true" className="shrink-0">
     {tone === "company" ? (
       <rect x="3" y="3" width="20" height="10" fill="none" stroke={BLUE} strokeWidth="3" />
     ) : tone === "faint" ? (
       <rect x="3" y="3" width="20" height="10" fill="none" stroke={GREY} strokeWidth="1.2" />
+    ) : tone === "mark" ? (
+      <>
+        <rect x="4" y="2" width="7" height="10" fill={WORK} fillOpacity={LOT_FILL.work} />
+        <rect x="15" y="2" width="7" height="10" fill={WORK} fillOpacity={LOT_FILL.work} />
+        <line x1="2" y1="14.5" x2="24" y2="14.5" stroke={MARK} strokeWidth="3" strokeLinecap="round" />
+      </>
     ) : tone === "tint" ? (
       <rect x="1" y="1" width="24" height="14" fill={YELLOW} fillOpacity="0.3" stroke="none" />
     ) : (
@@ -467,6 +473,8 @@ export const CompanyPage = ({ page, cc, day, onReady }: { page: CompanySheet; cc
     const mine = new Set(page.areaIds);
     const layers: PrintLayer[] = [
       { kind: "tint", key: "day", rings: cc.dayArea.map((r) => r.map(([lng, lat]) => [lat, lng] as LatLngPair)) },
+      ...workLayers(cc).map((l): PrintLayer => (l.kind === "lot" ? { ...l, plain: true } : l)),
+      ...cc.marks.map((k): PrintLayer => ({ kind: "mark", key: `m${k.key}`, line: k.line })),
       ...cc.areas.map((a): PrintLayer => ({ kind: "area", key: `a${a.areaId}`, ring: ring(a.area), tone: mine.has(a.areaId) ? "company" : "faint", label: mine.has(a.areaId) ? a.name : undefined })),
     ];
     const fit: LatLngPair[] = [
@@ -509,6 +517,10 @@ export const CompanyPage = ({ page, cc, day, onReady }: { page: CompanySheet; cc
             <li className="flex items-center gap-2">
               <AreaSwatch tone="faint" />
               Other companies
+            </li>
+            <li className="flex items-center gap-2">
+              <AreaSwatch tone="mark" />
+              Work
             </li>
             <li className="flex items-center gap-2">
               <AreaSwatch tone="tint" />

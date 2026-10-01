@@ -469,3 +469,58 @@ iOS, said plainly in the UI where it matters
   first" instead of a toggle that silently fails.
 - Geolocation permission on iOS is re-asked per site more often than on Android; the Location row on
   the settings page shows the current permission state so the red shirt can see why the dot is missing.
+
+## 15. Before and after photos
+
+Every lot can carry photos in two kinds, `before` and `after`. Crews take them on the phone while
+standing on the lot; drivers and greens can take them too. Greens and admin browse them as pairs
+and admin downloads them for the recap email and sponsors.
+
+Data
+```
+lot_photos   id, lot_id, kind ('before'|'after'), session_id, taken_by (display name), role,
+             crew_id (nullable), truck_id (nullable), cc_id, day_id, at, lat, lng (nullable),
+             width, height, bytes, deleted_at (nullable)
+```
+Files live at `$DATA_DIR/photos/<id>.jpg` and `$DATA_DIR/photos/<id>.thumb.jpg`. The volume at
+`/data` already persists them in production. Never store photos in SQLite.
+
+Capture and upload
+- `<input type="file" accept="image/*" capture="environment">` behind a **Before** or **After** camera
+  button. The client resizes on a canvas to a 1600 px long edge, JPEG quality 0.82, and a 320 px thumb,
+  which also strips EXIF. It posts both as multipart to `POST /photos` (plain route, not tRPC) with
+  `lotId`, `kind`, and the device position if known. Shows a progress bar during upload and the thumb
+  in place when done. Upload failures keep the photo in the control with a **Retry** button.
+- Server: any session. Crew may photograph lots at its CC or within 400 m of its last position;
+  driver and green any lot at their CC; admin any lot. Validates JPEG magic bytes, 6 MB cap per file,
+  writes the two files, inserts the row, emits `lot.changed`.
+- `GET /photos/<id>` and `GET /photos/<id>/thumb` need a session, send `cache-control: private, max-age=31536000`.
+- A new photo of the same kind does not replace the old one; the newest shows first and older ones stay
+  in the viewer. The person who took a photo can delete it the same day; green and admin can delete any.
+  Delete sets `deleted_at` and removes the files.
+
+Where it shows
+- Shared `LotSheet` component (used by every map's lot tap and the crew lots list): status control,
+  address, crew, then two tiles side by side labelled **Before** and **After**, each either the newest
+  thumb or a camera button. Tap a thumb for the full-screen viewer with swipe between before and after,
+  pinch zoom, taken-by and time, **Delete** where allowed.
+- Crew `/lots` rows: small before and after thumbs or camera buttons inline, so a crew can shoot a row
+  without opening the sheet.
+- Green `/lots` table: a photos column with the pair state (none, before, both). Filter **Missing after**.
+- New green page `/photos`: gallery of pairs, newest first, address and crew and company under each pair,
+  filters Company, Crew, Status, Missing after. Tap a pair for the viewer.
+- New admin page `/admin/photos`: the same gallery across every CC and day with a Day and CC filter and
+  **Download zip** (`GET /admin/photos.zip?day=&cc=`, streamed with `fflate`, files named
+  `<day>_<cc>_<address>_<before|after>_<n>.jpg`). Also a CSV of photo metadata on `/admin/export`.
+- Stats: a **Photographed** tile, lots with both kinds, and lots with a before but no after.
+- Nav: green gets **Photos** after Lots; admin gets **Photos** after Lots. Crew nav is unchanged.
+
+Seed
+- Two seeded lots per CC get a before and after pair fetched live from Esri World Imagery
+  (`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/19/{y}/{x}`,
+  centred on the lot) so the gallery and viewer have real content. If the fetch fails the seed leaves
+  them empty and the empty states carry the demo.
+
+Gate and sheets
+- Add `/photos` to the green routes and `/admin/photos` to the admin routes in `scripts/gate.py` and
+  `scripts/sheets.py`. Camera buttons are at least 44 px. The viewer is `100dvh` with safe-area padding.

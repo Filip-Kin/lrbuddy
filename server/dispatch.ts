@@ -178,14 +178,23 @@ export const orderedStops = (truckId: number, now: number): Stop[] => {
 // #endregion
 
 // #region assignment
-/** Trucks at the CC on the day, not offline, seen in the last 15 minutes. */
-export const candidateTrucks = (ccId: number, dayId: number, now: number): Truck[] =>
-  db
+/**
+ * Trucks at the CC on the day that can take a stop. Trucks seen in the last
+ * 15 minutes come first; when none has reported, every truck that is not
+ * switched off is a candidate anyway, routed from the CC. A request must never
+ * sit open because a driver's phone went quiet: the green board can still move
+ * it, and the driver sees it the moment the app wakes up.
+ */
+export const candidateTrucks = (ccId: number, dayId: number, now: number): Truck[] => {
+  const all = db
     .select()
     .from(trucks)
-    .where(and(eq(trucks.ccId, ccId), eq(trucks.dayId, dayId), isNotNull(trucks.lastSeenAt)))
+    .where(and(eq(trucks.ccId, ccId), eq(trucks.dayId, dayId)))
     .all()
-    .filter((t) => t.status !== "offline" && t.lastSeenAt !== null && now - t.lastSeenAt <= SEEN_WINDOW_MS);
+    .filter((t) => t.status !== "offline");
+  const fresh = all.filter((t) => t.lastSeenAt !== null && now - t.lastSeenAt <= SEEN_WINDOW_MS);
+  return fresh.length > 0 ? fresh : all;
+};
 
 /**
  * Cheapest place to add `x` to a path that starts at `origin` and visits

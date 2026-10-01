@@ -96,7 +96,7 @@ describe("assignment on create", () => {
     expect(r.assignedAt).toBe(now);
   });
 
-  test("a truck not seen for 16 minutes is skipped", () => {
+  test("a truck not seen for 16 minutes loses to one that has reported", () => {
     const now = Date.now();
     addTruck(w, "Stale", north(1), 16 * MIN, now);
     const seen = addTruck(w, "Seen", north(-3), 2 * MIN, now);
@@ -105,9 +105,19 @@ describe("assignment on create", () => {
     expect(r.truckId).toBe(seen.id);
   });
 
-  test("no candidate leaves the request open", () => {
+  test("when no truck has reported, the request still goes to a non-offline truck", () => {
     const now = Date.now();
-    addTruck(w, "Stale", north(1), 16 * MIN, now);
+    const stale = addTruck(w, "Stale", north(1), 16 * MIN, now);
+    const off = addTruck(w, "Off", north(1), MIN, now);
+    db.update(s.trucks).set({ status: "offline" }).where(eq(s.trucks.id, off.id)).run();
+    const crew = addCrew(w, north(1), now);
+    const r = request(w, crew.id, "water", 1, now);
+    expect(r.status).toBe("assigned");
+    expect(r.truckId).toBe(stale.id);
+  });
+
+  test("a CC with only offline trucks leaves the request open", () => {
+    const now = Date.now();
     const off = addTruck(w, "Off", north(1), MIN, now);
     db.update(s.trucks).set({ status: "offline" }).where(eq(s.trucks.id, off.id)).run();
     const crew = addCrew(w, north(1), now);
@@ -407,13 +417,14 @@ describe("state machine and stock", () => {
     expect(moved.enRouteAt).toBeNull();
   });
 
-  test("open requests are swept onto a truck that comes back", () => {
+  test("open requests are swept onto a truck that comes back from offline", () => {
     const now = Date.now();
     const t = addTruck(w, "A", CC, 30 * MIN, now);
+    db.update(s.trucks).set({ status: "offline" }).where(eq(s.trucks.id, t.id)).run();
     const c = addCrew(w, north(1), now);
     const r = request(w, c.id, "water", 1, now);
     expect(r.status).toBe("open");
-    db.update(s.trucks).set({ lastSeenAt: now }).where(eq(s.trucks.id, t.id)).run();
+    db.update(s.trucks).set({ status: "idle", lastSeenAt: now }).where(eq(s.trucks.id, t.id)).run();
     const swept = d.sweepOpen(w.ccId, w.dayId, now);
     expect(swept.map((x) => x.truckId)).toEqual([t.id]);
   });

@@ -54,19 +54,19 @@ beforeEach(() => {
 const admin = () => adminRouter.createCaller({ session: createSession({ role: "admin" }), ip: "test", ccOverride: null });
 // #endregion
 
-describe("open requests reach a truck that comes back", () => {
-  // shared.position sweeps open requests only when the truck was stale at that
-  // moment. Every driver query (driverProcedure -> touchTruck) marks the truck
-  // seen first, and the driver app loads its queue before the first GPS fix,
-  // so the sweep never runs and the request sits open next to an idle truck.
-  test("driver opens the queue, then posts a position: the open request is assigned", async () => {
+describe("a quiet truck still gets the request", () => {
+  // A truck that has not reported for an hour is still the CC's truck. The
+  // request goes to it at once, routed from the CC, and the driver sees it when
+  // the app wakes up. Only an offline truck is skipped.
+  test("stale truck is assigned at creation and keeps the stop after it reports", async () => {
     const now = Date.now();
     const truck = setup.createTruck({ dayId: w.dayId, ccId: w.east.id, name: "Truck 1" });
     db.update(s.trucks).set({ lastSeenAt: now - 60 * MIN }).where(eq(s.trucks.id, truck.id)).run();
     const crew = setup.createCrew({ dayId: w.dayId, ccId: w.east.id, companyId: null });
     db.insert(s.positions).values({ kind: "crew", refId: crew.id, ...EAST, at: now }).run();
     const r = d.createRequest({ crewId: crew.id, ccId: w.east.id, dayId: w.dayId, typeId: w.typeId("water"), qty: 1, createdBy: "crew" }, now);
-    expect(r.status).toBe("open");
+    expect(r.status).toBe("assigned");
+    expect(r.truckId).toBe(truck.id);
 
     const session = createSession({ role: "driver", truckId: truck.id, ccId: w.east.id });
     await driverRouter.createCaller({ session, ip: "test", ccOverride: null }).queue();

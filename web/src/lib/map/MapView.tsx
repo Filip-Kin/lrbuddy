@@ -133,7 +133,10 @@ const applyFit = (m: L.Map, pts: L.LatLngExpression[]): void => {
     m.setView(pts[0]!, 16);
     return;
   }
-  const pad = m.getSize().x < 600 ? 14 : 36;
+  // Markers carry a label below them and a halo around them, so the fit needs
+  // room for the whole marker, not just its anchor point. 14 px clipped "CC East"
+  // to "C East" at the frame edge on a phone.
+  const pad = m.getSize().x < 600 ? 44 : 60;
   const snap = m.options.zoomSnap;
   m.options.zoomSnap = 0;
   m.fitBounds(L.latLngBounds(pts), { padding: [pad, pad], maxZoom: 17 });

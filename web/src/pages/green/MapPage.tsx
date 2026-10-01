@@ -10,6 +10,8 @@ import { CrewSheet, LotSheet, StopSheet, TruckSheet } from "../../components/gre
 import { FilterSelect, PinIcon, useFlash } from "../../components/green/ui.tsx";
 import { ToggleChip } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
+import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
+import { AlleyLayer } from "../../components/alleys/AlleyLayer.tsx";
 import { trpc } from "../../lib/trpc.ts";
 
 type Selected = { kind: "crew" | "truck" | "lot" | "stop" | "area"; id: number } | { kind: "side"; key: string } | null;
@@ -90,6 +92,7 @@ export const MapPage = () => {
   const onArea = useCallback((id: number) => setSelected({ kind: "area", id }), []);
   const onSide = useCallback((key: string) => setSelected({ kind: "side", key }), []);
   useDayOfLayer(map, plan.data, showAreas && !placing, onArea, onSide);
+  useOnewayLayer(map);
 
   const companyCrews = company === null ? crews : crews.filter((c) => c.companyId === company);
   const selArea = selected?.kind === "area" ? (plan.data?.areas.find((a) => a.id === selected.id) ?? null) : null;
@@ -172,6 +175,7 @@ export const MapPage = () => {
               : undefined
           }
         />
+        <AlleyLayer map={map} />
         {!d && <div aria-hidden="true" className="absolute inset-0 z-[500] animate-pulse bg-surface-2/60" />}
         {placing && (
           <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex justify-center px-3">

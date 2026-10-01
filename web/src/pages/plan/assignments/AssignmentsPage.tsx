@@ -11,6 +11,8 @@ import { Skeleton } from "../../../components/Skeleton.tsx";
 import { Switch } from "../../../components/Switch.tsx";
 import { ToggleChip } from "../../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../../lib/map/MapView.tsx";
+import { useOnewayLayer } from "../../../lib/map/onewayLayer.ts";
+import { AlleyLayer } from "../../../components/alleys/AlleyLayer.tsx";
 import {
   insideRect,
   rectFromRing,
@@ -236,6 +238,7 @@ export const AssignmentsPage = () => {
   const [notice, setNotice] = useState<NoticeValue>(null);
   const clearNotice = useCallback(() => setNotice(null), []);
   const [map, setMap] = useState<LeafletMap | null>(null);
+  useOnewayLayer(map);
 
   const targetCompany = companies.find((c) => c.companyId === target) ?? null;
   const cards = useRef(new Map<number, HTMLLIElement>());
@@ -619,6 +622,7 @@ export const AssignmentsPage = () => {
           </section>
           <div className="relative h-[60dvh] min-h-80 overflow-hidden rounded-2xl ring-1 ring-line lg:h-auto lg:flex-1">
             <MapView markers={markers} label="Assignments map" className="absolute inset-0" onReady={setMap} />
+            <AlleyLayer map={map} />
             {drawSel && <MapMode label="Select area" detail={selTool.step ? STEP_LABEL[selTool.step] : undefined} onCancel={() => setDrawSel(false)} />}
             {areaRow && (
               <MapMode
@@ -644,6 +648,8 @@ export const AssignmentsPage = () => {
               { swatch: SWATCH.sel, label: "Selected" },
               { swatch: SWATCH.done, label: "Done" },
               { swatch: SWATCH.dnt, label: "Do not touch" },
+              { swatch: "swatch-oneway", label: "One way" },
+              { swatch: "swatch-alley", label: "Alley" },
             ]}
           />
         </div>

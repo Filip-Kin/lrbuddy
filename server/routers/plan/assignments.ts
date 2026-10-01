@@ -5,6 +5,7 @@ import { db } from "../../db/index.ts";
 import { assignments, companies, companyDays, crewAreas, crews, days, lotPhotos, lots, type AreaPolygon, type Lot } from "../../db/schema.ts";
 import { dayOfMap } from "../../dayof.ts";
 import { emitLot } from "../../lots-import.ts";
+import { scheduleOneway, scheduleOnewayForDay } from "../../oneway.ts";
 import { areaAround, isWork, newestTags, outlinePoints, parcelsOnSides, workParcelsOnSides, type BlockSide } from "../../parcels.ts";
 import { createCrew } from "../../setup.ts";
 import { adminProcedure, router } from "../../trpc.ts";
@@ -286,6 +287,7 @@ export const assignmentsRouter = router({
         });
         return { written, areaId };
       });
+      if (input.area) scheduleOneway(input.ccId);
       return { assigned: out.written.length, areaId: out.areaId };
     }),
   /** Takes block sides off their assignment. Published lots stay. */
@@ -340,7 +342,10 @@ export const assignmentsRouter = router({
     .mutation(({ input }) => {
       const eventId = eventOrActive(input?.eventId);
       if (input?.dayId != null) dayOfEvent(input.dayId, eventId);
-      return publishAssignments(eventId, { dayId: input?.dayId ?? null, resetAreas: input?.resetAreas ?? false });
+      const published = publishAssignments(eventId, { dayId: input?.dayId ?? null, resetAreas: input?.resetAreas ?? false });
+      const dayIds = input?.dayId != null ? [input.dayId] : db.select({ id: days.id }).from(days).where(eq(days.eventId, eventId)).all().map((d) => d.id);
+      for (const d of dayIds) scheduleOnewayForDay(d);
+      return published;
     }),
 });
 
@@ -379,6 +384,7 @@ export const crewsRouter = router({
     const crew = db.select().from(crews).where(eq(crews.id, input.crewId)).get();
     if (!crew) throw notFound("Crew");
     const polygon: AreaPolygon | null = input.area;
+    if (polygon !== null && crew.ccId !== null) scheduleOneway(crew.ccId);
     return db.transaction((tx) => {
       if (polygon === null) {
         tx.update(crews).set({ areaId: null }).where(eq(crews.id, crew.id)).run();

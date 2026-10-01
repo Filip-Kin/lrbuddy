@@ -45,6 +45,8 @@ import {
 } from "../lots-import.ts";
 import { eventPhotos, filterPairs, photoFileNames, photoPairs, sweepPhotoFiles } from "../photos.ts";
 import { activeEvent, catalogFor, requestViews } from "../queries.ts";
+import { loadAlleysForCc } from "../alleys.ts";
+import { loadOnewayForCc, scheduleOneway, scheduleOnewayForDay } from "../oneway.ts";
 import { copySetupFromPreviousDay, createCc, createCrew, createEvent, createTruck, setActiveEvent, stockTypeOnTrucks } from "../setup.ts";
 import { adminProcedure, liveFor, readAdmin, router } from "../trpc.ts";
 
@@ -230,7 +232,9 @@ const daysRouter = router({
   copyFromPrevious: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
     const existing = db.select({ n: sql<number>`count(*)` }).from(commandCenters).where(eq(commandCenters.dayId, input.id)).get();
     if ((existing?.n ?? 0) > 0) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Day already has command centers" });
-    return copySetupFromPreviousDay(input.id);
+    const copied = copySetupFromPreviousDay(input.id);
+    scheduleOnewayForDay(input.id);
+    return copied;
   }),
 });
 // #endregion
@@ -271,7 +275,9 @@ const ccsRouter = router({
     )
     .mutation(({ input }) => {
       if (!db.select({ id: days.id }).from(days).where(eq(days.id, input.dayId)).get()) throw notFound("Day");
-      return createCc({ ...input, address: input.address || null, letter: input.letter || null });
+      const cc = createCc({ ...input, address: input.address || null, letter: input.letter || null });
+      scheduleOneway(cc.id);
+      return cc;
     }),
   /** Street address of the parcel under a point, to prefill a new CC. Null when none or the city layer is down. */
   addressAt: adminProcedure.input(z.object({ lat: z.number(), lng: z.number() })).query(async ({ input }) => {
@@ -297,8 +303,17 @@ const ccsRouter = router({
     .mutation(({ input }) => {
       const { id: ccId, letter, ...rest } = input;
       const set = letter === undefined ? rest : { ...rest, letter: letter || null };
-      return db.update(commandCenters).set(set).where(eq(commandCenters.id, ccId)).returning().get();
+      const cc = db.update(commandCenters).set(set).where(eq(commandCenters.id, ccId)).returning().get();
+      if (cc && (input.lat !== undefined || input.lng !== undefined)) scheduleOneway(cc.id);
+      return cc;
     }),
+  /** One-way streets and alleys for the CC's day area from Overpass, now. Never fails: the error comes back as text. */
+  loadOneway: adminProcedure.input(z.object({ id })).mutation(async ({ input }) => {
+    if (!db.select({ id: commandCenters.id }).from(commandCenters).where(eq(commandCenters.id, input.id)).get()) throw notFound("Command center");
+    const r = await loadOnewayForCc(input.id, { force: true });
+    const a = await loadAlleysForCc(input.id);
+    return { ways: r.ways, alleys: a.alleys, error: r.error ?? a.error };
+  }),
   delete: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
     db.delete(commandCenters).where(eq(commandCenters.id, input.id)).run();
     bus.checkScopes();

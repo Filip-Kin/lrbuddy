@@ -30,8 +30,8 @@ export const DEFAULT_REQUEST_TYPES: ReadonlyArray<{
 }> = [
   { key: "water", label: "Water", unit: "case", priority: 3, tracksStock: true, defaultCapacity: 30 },
   { key: "snacks", label: "Snacks", unit: "box", priority: 2, tracksStock: true, defaultCapacity: 12 },
-  { key: "gas_mower", label: "Gas, mower", unit: "can", priority: 3, tracksStock: true, defaultCapacity: 6 },
-  { key: "gas_trimmer", label: "Gas, weed whip", unit: "can", priority: 3, tracksStock: true, defaultCapacity: 6 },
+  { key: "gas_mower", label: "Gas, mower", unit: "can", priority: 3, tracksStock: false, defaultCapacity: 6 },
+  { key: "gas_trimmer", label: "Gas, weed whip", unit: "can", priority: 3, tracksStock: false, defaultCapacity: 6 },
   { key: "swap_mower", label: "Mower swap", unit: "each", priority: 2, tracksStock: true, defaultCapacity: 2 },
   { key: "swap_trimmer", label: "Weed whip swap", unit: "each", priority: 2, tracksStock: true, defaultCapacity: 2 },
   { key: "mower", label: "Mower", unit: "each", priority: 2, tracksStock: true, defaultCapacity: 2 },

@@ -4,6 +4,8 @@ import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABEL
 import type { LotGeometry } from "../../../../server/db/schema.ts";
 import { ccBody, escapeHtml, lotIcon, lotShape, routeLine, type LotStatus } from "../../lib/map/markers.ts";
 import { usePrefersDark } from "../../lib/map/MapView.tsx";
+import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
+import { AlleyLayer } from "../alleys/AlleyLayer.tsx";
 import { ahead, metresPerPixel, turn, type LatLng } from "../../pages/plan/survey/geo.ts";
 import { useDayOfLayer, type DayOfArea } from "../green/dayOfLayer.ts";
 
@@ -144,6 +146,7 @@ export const DriverMap = ({
   const lotRenderer = useRef<L.Renderer | null>(null);
   const tookAt = useRef(0);
   const [leaflet, setLeaflet] = useState<L.Map | null>(null);
+  useOnewayLayer(leaflet);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const rot = useRef(0);
   const followRef = useRef(follow);
@@ -321,6 +324,7 @@ export const DriverMap = ({
         className="absolute transition-transform duration-500 ease-linear motion-reduce:transition-none"
         style={{ width: d || "100%", height: d || "100%", left: (size.w - d) / 2, top: (size.h - d) / 2 }}
       />
+      <AlleyLayer map={leaflet} />
     </div>
   );
 };

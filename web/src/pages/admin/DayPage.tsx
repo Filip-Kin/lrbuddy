@@ -1,3 +1,4 @@
+import type { Map as LeafletMap } from "leaflet";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "../../components/Button.tsx";
@@ -16,6 +17,8 @@ import { Panel } from "../../components/Panel.tsx";
 import { SkeletonList } from "../../components/Skeleton.tsx";
 import { ago, telHref } from "../../lib/format.ts";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
+import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
+import { AlleyLayer } from "../../components/alleys/AlleyLayer.tsx";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
 type DayData = RouterOutputs["admin"]["days"]["get"];
@@ -507,6 +510,11 @@ const CcCard = ({
       notify({ tone: "ok", text: `CC ${cc.name} green code ${r.code}` });
     },
   });
+  const oneway = trpc.admin.ccs.loadOneway.useMutation({
+    onSuccess: (r) =>
+      notify(r.error ? { tone: "error", text: `CC ${cc.name} one-way streets unavailable. Try again later.` } : { tone: "ok", text: `CC ${cc.name}, ${plural(r.ways, "one-way street")}, ${plural(r.alleys, "alley", "alleys")}` }),
+    onError: (e) => notify({ tone: "error", text: errorText(e) }),
+  });
   const truckCode = trpc.admin.trucks.regenerateCode.useMutation({
     onSuccess: (t) => {
       void utils.admin.days.get.invalidate();
@@ -600,6 +608,9 @@ const CcCard = ({
           <span>Crews</span>
           <span className="tabular-nums text-muted">{cc.crewCount}</span>
         </Link>
+        <Button variant="secondary" size="sm" block busy={oneway.isPending} data-oneway-load onClick={() => oneway.mutate({ id: cc.id })}>
+          Load one-way streets
+        </Button>
       </div>
       <ShirtSheet ccId={cc.id} shirt={shirt === "new" ? null : shirt} open={shirt !== null} onClose={() => setShirt(null)} />
       <TruckSheet
@@ -638,6 +649,8 @@ export const DayPage = ({ id }: { id: number }) => {
   const [editDay, setEditDay] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [notice, setNotice] = useState<NoticeValue>(null);
+  const [map, setMap] = useState<LeafletMap | null>(null);
+  useOnewayLayer(map);
   const clearNotice = useCallback(() => setNotice(null), []);
 
   const move = trpc.admin.ccs.update.useMutation({
@@ -742,7 +755,8 @@ export const DayPage = ({ id }: { id: number }) => {
           }
         >
           <div className="relative h-72 nav:h-[26rem]">
-            <MapView markers={markers} onMapClick={mode.kind === "idle" ? undefined : onMapClick} fitKey={`${day.id}:${ccs.length}`} label="Command centers map" className="absolute inset-0" />
+            <MapView markers={markers} onMapClick={mode.kind === "idle" ? undefined : onMapClick} fitKey={`${day.id}:${ccs.length}`} label="Command centers map" className="absolute inset-0" onReady={setMap} />
+            <AlleyLayer map={map} />
             {mode.kind !== "idle" && (
               <MapMode label={mode.kind === "new" ? "New CC position" : `New position, CC ${mode.name}`} onCancel={() => setMode({ kind: "idle" })} />
             )}

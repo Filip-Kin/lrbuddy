@@ -6,6 +6,8 @@ import { EmptyState } from "../../../components/EmptyState.tsx";
 import { Panel, Stat } from "../../../components/Panel.tsx";
 import { Skeleton } from "../../../components/Skeleton.tsx";
 import { MapView } from "../../../lib/map/MapView.tsx";
+import { useOnewayLayer } from "../../../lib/map/onewayLayer.ts";
+import { AlleyLayer } from "../../../components/alleys/AlleyLayer.tsx";
 import { trpc } from "../../../lib/trpc.ts";
 import { noEvent } from "../common.ts";
 import { CapacityInputs, Legend } from "./parts.tsx";
@@ -98,6 +100,7 @@ export const BlocksPage = () => {
   const anchor = useRef<string | null>(null);
   const rows = useRef(new Map<string, HTMLTableRowElement>());
   const [map, setMap] = useState<LeafletMap | null>(null);
+  useOnewayLayer(map);
 
   const sides = list.data ?? [];
   const byKey = useMemo(() => new Map(sides.map((s) => [s.key, s])), [sides]);
@@ -203,11 +206,14 @@ export const BlocksPage = () => {
         <div className="flex min-h-0 flex-col gap-2">
           <div className="relative h-[50dvh] min-h-72 overflow-hidden rounded-2xl ring-1 ring-line lg:h-auto lg:flex-1">
             <MapView markers={[]} label="Block sides map" className="absolute inset-0" onReady={setMap} />
+            <AlleyLayer map={map} />
           </div>
           <Legend
             items={[
               ...(["none", "light", "mid", "dark"] as const).map((b) => ({ swatch: SWATCH[b], label: BAND_LABEL[b] })),
               { swatch: SWATCH.sel, label: "Selected" },
+              { swatch: "swatch-oneway", label: "One way" },
+              { swatch: "swatch-alley", label: "Alley" },
             ]}
           />
         </div>

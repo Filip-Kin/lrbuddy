@@ -29,6 +29,8 @@ import { attachOutlines, fetchDlba, upsertLots, type LotInput } from "./lots-imp
 import { sweepPhotoFiles } from "./photos.ts";
 import { seedLotPhotos, type SeedPhotoTarget } from "./seed-photos.ts";
 import { ccbCompanies, seedCcB } from "./seed-ccb.ts";
+import { loadAlleysForCc } from "./alleys.ts";
+import { loadOnewayForCc } from "./oneway.ts";
 import { seedPlan } from "./seed-plan.ts";
 import { createCc, createCrew, createEvent, createTruck } from "./setup.ts";
 
@@ -319,6 +321,18 @@ const main = async (): Promise<void> => {
   for (const t of [t1, t2, t3]) await computeRouteNow(t.id, now);
   cancelScheduledRoutes();
 
+  // #region one-way streets (SPEC 20): Overpass for every seeded CC's day area; the seed goes on without them
+  const oneway: string[] = [];
+  for (const [label, ccId] of [["East", east.id], ["West", west.id], ["CC B", ccb.ccId]] as const) {
+    const r = await loadOnewayForCc(ccId, { force: true });
+    if (r.error) console.warn(`[seed] one-way streets for ${label} failed: ${r.error}`);
+    oneway.push(`${label} ${r.error ? "unavailable" : r.ways}`);
+  }
+  // Alleys (SPEC 19) for the real day only.
+  const alleyLoad = await loadAlleysForCc(ccb.ccId);
+  if (alleyLoad.error) console.warn(`[seed] alleys for CC B failed: ${alleyLoad.error}`);
+  // #endregion
+
   // #region report
   const base = config.publicUrl;
   const rows: Array<[string, string, string]> = [
@@ -341,7 +355,8 @@ const main = async (): Promise<void> => {
   const w1 = Math.max(...rows.map((r) => r[1].length));
   console.log(`\nSeeded "${EVENT_NAME}": ${allLots.length} lots (${lotSource}), ${crewRows.length} crews, 3 trucks, ${seedReqs.length} requests, ${photographed} photo pairs`);
   console.log(`Plan: ${plan.parcels}, ${plan.tags} survey tags, ${plan.assigned} block sides assigned, ${plan.shared} shared areas, ${plan.published} lots published, ${plan.areas} crew areas\n`);
-  console.log(`Day 4 CC B: ${ccb.parcels}, ${ccb.tags} survey tags, ${ccb.sides} block sides, ${ccb.areas} rectangles, ${ccb.lots} lots, ${ccb.crews.length} crews\n`);
+  console.log(`Day 4 CC B: ${ccb.parcels}, ${ccb.tags} survey tags, ${ccb.sides} block sides, ${ccb.areas} rectangles, ${ccb.lots} lots, ${ccb.crews.length} crews`);
+  console.log(`One-way ways: ${oneway.join(", ")}; CC B alleys: ${alleyLoad.error ? "unavailable" : alleyLoad.alleys}\n`);
   console.log(`${"role".padEnd(w0)}  ${"who".padEnd(w1)}  code or join link`);
   console.log(`${"-".repeat(w0)}  ${"-".repeat(w1)}  ${"-".repeat(40)}`);
   for (const [role, who, code] of rows) console.log(`${role.padEnd(w0)}  ${who.padEnd(w1)}  ${code}`);

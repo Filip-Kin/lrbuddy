@@ -16,6 +16,8 @@ import { Panel, Stat } from "../../components/Panel.tsx";
 import { SkeletonList } from "../../components/Skeleton.tsx";
 import { Segmented } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
+import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
+import { AlleyLayer } from "../../components/alleys/AlleyLayer.tsx";
 import { insideRect, rectBBox, rectRing, rectSize, STEP_LABEL, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
@@ -408,6 +410,7 @@ export const LotsPage = () => {
   const [notice, setNotice] = useState<NoticeValue>(null);
   const clear = useCallback(() => setNotice(null), []);
   const [map, setMap] = useState<LeafletMap | null>(null);
+  useOnewayLayer(map);
   const drawingRect = mode.kind === "rect" && sheetRect === null;
   const rectTool = useOrientedRect(map, {
     drawing: drawingRect,
@@ -533,6 +536,7 @@ export const LotsPage = () => {
             ) : (
               <MapView markers={markers} onMapClick={mode.kind === "add" ? onMapClick : undefined} fitKey="lots" label="Lots map" className="absolute inset-0" onReady={setMap} />
             )}
+            <AlleyLayer map={map} />
             {mode.kind === "add" && <MapMode label="Add lot" detail={add.isPending ? "Adding…" : undefined} onCancel={stopMode} cancelLabel="Done" />}
             {mode.kind === "rect" && (
               <MapMode label={RECT_LABEL[mode.action]} detail={rectTool.step ? STEP_LABEL[rectTool.step] : undefined} onCancel={stopMode} />

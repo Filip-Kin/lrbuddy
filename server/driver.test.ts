@@ -213,6 +213,28 @@ describe("driver actions", () => {
     expect(stockOf(t.id, snacks).qty).toBe(0);
   });
 
+  test("Expected sets this truck's capacity only, and low stock follows it", async () => {
+    const now = Date.now();
+    const mine = addTruck(w, "Truck 1", CC, now);
+    const other = addTruck(w, "Truck 2", CC, now);
+    const water = w.typeId("water");
+    const caller = driverOf(mine.id, w.ccId);
+    const otherCap = stockOf(other.id, water).capacity;
+    await caller.adjustStock({ typeId: water, delta: -(stockOf(mine.id, water).qty - 10) });
+    expect(stockOf(mine.id, water).qty).toBe(10);
+    // 10 of 30 is not low; 10 of 50 is.
+    const rows = await caller.setExpected({ typeId: water, capacity: 50 });
+    expect(rows.find((r) => r.typeId === water)).toMatchObject({ capacity: 50, qty: 10, low: true });
+    expect(stockOf(mine.id, water).capacity).toBe(50);
+    expect(stockOf(other.id, water).capacity).toBe(otherCap);
+    expect((await caller.queue()).lowStock).toBe(true);
+    await caller.setExpected({ typeId: water, capacity: 20 });
+    expect((await caller.queue()).lowStock).toBe(false);
+    // Gas is not tracked (SPEC 20): no stock row, so nothing to set.
+    await expect(caller.setExpected({ typeId: w.typeId("gas_mower"), capacity: 4 })).rejects.toThrow("Stock item not found");
+    await expect(caller.setExpected({ typeId: water, capacity: -1 })).rejects.toThrow();
+  });
+
   test("setName renames the truck's driver", async () => {
     const now = Date.now();
     const t = addTruck(w, "Truck 1", CC, now);

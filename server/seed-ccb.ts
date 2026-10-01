@@ -9,9 +9,9 @@
  * three columns. Every rectangle is the set of block sides on both sides of its
  * streets inside its columns, read from the parcel layer's cross streets.
  */
-import { and, eq, max, sql } from "drizzle-orm";
+import { eq, max } from "drizzle-orm";
 import { db } from "./db/index.ts";
-import { assignments, companies, companyDays, crewAreas, crews, greenShirts, lots, positions, surveyTags, trucks, type Crew, type Day, type ParcelRow } from "./db/schema.ts";
+import { assignments, companies, companyDays, crewAreas, crews, greenShirts, surveyTags, type Crew, type Day, type ParcelRow } from "./db/schema.ts";
 import type { BBox, LatLng } from "./geo.ts";
 import { cachedParcelsInBBox, loadParcelsBBox, gridAreaAround, mainAxis, outlinePoints } from "./parcels.ts";
 import { createSharedArea } from "./routers/plan/areas.ts";
@@ -142,10 +142,9 @@ export const seedCcB = async (input: { eventId: number; day: Day; rocketId: numb
     ["Nina Lopez", "313-555-0403", "Crews"],
   ];
   for (const [name, phone, roleLabel] of shirts) db.insert(greenShirts).values({ ccId: cc.id, name, phone, roleLabel }).run();
-  const trucksMade = [
-    createTruck({ dayId: day.id, ccId: cc.id, name: "Truck B1", driverName: "Luis Romero", driverPhone: "313-555-0411", code: "TRUCKB1" }),
-    createTruck({ dayId: day.id, ccId: cc.id, name: "Truck B2", driverName: "Erin Shaw", driverPhone: "313-555-0412", code: "TRUCKB2" }),
-  ];
+  // A live day (SPEC 20): no positions and no requests, so nothing on the map is a fake person.
+  createTruck({ dayId: day.id, ccId: cc.id, name: "Truck B1", driverName: "Luis Romero", driverPhone: "313-555-0411", code: "TRUCKB1" });
+  createTruck({ dayId: day.id, ccId: cc.id, name: "Truck B2", driverName: "Erin Shaw", driverPhone: "313-555-0412", code: "TRUCKB2" });
   // #endregion
 
   // #region companies and crews: ROCKET 1 to 5, then GM 1 to 15, 20 people each
@@ -170,10 +169,6 @@ export const seedCcB = async (input: { eventId: number; day: Day; rocketId: numb
     made.push(crew);
     crewOf.set(`${short} ${n}`, crew);
   });
-  for (const t of trucksMade) {
-    db.insert(positions).values({ kind: "truck", refId: t.id, lat: at.lat, lng: at.lng, accuracy: 8, at: Date.now() - 60_000 }).run();
-    db.update(trucks).set({ lastSeenAt: Date.now() - 60_000 }).where(eq(trucks.id, t.id)).run();
-  }
   // #endregion
 
   if (cached.length === 0) return { ccId: cc.id, parcels: note, tags: 0, sides: 0, areas: 0, lots: 0, crews: made };
@@ -239,19 +234,6 @@ export const seedCcB = async (input: { eventId: number; day: Day; rocketId: numb
   // Polygons are already set, so Publish keeps them (no reset).
   const published = publishAssignments(eventId, { dayId: day.id });
 
-  // #region crews stand at the middle of their lots
-  const now = Date.now();
-  for (const crew of made) {
-    const c = db
-      .select({ lat: sql<number | null>`avg(${lots.lat})`, lng: sql<number | null>`avg(${lots.lng})` })
-      .from(lots)
-      .where(and(eq(lots.eventId, eventId), eq(lots.crewId, crew.id)))
-      .get();
-    if (c?.lat == null || c.lng == null) continue;
-    db.insert(positions).values({ kind: "crew", refId: crew.id, lat: c.lat, lng: c.lng, accuracy: 12, at: now - 2 * 60_000 }).run();
-    db.update(crews).set({ lastSeenAt: now - 2 * 60_000 }).where(eq(crews.id, crew.id)).run();
-  }
-  // #endregion
 
   return { ccId: cc.id, parcels: note, tags: ordered.length, sides, areas: areaCount, lots: published.added + published.updated, crews: made };
 };

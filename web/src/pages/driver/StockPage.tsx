@@ -1,12 +1,15 @@
-import { useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
+import { Field } from "../../components/Field.tsx";
 import { Page } from "../../components/Page.tsx";
+import { Sheet } from "../../components/Sheet.tsx";
 import { StatusPill } from "../../components/StatusPill.tsx";
 import { unitPlural } from "../../components/driver/format.ts";
 import { useWakeLock, type StockRow } from "../../components/driver/hooks.ts";
 import { BoxIcon, MinusIcon, PlusIcon } from "../../components/driver/icons.tsx";
 import { StockSkeleton } from "../../components/driver/Skeleton.tsx";
+import { errorText } from "../../lib/errors.ts";
 import { trpc } from "../../lib/trpc.ts";
 
 const LOW_RATIO = 0.25;
@@ -23,7 +26,71 @@ const StepButton = ({ label, disabled, onClick, children }: { label: string; dis
   </button>
 );
 
-const Row = ({ s, onStep }: { s: StockRow; onStep: (delta: number) => void }) => {
+/** Expected load of one item on this truck (SPEC 20). */
+const ExpectedSheet = ({ item, onClose }: { item: StockRow | null; onClose: () => void }) => {
+  const utils = trpc.useUtils();
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const save = trpc.driver.setExpected.useMutation({
+    onSuccess: (rows) => {
+      utils.driver.stock.setData(undefined, rows);
+      void utils.driver.queue.invalidate();
+      onClose();
+    },
+    onError: (e) => setError(errorText(e)),
+  });
+  useEffect(() => {
+    if (!item) return;
+    setValue(String(item.capacity));
+    setError(null);
+  }, [item]);
+  const n = Number(value);
+  const valid = value.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= 1000;
+  const unit = item ? unitPlural(item.unit) : "";
+  return (
+    <Sheet
+      open={item !== null}
+      onClose={onClose}
+      title={item?.label ?? "Expected"}
+      footer={
+        <Button
+          block
+          size="lg"
+          busy={save.isPending}
+          disabled={!valid}
+          data-expected-save
+          onClick={() => item && save.mutate({ typeId: item.typeId, capacity: n })}
+        >
+          Save
+        </Button>
+      }
+    >
+      <form
+        className="pb-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (item && valid) save.mutate({ typeId: item.typeId, capacity: n });
+        }}
+      >
+        <Field
+          label={unit ? `Expected, ${unit}` : "Expected"}
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={1000}
+          step={1}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          error={valid || value.trim() === "" ? error : "Whole number, 0 to 1000"}
+          data-expected-input
+          autoFocus
+        />
+      </form>
+    </Sheet>
+  );
+};
+
+const Row = ({ s, onStep, onExpected }: { s: StockRow; onStep: (delta: number) => void; onExpected: () => void }) => {
   const pct = s.capacity > 0 ? Math.min(100, Math.round((s.qty / s.capacity) * 100)) : 0;
   const unit = unitPlural(s.unit);
   return (
@@ -36,10 +103,19 @@ const Row = ({ s, onStep }: { s: StockRow; onStep: (delta: number) => void }) =>
         <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2 ring-1 ring-line ring-inset" aria-hidden="true">
           <div className={`h-full rounded-full ${s.low ? "bg-warn" : "bg-brand-green"}`} style={{ width: `${pct}%` }} />
         </div>
-        <div className="mt-1 text-sm text-muted tabular-nums">
+        <button
+          type="button"
+          onClick={onExpected}
+          data-expected
+          aria-label={`${s.label} expected, ${s.capacity}`}
+          className="-ml-2 mt-0.5 flex min-h-11 items-center gap-1.5 rounded-xl px-2 text-sm text-muted tabular-nums underline decoration-dotted underline-offset-4 active:bg-surface-2"
+        >
           of {s.capacity}
           {unit ? ` ${unit}` : ""}
-        </div>
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+          </svg>
+        </button>
       </div>
       <div role="group" aria-label={`${s.label} on the truck`} className="flex shrink-0 items-center gap-2">
         <StepButton label={`${s.label} minus one`} disabled={s.qty <= 0} onClick={() => onStep(-1)}>
@@ -84,6 +160,7 @@ export const StockPage = () => {
     },
   });
 
+  const [expected, setExpected] = useState<StockRow | null>(null);
   const rows = stock.data ?? [];
   const lowCount = rows.filter((s) => s.low).length;
 
@@ -105,10 +182,11 @@ export const StockPage = () => {
       ) : (
         <ul className="space-y-2">
           {rows.map((s) => (
-            <Row key={s.typeId} s={s} onStep={(delta) => adjust.mutate({ typeId: s.typeId, delta })} />
+            <Row key={s.typeId} s={s} onStep={(delta) => adjust.mutate({ typeId: s.typeId, delta })} onExpected={() => setExpected(s)} />
           ))}
         </ul>
       )}
+      <ExpectedSheet item={expected} onClose={() => setExpected(null)} />
     </Page>
   );
 };

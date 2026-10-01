@@ -3,12 +3,13 @@ import { and, between, eq } from "drizzle-orm";
 import { z } from "zod";
 import { bus } from "../bus.ts";
 import { db } from "../db/index.ts";
-import { companies, crews, LOT_STATUSES, lots, routes, sessions, trucks, type CommandCenter, type Manoeuvre, type Route, type Truck } from "../db/schema.ts";
+import { companies, crews, LOT_STATUSES, lots, routes, sessions, trucks, truckStock, type CommandCenter, type Manoeuvre, type Route, type Truck } from "../db/schema.ts";
 import {
   adjustStock,
   cancelRequest,
   crewLabel,
   deliverStop,
+  emitStock,
   getRequest,
   legEtaAt,
   markEnRoute,
@@ -314,6 +315,23 @@ export const driverRouter = router({
   adjustStock: driverProcedure
     .input(z.object({ typeId: z.number().int(), delta: z.number().int().min(-100).max(100) }))
     .mutation(({ ctx, input }) => adjustStock(ctx.truck.id, input.typeId, input.delta)),
+
+  /**
+   * Expected load of one item on this truck (SPEC 20), set from the Stock page.
+   * Only the truck's own existing stock rows; low stock follows the new figure.
+   */
+  setExpected: driverProcedure
+    .input(z.object({ typeId: z.number().int(), capacity: z.number().int().min(0).max(1000) }))
+    .mutation(({ ctx, input }): StockRow[] => {
+      const where = and(eq(truckStock.truckId, ctx.truck.id), eq(truckStock.typeId, input.typeId));
+      const row = db.select().from(truckStock).where(where).get();
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Stock item not found" });
+      if (row.capacity !== input.capacity) {
+        db.update(truckStock).set({ capacity: input.capacity }).where(where).run();
+        emitStock(ctx.truck.id);
+      }
+      return stockFor(ctx.truck.id);
+    }),
 
   /** Restock on: the CC becomes the final stop. Off: back to work. */
   setReturning: driverProcedure.input(z.object({ returning: z.boolean() })).mutation(({ ctx, input }) => {

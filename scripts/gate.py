@@ -480,8 +480,54 @@ def dynamic_checks() -> None:
 
 # endregion
 
+# region Driver Stock: Expected control (SPEC 20)
+# Each stock row's "of 30 cases" opens the Expected sheet. A driver taps it at the truck,
+# so it is a primary control: at least 44 px tall. Opens one sheet, never saves.
+EXPECTED_MIN_PX = 44
+
+EXPECTED_JS = """() => [...document.querySelectorAll('[data-expected]')]
+  .filter(b => b.offsetParent !== null)
+  .map(b => { const r = b.getBoundingClientRect(); return { h: r.height, w: r.width, t: (b.getAttribute('aria-label')||'').slice(0,40) }; })"""
+
+
+def stock_expected_checks() -> None:
+    only = {r for r in os.environ.get("GATE_ROLES", "").split(",") if r}
+    if only and "driver" not in only:
+        return
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
+        ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=1, has_touch=True, is_mobile=True)
+        r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(ROLES["driver"]["login"]), headers={"content-type": "application/json"})
+        if r.status >= 400:
+            fail(f"driver stock expected: login returned {r.status}")
+        else:
+            page = ctx.new_page()
+            try:
+                page.goto(BASE + "/stock", wait_until="networkidle", timeout=45000)
+                page.wait_for_timeout(500)
+                rows = page.evaluate(EXPECTED_JS)
+                if not rows:
+                    fail("driver /stock: no Expected control ([data-expected]) on the stock rows")
+                for b in rows:
+                    if b["h"] < EXPECTED_MIN_PX:
+                        fail(f"driver /stock: Expected control '{b['t']}' is {b['h']:.0f}px tall (<{EXPECTED_MIN_PX})")
+                if rows:
+                    page.locator("[data-expected]").first.click()
+                    page.wait_for_timeout(300)
+                    if page.locator("[role=dialog] [data-expected-input]").count() == 0:
+                        fail("driver /stock: Expected sheet did not open with a number field")
+                    page.keyboard.press("Escape")
+            except Exception as e:  # noqa: BLE001
+                fail(f"driver /stock expected: {type(e).__name__}")
+        ctx.close()
+        browser.close()
+
+
+# endregion
+
 static_checks()
 dynamic_checks()
+stock_expected_checks()
 print()
 print(f"{len(failures)} failures, {len(warnings)} warnings, screenshots in {OUT}")
 sys.exit(1 if failures else 0)

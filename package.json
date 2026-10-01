@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
     "test": "bun test",
     "seed": "bun server/seed.ts",
+    "oneway": "bun server/oneway.ts",
     "generate": "drizzle-kit generate",
     "shots": "/home/filip/pit-podcast-automation/.venv/bin/python scripts/shots.py"
   },

@@ -1,0 +1,283 @@
+{
+ "version": 0.6,
+ "generator": "Overpass API 0.7.62.11 87bfad18",
+ "osm3s": {
+  "timestamp_osm_base": "2026-10-01T16:02:55Z",
+  "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+ },
+ "elements": [
+  {
+   "type": "way",
+   "id": 8741718,
+   "geometry": [
+    {
+     "lat": 42.384909,
+     "lon": -83.112256
+    },
+    {
+     "lat": 42.3849313,
+     "lon": -83.1121951
+    },
+    {
+     "lat": 42.3852675,
+     "lon": -83.1112785
+    },
+    {
+     "lat": 42.3852901,
+     "lon": -83.1112188
+    },
+    {
+     "lat": 42.3861003,
+     "lon": -83.1090914
+    },
+    {
+     "lat": 42.386124,
+     "lon": -83.109029
+    },
+    {
+     "lat": 42.386809,
+     "lon": -83.107229
+    },
+    {
+     "lat": 42.3869562,
+     "lon": -83.10685
+    },
+    {
+     "lat": 42.38699,
+     "lon": -83.106763
+    }
+   ],
+   "tags": {
+    "hgv": "no",
+    "highway": "residential",
+    "lanes": "2",
+    "name": "Tuxedo Street",
+    "oneway": "yes",
+    "tiger:cfcc": "A41",
+    "tiger:county": "Wayne, MI",
+    "tiger:name_base": "Tuxedo",
+    "tiger:name_type": "St",
+    "tiger:reviewed": "no",
+    "tiger:zip_left": "48204",
+    "tiger:zip_right": "48204"
+   }
+  },
+  {
+   "type": "way",
+   "id": 8745637,
+   "geometry": [
+    {
+     "lat": 42.3844748,
+     "lon": -83.1105918
+    },
+    {
+     "lat": 42.3845091,
+     "lon": -83.1103794
+    },
+    {
+     "lat": 42.3848623,
+     "lon": -83.1094802
+    },
+    {
+     "lat": 42.3852422,
+     "lon": -83.1084937
+    },
+    {
+     "lat": 42.3852663,
+     "lon": -83.1084312
+    },
+    {
+     "lat": 42.3852961,
+     "lon": -83.1083518
+    },
+    {
+     "lat": 42.3856706,
+     "lon": -83.1073558
+    },
+    {
+     "lat": 42.3857018,
+     "lon": -83.1072729
+    },
+    {
+     "lat": 42.3859272,
+     "lon": -83.1066733
+    },
+    {
+     "lat": 42.3860362,
+     "lon": -83.1065794
+    }
+   ],
+   "tags": {
+    "highway": "residential",
+    "lanes": "1",
+    "name": "Webb Street",
+    "oneway": "yes",
+    "tiger:cfcc": "A41",
+    "tiger:county": "Wayne, MI",
+    "tiger:name_base": "Webb",
+    "tiger:name_type": "St",
+    "tiger:reviewed": "no",
+    "tiger:zip_left": "48206",
+    "tiger:zip_right": "48206"
+   }
+  },
+  {
+   "type": "way",
+   "id": 900000001,
+   "geometry": [
+    {
+     "lat": 42.3844748,
+     "lon": -83.1105918
+    },
+    {
+     "lat": 42.3845091,
+     "lon": -83.1103794
+    },
+    {
+     "lat": 42.3848623,
+     "lon": -83.1094802
+    },
+    {
+     "lat": 42.3852422,
+     "lon": -83.1084937
+    },
+    {
+     "lat": 42.3852663,
+     "lon": -83.1084312
+    },
+    {
+     "lat": 42.3852961,
+     "lon": -83.1083518
+    },
+    {
+     "lat": 42.3856706,
+     "lon": -83.1073558
+    },
+    {
+     "lat": 42.3857018,
+     "lon": -83.1072729
+    },
+    {
+     "lat": 42.3859272,
+     "lon": -83.1066733
+    },
+    {
+     "lat": 42.3860362,
+     "lon": -83.1065794
+    }
+   ],
+   "tags": {
+    "highway": "residential",
+    "oneway": "-1",
+    "name": "Webb Street (reverse copy)"
+   }
+  },
+  {
+   "type": "way",
+   "id": 900000002,
+   "geometry": [
+    {
+     "lat": 42.3844748,
+     "lon": -83.1105918
+    },
+    {
+     "lat": 42.3845091,
+     "lon": -83.1103794
+    },
+    {
+     "lat": 42.3848623,
+     "lon": -83.1094802
+    },
+    {
+     "lat": 42.3852422,
+     "lon": -83.1084937
+    },
+    {
+     "lat": 42.3852663,
+     "lon": -83.1084312
+    },
+    {
+     "lat": 42.3852961,
+     "lon": -83.1083518
+    },
+    {
+     "lat": 42.3856706,
+     "lon": -83.1073558
+    },
+    {
+     "lat": 42.3857018,
+     "lon": -83.1072729
+    },
+    {
+     "lat": 42.3859272,
+     "lon": -83.1066733
+    },
+    {
+     "lat": 42.3860362,
+     "lon": -83.1065794
+    }
+   ],
+   "tags": {
+    "highway": "residential",
+    "name": "Two way copy"
+   }
+  },
+  {
+   "type": "way",
+   "id": 900000003,
+   "geometry": [
+    {
+     "lat": 42.3844748,
+     "lon": -83.1105918
+    },
+    {
+     "lat": 42.3845091,
+     "lon": -83.1103794
+    },
+    {
+     "lat": 42.3848623,
+     "lon": -83.1094802
+    },
+    {
+     "lat": 42.3852422,
+     "lon": -83.1084937
+    },
+    {
+     "lat": 42.3852663,
+     "lon": -83.1084312
+    },
+    {
+     "lat": 42.3852961,
+     "lon": -83.1083518
+    },
+    {
+     "lat": 42.3856706,
+     "lon": -83.1073558
+    },
+    {
+     "lat": 42.3857018,
+     "lon": -83.1072729
+    },
+    {
+     "lat": 42.3859272,
+     "lon": -83.1066733
+    },
+    {
+     "lat": 42.3860362,
+     "lon": -83.1065794
+    }
+   ],
+   "tags": {
+    "highway": "footway",
+    "oneway": "yes"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1,
+   "lat": 42.38,
+   "lon": -83.12
+  }
+ ],
+ "note": "Two real ways from Overpass (Webb St and Tuxedo St, Detroit, fetched 2026-10-01) plus synthetic copies: oneway=-1, two-way, footway, and a node."
+}

@@ -569,3 +569,32 @@
   font-weight: 800;
   line-height: 1;
 }
+
+/* One-way arrow (SPEC 20) as a legend swatch: the map's arrow, pointing right. */
+.swatch-oneway {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M16.5 9 8 15V11H1.5V7H8V3Z' fill='%23fff' stroke='%230e3038' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* Alleys (SPEC 19): ink dashed outline, the status colour at 15 %. */
+.lrb-alley {
+  stroke: var(--ink);
+  stroke-width: 1.5px;
+  stroke-dasharray: 5 4;
+  fill-opacity: 0.15;
+}
+.lrb-alley-open {
+  fill: var(--crew);
+}
+.lrb-alley-in_progress {
+  fill: var(--brand);
+}
+.lrb-alley-done {
+  fill: var(--brand-green);
+}
+.lrb-alley-do_not_touch {
+  fill: var(--warn);
+}
+.swatch-alley {
+  border: 1.5px dashed var(--ink);
+  background: color-mix(in srgb, var(--crew) 15%, transparent);
+}

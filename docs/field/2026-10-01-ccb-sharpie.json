@@ -1,0 +1,635 @@
+{
+ "lots": [
+  {
+   "parcel_id": "12003548.",
+   "address": "3248 Tuxedo",
+   "lat": 42.3814936062833,
+   "lng": -83.1222053095455,
+   "status": "open",
+   "why": "dot Tuxedo W north"
+  },
+  {
+   "parcel_id": "12003530.",
+   "address": "3351 Tuxedo",
+   "lat": 42.380417889349246,
+   "lng": -83.12358463891519,
+   "status": "open",
+   "why": "dot Tuxedo W south"
+  },
+  {
+   "parcel_id": "12003522.",
+   "address": "3297 Tuxedo",
+   "lat": 42.380752696986605,
+   "lng": -83.12268506478864,
+   "status": "open",
+   "why": "dot Tuxedo W south"
+  },
+  {
+   "parcel_id": "12003519.",
+   "address": "3277 Tuxedo",
+   "lat": 42.38087875515935,
+   "lng": -83.12234788318614,
+   "status": "open",
+   "why": "dot Tuxedo W south"
+  },
+  {
+   "parcel_id": "12003515-6",
+   "address": "3257 Tuxedo",
+   "lat": 42.38102514592785,
+   "lng": -83.1219537697786,
+   "status": "open",
+   "why": "dot Tuxedo W south"
+  },
+  {
+   "parcel_id": "12003513.001",
+   "address": "3233 Tuxedo",
+   "lat": 42.381171073067,
+   "lng": -83.121560277914,
+   "status": "open",
+   "why": "dot Tuxedo W south"
+  },
+  {
+   "parcel_id": "12003570.",
+   "address": "2948 Tuxedo",
+   "lat": 42.38249802898345,
+   "lng": -83.11950795648995,
+   "status": "open",
+   "why": "dot Tuxedo M north"
+  },
+  {
+   "parcel_id": "12003571.",
+   "address": "2942 Tuxedo",
+   "lat": 42.3825395901687,
+   "lng": -83.11939534663824,
+   "status": "open",
+   "why": "dot Tuxedo M north"
+  },
+  {
+   "parcel_id": "12003574.",
+   "address": "2922 Tuxedo",
+   "lat": 42.382666107204145,
+   "lng": -83.1190587450148,
+   "status": "open",
+   "why": "dot Tuxedo M north"
+  },
+  {
+   "parcel_id": "12003577.",
+   "address": "2900 Tuxedo",
+   "lat": 42.38279435618,
+   "lng": -83.11871471913506,
+   "status": "open",
+   "why": "dot Tuxedo M north"
+  },
+  {
+   "parcel_id": "12003496.",
+   "address": "2965 Tuxedo",
+   "lat": 42.3819631108131,
+   "lng": -83.11942813440444,
+   "status": "open",
+   "why": "dot Tuxedo M south"
+  },
+  {
+   "parcel_id": "10003262.",
+   "address": "2676 Tuxedo",
+   "lat": 42.3833737947033,
+   "lng": -83.1171473958812,
+   "status": "open",
+   "why": "dot Tuxedo E north"
+  },
+  {
+   "parcel_id": "10003247.",
+   "address": "2731 Tuxedo",
+   "lat": 42.3825792747305,
+   "lng": -83.11778048162739,
+   "status": "open",
+   "why": "dot Tuxedo E south"
+  },
+  {
+   "parcel_id": "10003242.",
+   "address": "2697 Tuxedo",
+   "lat": 42.3827941715502,
+   "lng": -83.11720197495156,
+   "status": "open",
+   "why": "dot Tuxedo E south"
+  },
+  {
+   "parcel_id": "12003459.",
+   "address": "3266 Webb",
+   "lat": 42.38059200598945,
+   "lng": -83.1219396863679,
+   "status": "open",
+   "why": "dot Webb W north"
+  },
+  {
+   "parcel_id": "12003434.",
+   "address": "3267 Webb",
+   "lat": 42.38012186012385,
+   "lng": -83.12162038640906,
+   "status": "open",
+   "why": "dot Webb W south"
+  },
+  {
+   "parcel_id": "12003423.",
+   "address": "3031 Webb",
+   "lat": 42.38072965565095,
+   "lng": -83.119980459358,
+   "status": "open",
+   "why": "dot Webb M"
+  },
+  {
+   "parcel_id": "10003226.",
+   "address": "2666 Webb",
+   "lat": 42.382628063015105,
+   "lng": -83.1164634313683,
+   "status": "open",
+   "why": "dot Webb E north"
+  },
+  {
+   "parcel_id": "10003178.",
+   "address": "2739 Burlingame",
+   "lat": 42.3809345621366,
+   "lng": -83.11674280567979,
+   "status": "open",
+   "why": "dot Burlingame E south"
+  },
+  {
+   "parcel_id": "10003188.",
+   "address": "2704 Burlingame",
+   "lat": 42.381602253884495,
+   "lng": -83.11648526892606,
+   "status": "skipped",
+   "why": "x Burlingame E"
+  },
+  {
+   "parcel_id": "10003173.",
+   "address": "2703 Burlingame",
+   "lat": 42.38114808816575,
+   "lng": -83.11616248712829,
+   "status": "skipped",
+   "why": "x Burlingame E"
+  },
+  {
+   "parcel_id": "12003263.",
+   "address": "3311 Lawrence",
+   "lat": 42.3782445178391,
+   "lng": -83.12124180889779,
+   "status": "open",
+   "why": "dot Lawrence W south"
+  },
+  {
+   "parcel_id": "12003269.",
+   "address": "3353 Lawrence",
+   "lat": 42.377985787881855,
+   "lng": -83.1219365792866,
+   "status": "skipped",
+   "why": "x Lawrence W"
+  },
+  {
+   "parcel_id": "12003268.",
+   "address": "3343 Lawrence",
+   "lat": 42.378028682967894,
+   "lng": -83.12182089155145,
+   "status": "skipped",
+   "why": "x Lawrence W"
+  },
+  {
+   "parcel_id": "12003241.",
+   "address": "3003 Lawrence",
+   "lat": 42.3793012233442,
+   "lng": -83.11842236133884,
+   "status": "skipped",
+   "why": "x Lawrence M"
+  },
+  {
+   "parcel_id": "10003082.",
+   "address": "2711 Collingwood",
+   "lat": 42.379496705916,
+   "lng": -83.11514844112325,
+   "status": "open",
+   "why": "dot Collingwood E south"
+  },
+  {
+   "parcel_id": "10003104.",
+   "address": "2646 Collingwood",
+   "lat": 42.38032779201195,
+   "lng": -83.11441830755726,
+   "status": "skipped",
+   "why": "X Collingwood E"
+  },
+  {
+   "parcel_id": "10003015.",
+   "address": "2684 Calvert",
+   "lat": 42.37928949803265,
+   "lng": -83.1144838524112,
+   "status": "open",
+   "why": "dot Calvert E north"
+  },
+  {
+   "parcel_id": "12003084.",
+   "address": "3283 Calvert",
+   "lat": 42.37678035804205,
+   "lng": -83.11969782407525,
+   "status": "open",
+   "why": "dot Calvert W south"
+  },
+  {
+   "parcel_id": "12003127.",
+   "address": "2994 Calvert",
+   "lat": 42.3781523566352,
+   "lng": -83.11750630673855,
+   "status": "open",
+   "why": "dot Calvert M north"
+  },
+  {
+   "parcel_id": "12003020.",
+   "address": "3266 Glynn Ct",
+   "lat": 42.376562846961804,
+   "lng": -83.11922385801435,
+   "status": "open",
+   "why": "dot Glynn W north"
+  },
+  {
+   "parcel_id": "12003021.",
+   "address": "3260 Glynn Ct",
+   "lat": 42.3766061884009,
+   "lng": -83.1191081801545,
+   "status": "open",
+   "why": "dot Glynn W north"
+  },
+  {
+   "parcel_id": "12003027.001",
+   "address": "3218 Glynn Ct",
+   "lat": 42.37685268620595,
+   "lng": -83.11844137476585,
+   "status": "open",
+   "why": "dot Glynn W north"
+  },
+  {
+   "parcel_id": "12002991.",
+   "address": "3253 Glynn Ct",
+   "lat": 42.376293866869204,
+   "lng": -83.11875810183705,
+   "status": "open",
+   "why": "dot Glynn W south"
+  },
+  {
+   "parcel_id": "12002989.",
+   "address": "3241 Glynn Ct",
+   "lat": 42.37638010026585,
+   "lng": -83.11852672812455,
+   "status": "open",
+   "why": "dot Glynn W south"
+  },
+  {
+   "parcel_id": "12003038.",
+   "address": "2988 Glynn Ct",
+   "lat": 42.37743314870425,
+   "lng": -83.1168782144393,
+   "status": "open",
+   "why": "dot Glynn M north"
+  },
+  {
+   "parcel_id": "12002880.",
+   "address": "2994 Rochester",
+   "lat": 42.3760011605927,
+   "lng": -83.1160477783229,
+   "status": "open",
+   "why": "dot Rochester M north"
+  },
+  {
+   "parcel_id": "12002860.",
+   "address": "3340 Rochester",
+   "lat": 42.3747164268198,
+   "lng": -83.1194995963986,
+   "status": "open",
+   "why": "dot Rochester W circled"
+  },
+  {
+   "parcel_id": "12002921.",
+   "address": "3347 W Boston Blvd",
+   "lat": 42.37515699241795,
+   "lng": -83.11935998318376,
+   "status": "open",
+   "why": "line W Boston W south"
+  },
+  {
+   "parcel_id": "12002920.",
+   "address": "3301 W Boston Blvd",
+   "lat": 42.3752861194545,
+   "lng": -83.11901231617205,
+   "status": "open",
+   "why": "line W Boston W south"
+  },
+  {
+   "parcel_id": "12002919.",
+   "address": "3295 W Boston Blvd",
+   "lat": 42.37532282143505,
+   "lng": -83.11891332522634,
+   "status": "open",
+   "why": "line W Boston W south"
+  },
+  {
+   "parcel_id": "12002918.",
+   "address": "3289 W Boston Blvd",
+   "lat": 42.3753692610007,
+   "lng": -83.11878960496006,
+   "status": "open",
+   "why": "line W Boston W south"
+  },
+  {
+   "parcel_id": "12002917.",
+   "address": "3265 W Boston Blvd",
+   "lat": 42.375497936847495,
+   "lng": -83.11844131193575,
+   "status": "open",
+   "why": "line W Boston W south"
+  },
+  {
+   "parcel_id": "12002916.",
+   "address": "3245 W Boston Blvd",
+   "lat": 42.375617316764,
+   "lng": -83.11811899397816,
+   "status": "open",
+   "why": "line W Boston W south"
+  },
+  {
+   "parcel_id": "12002915.",
+   "address": "3239 W Boston Blvd",
+   "lat": 42.37565446637835,
+   "lng": -83.11802001060505,
+   "status": "open",
+   "why": "line W Boston W south"
+  },
+  {
+   "parcel_id": "12002914.",
+   "address": "3233 W Boston Blvd",
+   "lat": 42.37569116748785,
+   "lng": -83.117920414188,
+   "status": "open",
+   "why": "line W Boston W south"
+  },
+  {
+   "parcel_id": "12002913.",
+   "address": "3227 W Boston Blvd",
+   "lat": 42.37572786851105,
+   "lng": -83.11782081765405,
+   "status": "open",
+   "why": "line W Boston W south"
+  },
+  {
+   "parcel_id": "12002912.",
+   "address": "3221 W Boston Blvd",
+   "lat": 42.3757645627004,
+   "lng": -83.117721824825,
+   "status": "open",
+   "why": "line W Boston W south"
+  },
+  {
+   "parcel_id": "12002911.",
+   "address": "3215 W Boston Blvd",
+   "lat": 42.37580171104695,
+   "lng": -83.1176228517322,
+   "status": "open",
+   "why": "line W Boston W south"
+  },
+  {
+   "parcel_id": "12002905.",
+   "address": "3015 W Boston Blvd",
+   "lat": 42.376197757543,
+   "lng": -83.11653507744735,
+   "status": "open",
+   "why": "line W Boston M both"
+  },
+  {
+   "parcel_id": "12002904.",
+   "address": "3009 W Boston Blvd",
+   "lat": 42.3762503913693,
+   "lng": -83.11639464071915,
+   "status": "open",
+   "why": "line W Boston M both"
+  },
+  {
+   "parcel_id": "12002903.",
+   "address": "2999 W Boston Blvd",
+   "lat": 42.37630612362365,
+   "lng": -83.11624553598185,
+   "status": "open",
+   "why": "line W Boston M both"
+  },
+  {
+   "parcel_id": "12002902.",
+   "address": "2993 W Boston Blvd",
+   "lat": 42.376352098331054,
+   "lng": -83.11612180265516,
+   "status": "open",
+   "why": "line W Boston M both"
+  },
+  {
+   "parcel_id": "12002901.",
+   "address": "2987 W Boston Blvd",
+   "lat": 42.37638879778535,
+   "lng": -83.11602220353355,
+   "status": "open",
+   "why": "line W Boston M both"
+  },
+  {
+   "parcel_id": "12002900.",
+   "address": "2967 W Boston Blvd",
+   "lat": 42.37648122197985,
+   "lng": -83.1157741034978,
+   "status": "open",
+   "why": "line W Boston M both"
+  },
+  {
+   "parcel_id": "12002944-62",
+   "address": "2980 W Boston Blvd",
+   "lat": 42.37688472708495,
+   "lng": -83.1162136025426,
+   "status": "open",
+   "why": "line W Boston M both"
+  },
+  {
+   "parcel_id": "10002786.",
+   "address": "2689 W Boston Blvd",
+   "lat": 42.3773834940088,
+   "lng": -83.11333903713111,
+   "status": "open",
+   "why": "line W Boston E south"
+  },
+  {
+   "parcel_id": "10002785.",
+   "address": "2665 W Boston Blvd",
+   "lat": 42.377536913172,
+   "lng": -83.11292576491374,
+   "status": "open",
+   "why": "line W Boston E south"
+  },
+  {
+   "parcel_id": "10002784.",
+   "address": "2637 W Boston Blvd",
+   "lat": 42.377705359455604,
+   "lng": -83.1124698088953,
+   "status": "open",
+   "why": "line W Boston E south"
+  },
+  {
+   "parcel_id": "12002863.",
+   "address": "3310 Rochester",
+   "lat": 42.3749087517822,
+   "lng": -83.118977480629,
+   "status": "open",
+   "why": "line Rochester W north"
+  },
+  {
+   "parcel_id": "12002864.",
+   "address": "3290 Rochester",
+   "lat": 42.375046711579756,
+   "lng": -83.1186050754381,
+   "status": "open",
+   "why": "line Rochester W north"
+  },
+  {
+   "parcel_id": "12002868.",
+   "address": "3240 Rochester",
+   "lat": 42.37534028768055,
+   "lng": -83.11781075536291,
+   "status": "open",
+   "why": "line Rochester W north"
+  },
+  {
+   "parcel_id": "12002869.",
+   "address": "3224 Rochester",
+   "lat": 42.37542297170255,
+   "lng": -83.11758682367909,
+   "status": "open",
+   "why": "line Rochester W north"
+  },
+  {
+   "parcel_id": "12002870-2",
+   "address": "3200 Rochester",
+   "lat": 42.375518912635,
+   "lng": -83.117327010576,
+   "status": "open",
+   "why": "line Rochester W north"
+  },
+  {
+   "parcel_id": "10002742.",
+   "address": "2703 Rochester",
+   "lat": 42.37657107833505,
+   "lng": -83.11306583588505,
+   "status": "open",
+   "why": "line Rochester E both"
+  },
+  {
+   "parcel_id": "10002741.",
+   "address": "2697 Rochester",
+   "lat": 42.376608230293996,
+   "lng": -83.11296683936246,
+   "status": "open",
+   "why": "line Rochester E both"
+  },
+  {
+   "parcel_id": "10002740.",
+   "address": "2691 Rochester",
+   "lat": 42.376645837319245,
+   "lng": -83.11286783405205,
+   "status": "open",
+   "why": "line Rochester E both"
+  },
+  {
+   "parcel_id": "10002739.",
+   "address": "2675 Rochester",
+   "lat": 42.3767480044446,
+   "lng": -83.11259559278915,
+   "status": "open",
+   "why": "line Rochester E both"
+  },
+  {
+   "parcel_id": "10002738.",
+   "address": "2645 Rochester",
+   "lat": 42.37691518571885,
+   "lng": -83.11215009654795,
+   "status": "open",
+   "why": "line Rochester E both"
+  },
+  {
+   "parcel_id": "10002749.",
+   "address": "2704 Rochester",
+   "lat": 42.376985578116546,
+   "lng": -83.11338142427675,
+   "status": "open",
+   "why": "line Rochester E both"
+  },
+  {
+   "parcel_id": "10002737.",
+   "address": "2629 Rochester",
+   "lat": 42.377036381907445,
+   "lng": -83.1118277403861,
+   "status": "open",
+   "why": "line Rochester E both"
+  },
+  {
+   "parcel_id": "10002750.",
+   "address": "2700 Rochester",
+   "lat": 42.377054555726346,
+   "lng": -83.11319581904625,
+   "status": "open",
+   "why": "line Rochester E both"
+  },
+  {
+   "parcel_id": "10002751.",
+   "address": "2680 Rochester",
+   "lat": 42.377156254584946,
+   "lng": -83.1129229717933,
+   "status": "open",
+   "why": "line Rochester E both"
+  },
+  {
+   "parcel_id": "10002752.",
+   "address": "2660 Rochester",
+   "lat": 42.37724867888495,
+   "lng": -83.1126742593261,
+   "status": "open",
+   "why": "line Rochester E both"
+  },
+  {
+   "parcel_id": "10002753.",
+   "address": "2648 Rochester",
+   "lat": 42.37734109576115,
+   "lng": -83.1124267835551,
+   "status": "open",
+   "why": "line Rochester E both"
+  },
+  {
+   "parcel_id": "10002754.",
+   "address": "2630 Rochester",
+   "lat": 42.377432601520354,
+   "lng": -83.1121786835041,
+   "status": "open",
+   "why": "line Rochester E both"
+  },
+  {
+   "parcel_id": "10002755.",
+   "address": "2626 Rochester",
+   "lat": 42.377469745922,
+   "lng": -83.11207908034021,
+   "status": "open",
+   "why": "line Rochester E both"
+  }
+ ],
+ "alleys": [
+  "between Burlingame and Lawrence, west column",
+  "between Lawrence and Collingwood, west, middle and east columns",
+  "between Collingwood and Calvert, middle column and east column (arrow west from Linwood)",
+  "between Calvert and Glynn Ct, west/middle (arrow west) and east (arrow east to Linwood)",
+  "north-south alley in GM 8 block between Glynn Ct and W Boston Blvd, east column"
+ ],
+ "reassign": {
+  "area": "GM 9, GM 10 & GM 11 (W Boston Blvd + Rochester St, west column)",
+  "to": "DTE"
+ },
+ "unread": [
+  "scrawl at GM 7 Glynn Ct middle (\"OR\")",
+  "scrawl at GM 14 W Boston Blvd east (\"ab\")"
+ ]
+}

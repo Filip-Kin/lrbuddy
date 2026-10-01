@@ -76,6 +76,8 @@ export const confirmCode = async (confirmation: ConfirmationResult, code: string
 export const googleSignIn = async (): Promise<string> => {
   const a = getFirebaseAuth();
   if (useRedirect()) {
+    const { OWN_AUTH_DOMAIN } = await import("./firebaseConfig.ts");
+    if (!OWN_AUTH_DOMAIN) throw Object.assign(new Error("google-unavailable-installed"), { code: "auth/google-unavailable-installed" });
     await signInWithRedirect(a, new GoogleAuthProvider());
     // The page navigates away; currentIdToken() finishes the sign-in on return.
     return new Promise<string>(() => undefined);

@@ -22,6 +22,7 @@ const FIREBASE_ERRORS: Record<string, string> = {
   "auth/missing-phone-number": "Enter a mobile number",
   "auth/too-many-requests": "Too many tries, wait a few minutes",
   "auth/quota-exceeded": "Text messages are paused, try again later",
+  "auth/google-unavailable-installed": "Google sign-in: open lrbuddy.filipkin.com in the browser, or use a mobile number",
   "auth/invalid-verification-code": "Wrong code",
   "auth/code-expired": "Code expired, send a new one",
   "auth/network-request-failed": "No connection",

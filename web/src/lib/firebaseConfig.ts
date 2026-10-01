@@ -13,7 +13,7 @@ import type { FirebaseOptions } from "firebase/app";
 const PROD_HOST = "lrbuddy.filipkin.com";
 const PROD_CONFIG: FirebaseOptions | null = {
   apiKey: "AIzaSyBvjuv_mzHmZUhcj4Rf71-v77tcvKLr-PA",
-  authDomain: "lrbuddy.filipkin.com",
+  authDomain: "lrbuddy-filipkin.firebaseapp.com",
   projectId: "lrbuddy-filipkin",
   appId: "1:749282608874:web:b5a44249c4d04543087993",
   messagingSenderId: "749282608874",
@@ -49,3 +49,11 @@ export const firebaseOptions: FirebaseOptions | null =
  * this project. Flip to true once the Google provider is enabled in Firebase Auth.
  */
 export const googleEnabled = true;
+
+/**
+ * Flip to true once the OAuth client in GCP lists
+ * https://lrbuddy.filipkin.com/__/auth/handler as a redirect URI. Then PROD_CONFIG.authDomain
+ * becomes lrbuddy.filipkin.com (the server already proxies /__/auth/*), and the redirect flow
+ * works inside the installed app.
+ */
+export const OWN_AUTH_DOMAIN = false;

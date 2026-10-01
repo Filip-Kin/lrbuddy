@@ -128,7 +128,7 @@ describe("upload authorisation", () => {
     expect((await upload(w.mate, w.eastLot.id)).status).toBe(200);
   });
 
-  test("driver and green: any lot at their CC, none elsewhere", async () => {
+  test("driver and green photograph lots at their CC, none elsewhere", async () => {
     expect((await upload(w.driver, w.eastLot.id)).status).toBe(200);
     expect((await upload(w.driver, w.westNear.id)).status).toBe(403);
     expect((await upload(w.green, w.eastLot.id)).status).toBe(200);
@@ -136,7 +136,7 @@ describe("upload authorisation", () => {
     expect((await upload(w.westDriver, w.westFar.id)).status).toBe(200);
   });
 
-  test("admin: any lot, filed under the lot's CC", async () => {
+  test("admin photographs every lot, filed under the lot's CC", async () => {
     const r = await upload(w.admin, w.westFar.id);
     expect(r.status).toBe(200);
     expect(db.select().from(s.lotPhotos).where(eq(s.lotPhotos.id, r.body.photo!.id)).get()!.ccId).toBe(w.west.id);

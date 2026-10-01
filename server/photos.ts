@@ -269,7 +269,7 @@ export const handlePhotoUpload = async (req: Request, now = Date.now()): Promise
   return json({ ok: true, photo: out });
 };
 
-/** `GET /photos/<id>` and `/photos/<id>/thumb`: any session of the lot's event. */
+/** `GET /photos/<id>` and `/photos/<id>/thumb` need a session of the lot's event. */
 export const servePhoto = async (req: Request, id: number, thumb: boolean): Promise<Response> => {
   const session = getSession(sessionIdFrom(req));
   const scope = session ? photoScope(session) : null;

@@ -11,6 +11,7 @@ import { compass, manoeuvreAngle, manoeuvreLabel, nextManoeuvre, straightLine, t
 import { useDistanceFrom, useDriverActions, useNewStopBuzz, useNow, useWakeLock, type DriverActions, type DriverQueue, type QueueStop } from "../../components/driver/hooks.ts";
 import { ArrowIcon, FlagIcon, LayersIcon, ListIcon, NavigateIcon, PhoneIcon, PinIcon, RecenterIcon, TruckIcon } from "../../components/driver/icons.tsx";
 import { AreaCard, DriverLotSheet } from "../../components/driver/WorkSheets.tsx";
+import { useSetLot } from "../../components/LotStatusControl.tsx";
 import { CcStopCard, ErrorLine, NewPill, StopDetails, StopRow, isNew, stopEta, useArmed } from "../../components/driver/StopCard.tsx";
 import { distance, duration, lotTitle, telHref } from "../../lib/format.ts";
 import { useMyFix } from "../../lib/position.ts";
@@ -276,6 +277,7 @@ export const MapPage = () => {
   const crewList = trpc.driver.crews.useQuery(undefined, { refetchInterval: 30_000 });
   const [showLots, setShowLots] = useState(true);
   const [lotId, setLotId] = useState<number | null>(null);
+  const lotWrites = useSetLot("driver");
   const [areaId, setAreaId] = useState<number | null>(null);
 
   const stops = q?.stops ?? [];
@@ -294,8 +296,9 @@ export const MapPage = () => {
   const line = r.data?.geometry ?? [];
 
   const mapLots = useMemo<DriverMapLot[]>(
-    () => (work.data?.lots ?? []).map((l) => ({ id: l.id, lat: l.lat, lng: l.lng, status: l.status, geometry: l.geometry, title: lotTitle(l) })),
-    [work.data],
+    () =>
+      (work.data?.lots ?? []).map((l) => ({ id: l.id, lat: l.lat, lng: l.lng, status: lotWrites.pending.get(`l:${l.id}`) ?? l.status, geometry: l.geometry, title: lotTitle(l) })),
+    [work.data, lotWrites.pending],
   );
   const mapCrews = useMemo<DriverMapCrew[]>(
     () => (crewList.data ?? []).flatMap((c) => (c.position ? [{ id: c.id, lat: c.position.lat, lng: c.position.lng, label: c.name }] : [])),
@@ -409,7 +412,7 @@ export const MapPage = () => {
           </div>
         )}
       </Sheet>
-      <DriverLotSheet lot={selLot} crew={crewsAll.find((c) => c.id === selLot?.crewId) ?? null} onClose={() => setLotId(null)} />
+      <DriverLotSheet lot={selLot} crew={crewsAll.find((c) => c.id === selLot?.crewId) ?? null} lots={lotWrites} onClose={() => setLotId(null)} />
       <AreaCard area={selArea} crews={crewsAll} onClose={() => setAreaId(null)} />
       <CancelSheet stop={cancelStop} actions={actions} onClose={() => setCancelKey(null)} />
     </div>

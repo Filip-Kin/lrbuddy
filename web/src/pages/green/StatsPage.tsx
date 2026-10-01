@@ -44,8 +44,8 @@ const Bars = ({ rows, tone, empty }: { rows: ReadonlyArray<{ key: string; label:
 const LOT_SEGMENTS = [
   { key: "done", label: "Done", cls: "bg-brand-green" },
   { key: "in_progress", label: "In progress", cls: "bg-brand" },
-  { key: "skipped", label: "Skipped", cls: "bg-warn" },
-  { key: "open", label: "Open", cls: "bg-muted/40" },
+  { key: "do_not_touch", label: "Do not touch", cls: "bg-warn" },
+  { key: "open", label: "Todo", cls: "bg-crew" },
 ] as const;
 
 export const StatsPage = () => {

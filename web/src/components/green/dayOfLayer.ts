@@ -1,5 +1,6 @@
 import L from "leaflet";
 import { useEffect, useRef } from "react";
+import { attachLabelDeclutter, largestAreaIds, pillClass } from "../../lib/map/declutter.ts";
 import { escapeHtml } from "../../lib/map/markers.ts";
 import { hatchLines } from "../../lib/map/hatch.ts";
 import type { RouterOutputs } from "../../lib/trpc.ts";
@@ -8,9 +9,12 @@ export type DayOfPlan = RouterOutputs["green"]["plan"];
 export type DayOfArea = DayOfPlan["areas"][number];
 export type DayOfSide = DayOfPlan["sides"][number];
 
-/** Done when nothing on it is left to do; Do not touch when any lot was skipped and none is left. */
-export const sideState = (c: DayOfSide["counts"]): "open" | "done" | "dnt" =>
-  c.open + c.inProgress > 0 ? "open" : c.skipped > 0 ? "dnt" : c.done > 0 ? "done" : "open";
+/**
+ * Do not touch only when a green marked the whole side so (the flag); a single Do not touch lot
+ * shows hatched on its own parcel. Done when lots were done and nothing is left to do.
+ */
+export const sideState = (s: Pick<DayOfSide, "counts" | "doNotTouch">): "open" | "done" | "dnt" =>
+  s.doNotTouch ? "dnt" : s.counts.open + s.counts.inProgress > 0 ? "open" : s.counts.done > 0 ? "done" : "open";
 
 const SIDES_PANE = "lrb-dayof-sides";
 const AREAS_PANE = "lrb-dayof-areas";
@@ -51,7 +55,9 @@ export const useDayOfLayer = (
     renderers.current = { sides: L.svg({ pane: SIDES_PANE }), areas: L.svg({ pane: AREAS_PANE }) };
     const g = L.layerGroup().addTo(map);
     group.current = g;
+    const detachLabels = attachLabelDeclutter(map);
     return () => {
+      detachLabels();
       g.remove();
       group.current = null;
       renderers.current = null;
@@ -67,7 +73,7 @@ export const useDayOfLayer = (
     for (const s of plan.sides) {
       const poly = L.polygon(
         s.ring.slice(0, -1).map(([lng, lat]) => [lat, lng] as [number, number]),
-        { renderer: r.sides, pane: SIDES_PANE, className: `lrb-dayof-side lrb-dayof-side-${sideState(s.counts)}`, weight: 1.5 },
+        { renderer: r.sides, pane: SIDES_PANE, className: `lrb-dayof-side lrb-dayof-side-${sideState(s)}`, weight: 1.5 },
       );
       poly.on("click", (e: L.LeafletMouseEvent) => {
         L.DomEvent.stopPropagation(e);
@@ -75,6 +81,8 @@ export const useDayOfLayer = (
       });
       g.addLayer(poly);
     }
+    // SPEC 20: from zoom 14 to 16 only the six largest rectangles keep their pill.
+    const big = largestAreaIds(plan.areas);
     for (const a of plan.areas) {
       const pts = a.ring.slice(0, -1).map(([lng, lat]) => [lat, lng] as [number, number]);
       if (pts.length < 3) continue;
@@ -90,7 +98,7 @@ export const useDayOfLayer = (
         const mid: L.LatLngTuple = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
         if (i === 0 || mid[0] > top[0]) top = mid;
       }
-      const html = `<button type="button" class="lrb-dayof-pill${a.doNotTouch ? " lrb-dayof-pill-dnt" : ""}">${escapeHtml(a.label)}</button>`;
+      const html = `<button type="button" class="lrb-dayof-pill ${pillClass(big.has(a.id))}${a.doNotTouch ? " lrb-dayof-pill-dnt" : ""}">${escapeHtml(a.label)}</button>`;
       const pill = L.marker(top, { icon: L.divIcon({ className: "lrb-dayof-tag", html, iconSize: [0, 0] }), keyboard: false, zIndexOffset: 300, title: a.label });
       pill.on("click", (e: L.LeafletMouseEvent) => {
         L.DomEvent.stopPropagation(e);

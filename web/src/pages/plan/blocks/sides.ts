@@ -1,5 +1,6 @@
 import L from "leaflet";
 import { useEffect, useRef, useState } from "react";
+import { attachLabelDeclutter, largestAreaIds, pillClass } from "../../../lib/map/declutter.ts";
 import { hatchLines } from "../../../lib/map/hatch.ts";
 import type { RouterOutputs } from "../../../lib/trpc.ts";
 
@@ -109,7 +110,9 @@ export const useAreasLayer = (map: L.Map | null, areas: readonly DrawnArea[]): v
     if (!map) return;
     const g = L.layerGroup().addTo(map);
     group.current = g;
+    const detachLabels = attachLabelDeclutter(map);
     return () => {
+      detachLabels();
       g.remove();
       group.current = null;
     };
@@ -118,6 +121,8 @@ export const useAreasLayer = (map: L.Map | null, areas: readonly DrawnArea[]): v
     const g = group.current;
     if (!g) return;
     g.clearLayers();
+    // SPEC 20: from zoom 14 to 16 only the six largest areas keep their label.
+    const big = largestAreaIds(areas);
     for (const a of areas) {
       const pts: Array<[number, number]> = [];
       for (const p of a.ring) if (p[0] !== undefined && p[1] !== undefined) pts.push([p[1], p[0]]);
@@ -127,7 +132,7 @@ export const useAreasLayer = (map: L.Map | null, areas: readonly DrawnArea[]): v
       if (a.doNotTouch) for (const seg of hatchLines(a.ring)) g.addLayer(L.polyline(seg, { className: "lrb-area-hatch", interactive: false }));
       const c = poly.getBounds().getCenter();
       const label = document.createElement("span");
-      label.className = "lrb-area-label";
+      label.className = `lrb-area-label ${pillClass(big.has(a.id))}`;
       label.textContent = a.label;
       g.addLayer(L.marker(c, { icon: L.divIcon({ className: "lrb-area-tag", html: label, iconSize: [0, 0] }), interactive: false, keyboard: false }));
     }

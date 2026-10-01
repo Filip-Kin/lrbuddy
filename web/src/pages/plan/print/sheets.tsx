@@ -3,7 +3,7 @@ import type { AreaPolygon } from "../../../../../server/db/schema.ts";
 import { dayDate, phoneText, plural } from "../../../components/admin/format.ts";
 import { lotTitle } from "../../../lib/format.ts";
 import type { RouterOutputs } from "../../../lib/trpc.ts";
-import { BLUE, GREY, INK, LOT_FILL, WORK, YELLOW } from "./paper.ts";
+import { BLUE, DNT, GREY, INK, LOT_FILL, WORK, YELLOW } from "./paper.ts";
 import { PrintMap, type LatLngPair, type PrintLayer } from "./PrintMap.tsx";
 
 // #region types and helpers
@@ -15,8 +15,9 @@ type Shirt = CrewSheet["greenShirts"][number];
 type PrintLot = CrewSheet["lots"][number];
 export type OnReady = (key: string, ready: boolean) => void;
 
-const GRADE: Record<"high" | "low" | "clear", string> = { high: "High", low: "Low", clear: "Clear" };
-const BADGE: Record<"high" | "low", string> = { high: "H", low: "L" };
+// SPEC 21 words: the grade is the size of a Todo lot.
+const GRADE: Record<"high" | "low" | "clear", string> = { high: "Full day", low: "Light", clear: "" };
+const BADGE: Record<"high" | "low", string> = { high: "F", low: "L" };
 
 /** "lrbuddy.filipkin.com/login": the scheme is noise on paper and costs a line. */
 const bareUrl = (u: string): string => u.replace(/^https?:\/\//, "");
@@ -55,7 +56,7 @@ const weekday = (ymd: string): string => {
 };
 
 const workLayers = (cc: CcSheet): PrintLayer[] =>
-  cc.workLots.map((l) => ({ kind: "lot", key: `w${l.id}`, geometry: l.geometry, lat: l.lat, lng: l.lng, tone: "work" }));
+  cc.workLots.map((l) => ({ kind: "lot", key: `w${l.id}`, geometry: l.geometry, lat: l.lat, lng: l.lng, tone: l.status === "do_not_touch" ? "dnt" : "work" }));
 // #endregion
 
 // #region pieces
@@ -107,9 +108,14 @@ const Shirts = ({ shirts }: { shirts: readonly Shirt[] }) => (
 );
 
 /** Legend swatches drawn with the same strokes and fills as the map. */
-const Swatch = ({ kind, letter }: { kind: "high" | "low" | "work" | "mine" | "other" | "crew" | "cc"; letter?: string | null }) => (
+const Swatch = ({ kind, letter }: { kind: "high" | "low" | "work" | "dnt" | "mine" | "other" | "crew" | "cc"; letter?: string | null }) => (
   <svg viewBox="0 0 22 14" width="22" height="14" aria-hidden="true" className="shrink-0">
-    {kind === "high" || kind === "low" || kind === "work" ? (
+    {kind === "dnt" ? (
+      <>
+        <rect x="2" y="2" width="18" height="10" fill={DNT} fillOpacity="0.12" stroke={DNT} strokeWidth="1.2" />
+        <path d="M2 9l7-7M7 12l10-10M14 12l6-6" stroke={DNT} strokeWidth="1" />
+      </>
+    ) : kind === "high" || kind === "low" || kind === "work" ? (
       <rect x="2" y="2" width="18" height="10" fill={WORK} fillOpacity={LOT_FILL[kind]} stroke={INK} strokeWidth={kind === "work" ? 1 : 1.5} strokeDasharray={kind === "work" ? undefined : "4 3"} />
     ) : kind === "mine" ? (
       <>
@@ -179,7 +185,7 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
           geometry: l.geometry,
           lat: l.lat,
           lng: l.lng,
-          tone: l.grade === "high" ? "high" : "low",
+          tone: l.status === "do_not_touch" ? "dnt" : l.grade === "high" ? "high" : "low",
           label: shortAddress(l),
           badge: l.grade === "high" || l.grade === "low" ? BADGE[l.grade] : undefined,
         }),
@@ -256,9 +262,10 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
         <Legend
           letter={page.ccLetter}
           items={[
-            ["high", "High"],
-            ["low", "Low"],
-            ["work", "Other work"],
+            ["high", "Todo, full day"],
+            ["low", "Todo, light"],
+            ["work", "Todo, other crews"],
+            ["dnt", "Do not touch"],
             ["mine", page.areaName ?? page.name],
             ["other", "Other crews"],
             ["cc", "CC"],
@@ -350,7 +357,8 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
         <Legend
           letter={page.letter}
           items={[
-            ["work", "Work lot"],
+            ["work", "Todo"],
+            ["dnt", "Do not touch"],
             ["crew", "Crew area"],
             ["cc", "CC"],
           ]}
@@ -437,9 +445,14 @@ const Landscape = ({ children }: { children: ReactNode }) => (
   </article>
 );
 
-const AreaSwatch = ({ tone }: { tone: "company" | "faint" | "tint" | "work" | "cc" }) => (
+const AreaSwatch = ({ tone }: { tone: "company" | "faint" | "tint" | "work" | "dnt" | "cc" }) => (
   <svg viewBox="0 0 26 16" width="26" height="16" aria-hidden="true" className="shrink-0">
-    {tone === "company" ? (
+    {tone === "dnt" ? (
+      <>
+        <rect x="3" y="3" width="20" height="10" fill={DNT} fillOpacity="0.12" stroke={DNT} strokeWidth="1.2" />
+        <path d="M3 10l7-7M8 13l10-10M15 13l8-8" stroke={DNT} strokeWidth="1" />
+      </>
+    ) : tone === "company" ? (
       <rect x="3" y="3" width="20" height="10" fill="none" stroke={BLUE} strokeWidth="3" />
     ) : tone === "faint" ? (
       <rect x="3" y="3" width="20" height="10" fill="none" stroke={GREY} strokeWidth="1.2" />
@@ -512,7 +525,11 @@ export const CompanyPage = ({ page, cc, day, onReady }: { page: CompanySheet; cc
             </li>
             <li className="flex items-center gap-2">
               <AreaSwatch tone="work" />
-              Work lot
+              Todo
+            </li>
+            <li className="flex items-center gap-2">
+              <AreaSwatch tone="dnt" />
+              Do not touch
             </li>
             <li className="flex items-center gap-2">
               <AreaSwatch tone="tint" />

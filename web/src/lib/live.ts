@@ -79,7 +79,9 @@ const invalidate = (utils: Utils, kind: Kind): void => {
     case "lots":
       void utils.crew.lots.invalidate();
       void utils.crew.map.invalidate();
+      void utils.crew.hasArea.invalidate();
       void utils.green.lots.invalidate();
+      void utils.green.parcels.invalidate();
       void utils.driver.lots.invalidate();
       void utils.green.overview.invalidate();
       void utils.green.plan.invalidate();

@@ -3,10 +3,14 @@ import { useCallback, useMemo, useState } from "react";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { AddStopSheet } from "../../components/green/AddStopSheet.tsx";
-import { AreaSheet, SideSheet } from "../../components/green/DayOfSheets.tsx";
+import { AreaSheet, AssignAreaSheet, SideSheet } from "../../components/green/DayOfSheets.tsx";
 import { useDayOfLayer } from "../../components/green/dayOfLayer.ts";
 import { isUrgent, useNow, type GreenRequest } from "../../components/green/hooks.ts";
-import { CrewSheet, LotSheet, StopSheet, TruckSheet } from "../../components/green/MapSheets.tsx";
+import { CrewSheet, LotSheet, StopSheet, TruckSheet, type GreenParcel } from "../../components/green/MapSheets.tsx";
+import { MapLegend } from "../../components/MapLegend.tsx";
+import { useSetLot } from "../../components/LotStatusControl.tsx";
+import { insideRect, rectFromRing, rectPolygon, STEP_LABEL, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
+import { useParcelLayer } from "../../lib/map/parcelLayer.ts";
 import { FilterSelect, PinIcon, useFlash } from "../../components/green/ui.tsx";
 import { ToggleChip } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
@@ -14,7 +18,13 @@ import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
 import { AlleyLayer } from "../../components/alleys/AlleyLayer.tsx";
 import { trpc } from "../../lib/trpc.ts";
 
-type Selected = { kind: "crew" | "truck" | "lot" | "stop" | "area"; id: number } | { kind: "side"; key: string } | null;
+type Selected = { kind: "crew" | "truck" | "lot" | "stop" | "area"; id: number } | { kind: "side"; key: string } | { kind: "parcel"; parcelId: string } | null;
+
+const DrawIcon = () => (
+  <svg viewBox="0 0 24 24" width={22} height={22} aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round">
+    <path d="M4 8l9-4 7 12-9 4z" />
+  </svg>
+);
 
 export const MapPage = () => {
   const now = useNow();
@@ -31,6 +41,13 @@ export const MapPage = () => {
   const [placing, setPlacing] = useState(false);
   const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null);
   const [flash, showFlash] = useFlash();
+  const parcels = trpc.green.parcels.useQuery(undefined, { refetchInterval: 120_000 });
+  const lotWrites = useSetLot("green");
+  // Draw area (SPEC 21): draw a rectangle, then the Assign sheet; Edit corners moves a rectangle's outline.
+  const [drawing, setDrawing] = useState(false);
+  const [draft, setDraft] = useState<OrientedRect | null>(null);
+  const [editAreaId, setEditAreaId] = useState<number | null>(null);
+  const moveArea = trpc.green.moveArea.useMutation();
 
   const d = overview.data;
   const crews = d?.crews ?? [];
@@ -51,7 +68,20 @@ export const MapPage = () => {
     if (showLots) {
       for (const l of d.lots) {
         if (!crewVisible(l.crewId)) continue;
-        out.push({ id: `lot-${l.id}`, kind: "lot", lat: l.lat, lng: l.lng, status: l.status, geometry: l.geometry, mine: l.crewId !== null, noFit: true, title: l.address ?? undefined, onClick: () => setSelected({ kind: "lot", id: l.id }) });
+        const status = lotWrites.pending.get(`l:${l.id}`) ?? l.status;
+        out.push({
+          id: `lot-${l.id}`,
+          kind: "lot",
+          lat: l.lat,
+          lng: l.lng,
+          status,
+          geometry: l.geometry,
+          parcelId: l.parcelId,
+          mine: l.crewId !== null || status === "not_todo",
+          noFit: true,
+          title: l.address ?? undefined,
+          onClick: drawing ? undefined : () => setSelected({ kind: "lot", id: l.id }),
+        });
       }
     }
     out.push({ id: "cc", kind: "cc", lat: d.cc.lat, lng: d.cc.lng, name: `CC ${d.cc.name}`, letter: d.cc.letter });
@@ -87,11 +117,34 @@ export const MapPage = () => {
     }
     if (pin) out.push({ id: "pin", kind: "request", lat: pin.lat, lng: pin.lng, urgent: true, noFit: true });
     return out;
-  }, [d, openRequests, visibleCrewIds, showLots, showRequests, showTrucks, pin, now]);
+  }, [d, openRequests, visibleCrewIds, showLots, showRequests, showTrucks, pin, now, lotWrites.pending, drawing]);
 
   const onArea = useCallback((id: number) => setSelected({ kind: "area", id }), []);
   const onSide = useCallback((key: string) => setSelected({ kind: "side", key }), []);
-  useDayOfLayer(map, plan.data, showAreas && !placing, onArea, onSide);
+  const onParcel = useCallback((parcelId: string) => setSelected({ kind: "parcel", parcelId }), []);
+  const editing = editAreaId !== null;
+  useDayOfLayer(map, plan.data, showAreas && !placing && !drawing && !editing, onArea, onSide);
+  // Bare parcels in the day area (SPEC 21), only with no crew or company filter: they belong to nobody yet.
+  useParcelLayer(map, parcels.data, showLots && !placing && !drawing && !editing && visibleCrewIds === null, onParcel, lotWrites.pending);
+
+  const editArea = editAreaId !== null ? (plan.data?.areas.find((a) => a.id === editAreaId) ?? null) : null;
+  const editRect = useMemo(() => (editArea ? rectFromRing(editArea.ring) : null), [editArea]);
+  const tool = useOrientedRect(map, {
+    drawing,
+    value: drawing ? null : (draft ?? editRect),
+    editable: !drawing,
+    onChange: (r) => {
+      if (editAreaId !== null && !drawing) {
+        moveArea.mutate({ areaId: editAreaId, polygon: rectPolygon(r) }, { onSuccess: () => void plan.refetch(), onError: () => showFlash("Not saved") });
+        return;
+      }
+      setDraft(r);
+      setDrawing(false);
+    },
+    onCancel: () => setDrawing(false),
+  });
+  const draftPolygon = useMemo(() => (draft ? rectPolygon(draft) : null), [draft]);
+  const todoInside = useMemo(() => (draft && d ? insideRect(d.lots.filter((l) => l.status === "open"), draft).length : 0), [draft, d]);
   useOnewayLayer(map);
 
   const companyCrews = company === null ? crews : crews.filter((c) => c.companyId === company);
@@ -100,6 +153,24 @@ export const MapPage = () => {
   const selCrew = selected?.kind === "crew" ? (crews.find((c) => c.id === selected.id) ?? null) : null;
   const selTruck = selected?.kind === "truck" ? (trucks.find((t) => t.id === selected.id) ?? null) : null;
   const selLot = selected?.kind === "lot" ? (d?.lots.find((l) => l.id === selected.id) ?? null) : null;
+  const selBare = selected?.kind === "parcel" ? (parcels.data?.find((p) => p.parcelId === selected.parcelId) ?? null) : null;
+  // A bare parcel that just became a lot keeps its sheet open on the new lot.
+  const selBareLot = selected?.kind === "parcel" && !selBare ? (d?.lots.find((l) => l.parcelId === selected.parcelId) ?? null) : null;
+  const sheetLot = selLot ?? selBareLot;
+  const sheetParcel: GreenParcel | null = sheetLot
+    ? {
+        lotId: sheetLot.id,
+        parcelId: sheetLot.parcelId,
+        address: sheetLot.address,
+        status: lotWrites.pending.get(`l:${sheetLot.id}`) ?? sheetLot.status,
+        grade: sheetLot.grade,
+        note: sheetLot.note,
+        crewId: sheetLot.crewId,
+        statusAt: sheetLot.statusAt,
+      }
+    : selBare
+      ? { lotId: null, parcelId: selBare.parcelId, address: selBare.address, status: lotWrites.pending.get(`p:${selBare.parcelId}`) ?? null, grade: null, note: null, crewId: null, statusAt: null }
+      : null;
   const selStop = selected?.kind === "stop" ? (openRequests.find((r) => r.id === selected.id) ?? null) : null;
   const close = (): void => setSelected(null);
   const openCount = openRequests.length;
@@ -159,7 +230,7 @@ export const MapPage = () => {
           )}
         </div>
       </div>
-      <div className={`relative min-h-0 flex-1 ${placing ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
+      <div className={`relative min-h-0 flex-1 ${placing || drawing ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
         <MapView
           markers={markers}
           fitKey={`${company ?? "all"}-${crewFilter ?? "all"}`}
@@ -188,9 +259,43 @@ export const MapPage = () => {
             </div>
           </div>
         )}
+        {(drawing || editing) && (
+          <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex justify-center px-3">
+            <div data-draw-bar className="pointer-events-auto flex items-center gap-2 rounded-full bg-ink py-1 pr-1 pl-4 text-surface shadow-lg">
+              <DrawIcon />
+              <span className="font-semibold">{drawing ? (tool.step ? STEP_LABEL[tool.step] : "Draw area") : `Edit corners, ${editArea?.label ?? ""}`}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setDrawing(false);
+                  setEditAreaId(null);
+                }}
+                className="min-h-10 rounded-full bg-surface px-4 text-sm font-semibold text-ink"
+              >
+                {drawing ? "Cancel" : "Done"}
+              </button>
+            </div>
+          </div>
+        )}
+        {!placing && !drawing && !editing && <MapLegend className="absolute top-2.5 right-2.5 z-[900]" />}
         <div className="pointer-events-none absolute inset-x-0 bottom-[max(5.5rem,calc(env(safe-area-inset-bottom)+5rem))] z-[1000] flex justify-center px-3">{flash}</div>
-        {!placing && (
-          <div className="pointer-events-none absolute right-4 bottom-[max(2.25rem,env(safe-area-inset-bottom))] z-[1000]">
+        {!placing && !drawing && !editing && (
+          <div className="pointer-events-none absolute right-4 bottom-[max(2.25rem,env(safe-area-inset-bottom))] z-[1000] flex gap-2">
+            <Button
+              size="lg"
+              variant="secondary"
+              data-draw-area
+              className="pointer-events-auto shadow-lg"
+              onClick={() => {
+                setSelected(null);
+                setDraft(null);
+                setDrawing(true);
+              }}
+              disabled={!d || !map}
+            >
+              <DrawIcon />
+              Draw area
+            </Button>
             <Button size="lg" className="pointer-events-auto shadow-lg" onClick={() => setPlacing(true)} disabled={!d}>
               <PinIcon />
               Add stop
@@ -208,8 +313,27 @@ export const MapPage = () => {
         onDone={showFlash}
       />
       <TruckSheet truck={selTruck} now={now} onClose={close} />
-      <LotSheet lot={selLot} crews={crews} onClose={close} />
-      <AreaSheet area={selArea} companies={plan.data?.companies ?? []} onClose={close} onDone={showFlash} />
+      <LotSheet parcel={sheetParcel} crews={crews} lots={lotWrites} onClose={close} />
+      <AreaSheet
+        area={selArea}
+        companies={plan.data?.companies ?? []}
+        onClose={close}
+        onDone={showFlash}
+        onEditCorners={(id) => {
+          setSelected(null);
+          setDraft(null);
+          setEditAreaId(id);
+        }}
+      />
+      <AssignAreaSheet
+        open={draft !== null && !drawing}
+        polygon={draftPolygon}
+        todoInside={todoInside}
+        companies={plan.data?.companies ?? []}
+        buildable={plan.data?.buildable ?? []}
+        onClose={() => setDraft(null)}
+        onDone={showFlash}
+      />
       <SideSheet
         side={selSide}
         areaLabel={selSide?.areaId != null ? (plan.data?.areas.find((a) => a.id === selSide.areaId)?.label ?? null) : null}

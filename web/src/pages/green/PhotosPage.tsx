@@ -3,15 +3,11 @@ import { useMemo, useState } from "react";
 import { FilterSelect } from "../../components/green/ui.tsx";
 import { PhotoGallery } from "../../components/photos/Gallery.tsx";
 import { MissingAfterToggle } from "../../components/photos/PairPill.tsx";
+import { STATUS_LABEL, STATUS_ORDER, type LotStatus } from "../../lib/lotStatus.ts";
 import { trpc } from "../../lib/trpc.ts";
 
-type Status = "open" | "in_progress" | "done" | "skipped";
-const STATUS_OPTIONS: ReadonlyArray<{ value: Status; label: string }> = [
-  { value: "open", label: "Open" },
-  { value: "in_progress", label: "In progress" },
-  { value: "done", label: "Done" },
-  { value: "skipped", label: "Skipped" },
-];
+type Status = LotStatus;
+const STATUS_OPTIONS: ReadonlyArray<{ value: Status; label: string }> = STATUS_ORDER.filter((s) => s !== "not_todo").map((s) => ({ value: s, label: STATUS_LABEL[s] }));
 
 const idOrNull = (v: string): number | null => (v === "" ? null : Number(v));
 

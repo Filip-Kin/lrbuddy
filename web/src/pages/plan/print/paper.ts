@@ -9,6 +9,8 @@ export const GREY = "#5b6b70";
 export const PAPER = "#f2f3f5";
 /** The company sheet's blue (SPEC 19): its areas, their names and the CC circle. */
 export const BLUE = "#1f6fe5";
+/** Do not touch (SPEC 21): outline and hatch, so it reads in greyscale as stripes. */
+export const DNT = "#e55b00";
 
 /**
  * Lot fills on paper. High and low are dashed at two fills; work (another

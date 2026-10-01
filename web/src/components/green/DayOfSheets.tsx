@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "../Button.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
-import { Select } from "../Field.tsx";
+import { Field, Select } from "../Field.tsx";
 import { ToggleChip } from "../Segmented.tsx";
 import { Sheet } from "../Sheet.tsx";
 import { trpc } from "../../lib/trpc.ts";
@@ -13,15 +13,15 @@ const lots = (n: number): string => `${n.toLocaleString("en-US")} ${n === 1 ? "l
 const unfinished = (c: DayOfSide["counts"]): number => c.open + c.inProgress;
 const joinNames = (names: readonly string[]): string => (names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`);
 
-type Step = "menu" | "reassign" | "done" | "dnt";
+type Step = "menu" | "reassign" | "done" | "dnt" | "delete";
 
 const DntTag = () => <span className="inline-flex rounded-full px-2.5 py-0.5 text-sm font-bold ring-2 ring-inset ring-warn">Do not touch</span>;
 
 const Counts = ({ c }: { c: DayOfSide["counts"] }) => (
   <>
-    <Fact label="Open">{unfinished(c)}</Fact>
+    <Fact label="Todo">{unfinished(c)}</Fact>
     <Fact label="Done">{c.done}</Fact>
-    {c.skipped > 0 && <Fact label="Skipped">{c.skipped}</Fact>}
+    {c.doNotTouch > 0 && <Fact label="Do not touch">{c.doNotTouch}</Fact>}
   </>
 );
 
@@ -77,12 +77,16 @@ export const AreaSheet = ({
   companies,
   onClose,
   onDone,
+  onEditCorners,
 }: {
   area: DayOfArea | null;
   companies: DayOfPlan["companies"];
   onClose: () => void;
   onDone: (msg: string) => void;
+  /** Edit corners (SPEC 21): the map takes the rectangle's handles. */
+  onEditCorners: (areaId: number) => void;
 }) => {
+  const remove = trpc.green.deleteArea.useMutation();
   const [step, setStep] = useState<Step>("menu");
   const [companyId, setCompanyId] = useState<number | null>(null);
   const [crewIds, setCrewIds] = useState<ReadonlySet<number>>(() => new Set());
@@ -106,6 +110,39 @@ export const AreaSheet = ({
   const open = unfinished(area.counts);
   const company = companies.find((c) => c.id === companyId) ?? null;
   const picked = company ? company.crews.filter((c) => crewIds.has(c.id)) : [];
+
+  if (step === "delete") {
+    return (
+      <ConfirmSheet
+        open
+        title="Delete area"
+        body={
+          <div className="space-y-2">
+            <p className="font-semibold text-ink">{area.label}</p>
+            <p className="text-sm text-muted">Lots stay, no crew</p>
+            <ErrorLine text={err} />
+          </div>
+        }
+        action="Delete area"
+        busy={remove.isPending}
+        onConfirm={() => {
+          setErr(null);
+          remove.mutate(
+            { areaId: area.id },
+            {
+              onSuccess: () => {
+                refresh();
+                onDone(`${area.label} removed`);
+                onClose();
+              },
+              onError: (x) => setErr(errorText(x)),
+            },
+          );
+        }}
+        onClose={() => setStep("menu")}
+      />
+    );
+  }
 
   if (step === "done" || step === "dnt") {
     const dnt = step === "dnt";
@@ -205,8 +242,158 @@ export const AreaSheet = ({
             </div>
           </section>
         ) : (
-          <Actions open={open} onStep={setStep} reassign={companies.length > 0} />
+          <>
+            <Actions open={open} onStep={setStep} reassign={companies.length > 0} />
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="secondary" size="lg" onClick={() => onEditCorners(area.id)}>
+                Edit corners
+              </Button>
+              <Button variant="secondary" size="lg" onClick={() => setStep("delete")}>
+                Delete area
+              </Button>
+            </div>
+          </>
         )}
+      </div>
+    </Sheet>
+  );
+};
+// #endregion
+
+// #region area drawn on the map (SPEC 21)
+/**
+ * After Draw area: pick one or several crews at this CC, or build crews for a
+ * company that has none, then Assign. The Todo lots inside go to the crews.
+ */
+export const AssignAreaSheet = ({
+  open,
+  polygon,
+  todoInside,
+  companies,
+  buildable,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  polygon: { type: "Polygon"; coordinates: Array<Array<[number, number]>> } | null;
+  todoInside: number;
+  companies: DayOfPlan["companies"];
+  buildable: DayOfPlan["buildable"];
+  onClose: () => void;
+  onDone: (msg: string) => void;
+}) => {
+  const refresh = useGreenInvalidate();
+  const assign = trpc.green.assignArea.useMutation();
+  const build = trpc.green.buildCrews.useMutation();
+  const [crewIds, setCrewIds] = useState<ReadonlySet<number>>(() => new Set());
+  const [heads, setHeads] = useState<Record<number, string>>({});
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    setCrewIds(new Set());
+    setErr(null);
+  }, [open, polygon]);
+
+  const allCrews = companies.flatMap((c) => c.crews);
+  const picked = allCrews.filter((c) => crewIds.has(c.id));
+  const toggle = (id: number): void =>
+    setCrewIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  return (
+    <Sheet open={open && polygon !== null} onClose={onClose} title="New area">
+      <div className="space-y-4 pb-2">
+        <div className="rounded-2xl bg-surface-2 p-3">
+          <Fact label="Todo inside">{todoInside}</Fact>
+        </div>
+        {companies.map((co) => (
+          <section key={co.id} aria-label={co.name} className="space-y-2">
+            <h3 className="text-sm font-bold text-muted uppercase">{co.name}</h3>
+            <div role="group" aria-label={`${co.name} crews`} className="flex flex-wrap gap-2">
+              {co.crews.map((c) => (
+                <ToggleChip key={c.id} on={crewIds.has(c.id)} onChange={() => toggle(c.id)}>
+                  {c.name}
+                </ToggleChip>
+              ))}
+            </div>
+          </section>
+        ))}
+        {buildable.length > 0 && (
+          <section aria-label="Build crews" className="space-y-2">
+            <h3 className="text-sm font-bold text-muted uppercase">Build crews</h3>
+            <ul className="space-y-2">
+              {buildable.map((co) => (
+                <li key={co.id} className="flex flex-wrap items-end gap-2">
+                  <span className="min-w-0 flex-1 self-center font-semibold break-words">{co.name}</span>
+                  {co.headcount === null && (
+                    <Field
+                      label="Headcount"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      className="w-28"
+                      value={heads[co.id] ?? ""}
+                      onChange={(e) => setHeads((h) => ({ ...h, [co.id]: e.target.value }))}
+                    />
+                  )}
+                  <Button
+                    variant="secondary"
+                    busy={build.isPending && build.variables?.companyId === co.id}
+                    disabled={co.headcount === null && !(Number(heads[co.id]) >= 1)}
+                    onClick={() => {
+                      setErr(null);
+                      const n = Number(heads[co.id]);
+                      build.mutate(
+                        { companyId: co.id, headcount: co.headcount === null ? n : undefined },
+                        {
+                          onSuccess: (made) => {
+                            setCrewIds((prev) => new Set([...prev, ...made.map((c) => c.id)]));
+                            refresh();
+                          },
+                          onError: (x) => setErr(errorText(x)),
+                        },
+                      );
+                    }}
+                  >
+                    {co.headcount === null ? "Build crews" : `Build crews, ${co.headcount}`}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        <ErrorLine text={err} />
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="secondary" size="lg" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="lg"
+            disabled={picked.length === 0 || polygon === null}
+            busy={assign.isPending}
+            onClick={() => {
+              if (!polygon) return;
+              setErr(null);
+              assign.mutate(
+                { polygon, crewIds: picked.map((c) => c.id) },
+                {
+                  onSuccess: (r) => {
+                    refresh();
+                    onDone(`${r.label}, ${lots(r.moved)}`);
+                    onClose();
+                  },
+                  onError: (x) => setErr(errorText(x)),
+                },
+              );
+            }}
+          >
+            {picked.length === 0 ? "Assign" : `Assign to ${joinNames(picked.map((c) => c.name))}`}
+          </Button>
+        </div>
       </div>
     </Sheet>
   );

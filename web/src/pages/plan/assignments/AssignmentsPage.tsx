@@ -334,7 +334,7 @@ export const AssignmentsPage = () => {
   // #region map layers
   const drawn = useMemo<DrawnSide[]>(() => {
     const byKey = new Map(sides.map((s) => [s.key, s]));
-    const field = new Map((dayOfQ.data?.sides ?? []).map((x) => [x.key, x.counts]));
+    const field = new Map((dayOfQ.data?.sides ?? []).map((x) => [x.key, x]));
     return (shapesQ.data ?? []).flatMap((sh) => {
       const s = byKey.get(sh.key);
       if (!s) return [];
@@ -345,9 +345,11 @@ export const AssignmentsPage = () => {
         (a?.crewId != null && crewPickSet.has(a.crewId)) ||
         (a?.areaId != null && crews.some((c) => c.areaId === a.areaId && crewPickSet.has(c.id)));
       if (a && target !== null && a.companyId === target && a.dayId === dayId && crewMatch) classes += " lrb-side-focus";
-      const c = field.get(s.key);
+      const f = field.get(s.key);
+      const c = f?.counts;
       if (sel.has(s.key)) classes += " lrb-side-sel";
-      else if (c && c.open + c.inProgress === 0 && c.skipped > 0) classes += " lrb-side-dnt";
+      // The band only for a side a green marked Do not touch as a whole (SPEC 21: one lot hatches its own parcel).
+      else if (f?.doNotTouch) classes += " lrb-side-dnt";
       else if (c && c.open + c.inProgress === 0 && c.done > 0) classes += " lrb-side-done";
       return [{ key: s.key, ring: sh.ring, classes }];
     });

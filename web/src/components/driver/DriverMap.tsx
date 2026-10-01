@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM } from "../../lib/map/basemap.ts";
 import type { LotGeometry } from "../../../../server/db/schema.ts";
 import { ccBody, escapeHtml, lotIcon, lotShape, routeLine, type LotStatus } from "../../lib/map/markers.ts";
+import { attachLabelDeclutter } from "../../lib/map/declutter.ts";
 import { usePrefersDark } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
 import { AlleyLayer } from "../alleys/AlleyLayer.tsx";
@@ -65,7 +66,7 @@ const stopIcon = (n: number, active: boolean): L.DivIcon =>
 const crewDotIcon = (label: string): L.DivIcon =>
   L.divIcon({
     className: "lrb-crew",
-    html: `<span style="display:block;${UNROT}"><span class="lrb-crew-dot"></span><span class="lrb-tag">${escapeHtml(label)}</span></span>`,
+    html: `<span style="display:block;${UNROT}"><span class="lrb-crew-dot"></span><span class="lrb-tag lrb-crew-tag">${escapeHtml(label)}</span></span>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   });
@@ -188,7 +189,9 @@ export const DriverMap = ({
     truckLayer.current = L.layerGroup().addTo(m);
     map.current = m;
     setLeaflet(m);
+    const detachLabels = attachLabelDeclutter(m);
     return () => {
+      detachLabels();
       setLeaflet(null);
       m.remove();
       map.current = null;

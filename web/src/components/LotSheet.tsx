@@ -16,7 +16,8 @@ export const LotSheet = ({
   children,
   footer,
 }: {
-  lot: { id: number; address: string | null; parcelId: string | null } | null | undefined;
+  /** `id` is null for a bare parcel (SPEC 21): no lot yet, so no photos. */
+  lot: { id: number | null; address: string | null; parcelId: string | null } | null | undefined;
   onClose: () => void;
   status?: ReactNode;
   crew?: ReactNode;
@@ -28,7 +29,7 @@ export const LotSheet = ({
       <div className="space-y-4 pb-2">
         {status}
         {crew}
-        <LotPhotos lotId={lot.id} />
+        {lot.id !== null && <LotPhotos lotId={lot.id} />}
         {children}
       </div>
     )}

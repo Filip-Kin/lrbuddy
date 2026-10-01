@@ -10,6 +10,7 @@ import { Skeleton } from "../../components/Skeleton.tsx";
 import { lotPill, StatusPill } from "../../components/StatusPill.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { insideRect, STEP_LABEL, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
+import { STATUS_LABEL, STATUS_ORDER } from "../../lib/lotStatus.ts";
 import { trpc } from "../../lib/trpc.ts";
 
 type StatusFilter = "all" | GreenLot["status"];
@@ -17,10 +18,7 @@ const NO_CREW = "none";
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "All" },
-  { value: "open", label: "Open" },
-  { value: "in_progress", label: "In progress" },
-  { value: "done", label: "Done" },
-  { value: "skipped", label: "Skipped" },
+  ...STATUS_ORDER.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
 ];
 
 export const LotsPage = () => {
@@ -210,13 +208,13 @@ export const LotsPage = () => {
                 <thead className="bg-surface-2 text-left text-xs text-muted uppercase">
                   <tr>
                     <th className="px-3 py-2 font-semibold">Crew</th>
-                    <th className="px-1.5 py-2 text-right font-semibold">Open</th>
+                    <th className="px-1.5 py-2 text-right font-semibold">Todo</th>
                     <th className="px-1.5 py-2 text-right font-semibold">
                       In progress
                     </th>
                     <th className="px-1.5 py-2 text-right font-semibold">Done</th>
                     <th className="px-3 py-2 text-right font-semibold">
-                      Skipped
+                      Do not touch
                     </th>
                   </tr>
                 </thead>
@@ -233,7 +231,7 @@ export const LotsPage = () => {
                       <td className="px-1.5 py-2 text-right tabular-nums">{r.counts?.open ?? 0}</td>
                       <td className="px-1.5 py-2 text-right tabular-nums">{r.counts?.in_progress ?? 0}</td>
                       <td className="px-1.5 py-2 text-right font-semibold tabular-nums">{r.counts?.done ?? 0}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{r.counts?.skipped ?? 0}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{r.counts?.do_not_touch ?? 0}</td>
                     </tr>
                   ))}
                 </tbody>

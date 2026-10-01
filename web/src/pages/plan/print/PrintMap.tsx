@@ -5,7 +5,7 @@ import { ESRI_BASE, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM, TILE_ATTRIB } from "
 import { hatchLines } from "../../../lib/map/hatch.ts";
 import { escapeHtml } from "../../../lib/map/markers.ts";
 import { distance } from "../../../lib/format.ts";
-import { BLUE, INK, LOT_FILL, PAPER, WORK, YELLOW, GREY } from "./paper.ts";
+import { BLUE, DNT, INK, LOT_FILL, PAPER, WORK, YELLOW, GREY } from "./paper.ts";
 
 // #region types
 export type LatLngPair = [number, number];
@@ -19,7 +19,7 @@ export type LatLngPair = [number, number];
  * `tint` is the day's area, several rings filled as one.
  */
 export type PrintLayer =
-  | { kind: "lot"; key: string; geometry: LotGeometry | null; lat: number; lng: number; tone: "work" | "high" | "low"; label?: string; badge?: string }
+  | { kind: "lot"; key: string; geometry: LotGeometry | null; lat: number; lng: number; tone: "work" | "high" | "low" | "dnt"; label?: string; badge?: string }
   | { kind: "area"; key: string; ring: LatLngPair[]; tone: "mine" | "other" | "crew" | "company" | "faint"; label?: string; hatch?: boolean }
   | { kind: "tint"; key: string; rings: LatLngPair[][] };
 
@@ -163,14 +163,17 @@ const metres = (a: L.LatLng, b: L.LatLng): number => {
   return 2 * r * Math.asin(Math.sqrt(h));
 };
 
-const lotStyle = (tone: "work" | "high" | "low"): L.PathOptions => ({
-  color: INK,
-  weight: tone === "work" ? 1 : 1.5,
-  dashArray: tone === "work" ? undefined : "4 3",
-  fillColor: WORK,
-  fillOpacity: LOT_FILL[tone],
-  interactive: false,
-});
+const lotStyle = (tone: "work" | "high" | "low" | "dnt"): L.PathOptions =>
+  tone === "dnt"
+    ? { color: DNT, weight: 1.2, fillColor: DNT, fillOpacity: 0.12, interactive: false }
+    : {
+        color: INK,
+        weight: tone === "work" ? 1 : 1.5,
+        dashArray: tone === "work" ? undefined : "4 3",
+        fillColor: WORK,
+        fillOpacity: LOT_FILL[tone],
+        interactive: false,
+      };
 
 const labelHtml = (text: string, badge?: string): string =>
   `<span class="lrb-pm-text">${escapeHtml(text)}</span>${badge ? `<b class="lrb-pm-badge">${escapeHtml(badge)}</b>` : ""}`;
@@ -219,6 +222,11 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
     let box: Box;
     if (l.geometry) {
       const b = L.geoJSON(l.geometry, { style: () => lotStyle(l.tone), interactive: false }).addTo(group).getBounds();
+      // Do not touch prints hatched (SPEC 21), the same 3 m stripes as the screen maps.
+      if (l.tone === "dnt") {
+        const rings = l.geometry.type === "Polygon" ? [l.geometry.coordinates[0] ?? []] : l.geometry.coordinates.map((p) => p[0] ?? []);
+        for (const r of rings) for (const seg of hatchLines(r, 3)) L.polyline(seg, { color: DNT, weight: 1, opacity: 0.9, interactive: false }).addTo(group);
+      }
       const nw = pt(b.getNorth(), b.getWest());
       const se = pt(b.getSouth(), b.getEast());
       box = { x: nw.x, y: nw.y, w: Math.max(se.x - nw.x, 4), h: Math.max(se.y - nw.y, 4) };

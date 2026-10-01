@@ -221,9 +221,13 @@
   height: 9px;
   opacity: 0.75;
 }
+/* SPEC 21 colours: Todo --crew, In progress --brand, Done --brand-green, Do not touch --warn, Not todo an outline. */
 .lrb-lot-open span {
-  background: var(--surface);
-  border: 2px solid var(--muted);
+  background: var(--crew);
+}
+.lrb-lot-not_todo span {
+  background: transparent;
+  border: 1.5px solid var(--muted);
   box-shadow: none;
 }
 .lrb-lot-in_progress span {
@@ -232,19 +236,27 @@
 .lrb-lot-done span {
   background: var(--brand-green);
 }
-.lrb-lot-skipped span {
-  background: var(--warn);
+.lrb-lot-do_not_touch span {
+  background: repeating-linear-gradient(45deg, var(--warn) 0 2px, var(--surface) 2px 4px);
+  border-color: var(--warn);
 }
 
-/* Lot parcel outlines. Open uses --muted: --line vanishes on the light basemap. */
+/* Lot parcel outlines. Not todo uses --muted: --line vanishes on the light basemap. */
 .lrb-lot-shape {
   stroke-width: 2px;
   fill-opacity: 0.3;
 }
 .lrb-lot-shape-open {
+  stroke: var(--crew);
+  fill: var(--crew);
+}
+.lrb-lot-shape-not_todo,
+.lrb-parcel-shape {
+  stroke-width: 1px;
   stroke: var(--muted);
+  stroke-opacity: 0.75;
   fill: var(--muted);
-  fill-opacity: 0.12;
+  fill-opacity: 0.01;
 }
 .lrb-lot-shape-in_progress {
   stroke: var(--brand);
@@ -254,9 +266,14 @@
   stroke: var(--brand-green);
   fill: var(--brand-green);
 }
-.lrb-lot-shape-skipped {
+.lrb-lot-shape-do_not_touch {
   stroke: var(--warn);
   fill: var(--warn);
+  fill-opacity: 0.12;
+}
+.lrb-lot-hatch {
+  stroke: var(--warn);
+  stroke-opacity: 0.9;
 }
 .lrb-lot-shape-other {
   stroke-width: 1px;

@@ -1,7 +1,8 @@
 import L from "leaflet";
-import type { LotGeometry } from "../../../../server/db/schema.ts";
+import type { LotGeometry, LotStatus } from "../../../../server/db/schema.ts";
+import { hatchLines } from "./hatch.ts";
 
-export type LotStatus = "open" | "in_progress" | "done" | "skipped";
+export type { LotStatus };
 
 export const escapeHtml = (s: string): string =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c);
@@ -21,7 +22,7 @@ export const crewIcon = (label: string, muted = false): L.DivIcon =>
     ? L.divIcon({ className: "lrb-crew lrb-crew-muted", html: '<span class="lrb-crew-dot"></span>', iconSize: [16, 16], iconAnchor: [8, 8] })
     : L.divIcon({
         className: "lrb-crew",
-        html: `<span class="lrb-crew-dot"></span><span class="lrb-tag">${escapeHtml(label)}</span>`,
+        html: `<span class="lrb-crew-dot"></span><span class="lrb-tag lrb-crew-tag">${escapeHtml(label)}</span>`,
         iconSize: [28, 28],
         iconAnchor: [14, 14],
       });
@@ -79,15 +80,34 @@ export const lotIcon = (status: LotStatus, mine = true, selected = false): L.Div
  * Parcel outline: 2 px stroke in the status colour, filled at 30 %. Colours come from CSS.
  * `opts` passes a pane or renderer through to the outline (the driver map draws lots in their own pane).
  */
-export const lotShape = (geometry: LotGeometry, status: LotStatus, mine = true, selected = false, opts: Pick<L.PathOptions, "pane" | "renderer"> = {}): L.GeoJSON =>
-  L.geoJSON(geometry, {
+export const lotShape = (geometry: LotGeometry, status: LotStatus, mine = true, selected = false, opts: Pick<L.PathOptions, "pane" | "renderer"> = {}): L.GeoJSON => {
+  const shape = L.geoJSON(geometry, {
     ...opts,
     style: () => ({
       className: `lrb-lot-shape lrb-lot-shape-${status}${mine ? "" : " lrb-lot-shape-other"}${selected ? " lrb-lot-shape-selected" : ""}`,
-      weight: 2,
+      weight: status === "not_todo" ? 1 : 2,
       fillOpacity: 0.3,
     }),
   });
+  // Do not touch is hatched on every map (SPEC 21), with plain lines so print and canvas maps draw it too.
+  if (status === "do_not_touch") {
+    for (const seg of lotHatch(geometry)) shape.addLayer(L.polyline(seg, { ...opts, className: "lrb-lot-hatch", weight: 1.5, interactive: false }));
+  }
+  return shape;
+};
+
+/** Hatch segments across each outer ring of a parcel, 3 m apart (a parcel is about 10 m wide). */
+export const lotHatch = (geometry: LotGeometry): Array<[[number, number], [number, number]]> => {
+  const rings = geometry.type === "Polygon" ? [geometry.coordinates[0] ?? []] : geometry.coordinates.map((p) => p[0] ?? []);
+  return rings.flatMap((r) => hatchLines(r, 3));
+};
+
+/**
+ * A cached parcel with no lot (Not todo, SPEC 21): a thin outline that takes a tap.
+ * The fill is there only so the whole parcel, not just its edge, is the tap target.
+ */
+export const parcelShape = (geometry: LotGeometry, opts: Pick<L.PathOptions, "pane" | "renderer"> = {}): L.GeoJSON =>
+  L.geoJSON(geometry, { ...opts, style: () => ({ className: "lrb-parcel-shape", weight: 1, fillOpacity: 0.01 }) });
 
 /** Route polyline in the ink colour (set by the `lrb-route` class so it follows the scheme). */
 export const routeLine = (points: Array<[number, number]>): L.Polyline =>

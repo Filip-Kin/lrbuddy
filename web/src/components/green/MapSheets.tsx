@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Select } from "../Field.tsx";
-import { LotSheet as SharedLotSheet } from "../LotSheet.tsx";
+import { ParcelSheet, type ParcelView } from "../ParcelSheet.tsx";
+import type { useSetLot } from "../LotStatusControl.tsx";
 import { Sheet } from "../Sheet.tsx";
 import { lotPill, StatusPill } from "../StatusPill.tsx";
 import { ago, dateTime } from "../../lib/format.ts";
@@ -83,40 +84,44 @@ export const TruckSheet = ({ truck, now, onClose }: { truck: GreenTruck | null; 
   </Sheet>
 );
 
+/** A lot or a bare parcel on the green map (SPEC 21): all five statuses, size, crew, photos and note. */
+export type GreenParcel = ParcelView & { crewId: number | null; statusAt: number | null };
+
 export const LotSheet = ({
-  lot,
+  parcel,
   crews,
+  lots,
   onClose,
 }: {
-  lot: OverviewLot | null;
+  parcel: GreenParcel | null;
   crews: readonly Pick<OverviewCrew, "id" | "name" | "companyName">[];
+  lots: ReturnType<typeof useSetLot>;
   onClose: () => void;
 }) => {
   const refresh = useGreenInvalidate();
   const assign = trpc.green.assignLots.useMutation({ onSettled: refresh });
   const [err, setErr] = useState<string | null>(null);
+  const lotId = parcel?.lotId ?? null;
   return (
-    <SharedLotSheet
-      lot={lot}
+    <ParcelSheet
+      parcel={parcel}
       onClose={onClose}
-      status={
-        lot && (
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusPill status={lotPill(lot.status)} />
-            {lot.statusAt !== null && <span className="text-sm text-muted">{dateTime(lot.statusAt)}</span>}
-          </div>
-        )
-      }
+      onSet={lots.set}
+      canDnt
+      error={lots.error}
+      errorFor={lots.errorFor}
+      onNote={(t, note) => lots.set(t, { note })}
       crew={
-        lot && (
+        parcel &&
+        lotId !== null && (
           <Select
             label="Crew"
-            value={lot.crewId ?? ""}
+            value={parcel.crewId ?? ""}
             disabled={assign.isPending}
             error={err}
             onChange={(e) => {
               setErr(null);
-              assign.mutate({ lotIds: [lot.id], crewId: e.target.value ? Number(e.target.value) : null }, { onError: (x) => setErr(errorText(x)) });
+              assign.mutate({ lotIds: [lotId], crewId: e.target.value ? Number(e.target.value) : null }, { onError: (x) => setErr(errorText(x)) });
             }}
           >
             <option value="">No crew</option>
@@ -129,9 +134,11 @@ export const LotSheet = ({
         )
       }
     >
-      {lot?.parcelId && <Fact label="Parcel">{lot.parcelId.replace(/\.$/, "")}</Fact>}
-      {lot?.note && <p className="text-sm break-words text-muted">{lot.note}</p>}
-    </SharedLotSheet>
+      <div className="flex flex-wrap gap-x-6 gap-y-2">
+        {parcel?.parcelId && <Fact label="Parcel">{parcel.parcelId.replace(/\.$/, "")}</Fact>}
+        {parcel?.statusAt != null && <Fact label="Changed">{dateTime(parcel.statusAt)}</Fact>}
+      </div>
+    </ParcelSheet>
   );
 };
 

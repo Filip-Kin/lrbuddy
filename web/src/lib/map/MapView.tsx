@@ -12,6 +12,7 @@ import {
   TILE_ATTRIB,
 } from "./basemap.ts";
 import type { LotGeometry } from "../../../../server/db/schema.ts";
+import { attachLabelDeclutter } from "./declutter.ts";
 import { ccIcon, crewIcon, lotIcon, lotShape, meIcon, requestIcon, routeLine, selectLine, stopIcon, truckIcon, type LotStatus } from "./markers.ts";
 
 // #region types
@@ -34,7 +35,7 @@ export type MapMarker =
   /** `onDragEnd` makes the flag draggable (admin day map). */
   | (Base & { kind: "cc"; name: string; letter?: string | null; onDragEnd?: (lat: number, lng: number) => void })
   /** Drawn as its parcel outline when `geometry` is set, else a small square. `selected` adds a heavy ink outline. */
-  | (Base & { kind: "lot"; status: LotStatus; mine?: boolean; selected?: boolean; geometry?: LotGeometry | null })
+  | (Base & { kind: "lot"; status: LotStatus; mine?: boolean; selected?: boolean; geometry?: LotGeometry | null; parcelId?: string | null })
   | (Base & { kind: "request"; urgent?: boolean })
   | (Base & { kind: "stop"; n: number; active?: boolean });
 
@@ -169,6 +170,7 @@ export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, la
     if (!holder.current || map.current) return;
     const m = L.map(holder.current, { zoomControl: true, maxZoom: MAX_ZOOM, attributionControl: true, zoomSnap: 0.5, zoomDelta: 1 }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
     m.attributionControl.setPrefix(false);
+    const detachLabels = attachLabelDeclutter(m);
     lineLayer.current = L.layerGroup().addTo(m);
     markerLayer.current = L.layerGroup().addTo(m);
     m.on("click", (e: L.LeafletMouseEvent) => clickRef.current?.(e.latlng.lat, e.latlng.lng));
@@ -191,6 +193,7 @@ export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, la
     return () => {
       for (const ev of ["pointerdown", "wheel", "keydown"] as const) el.removeEventListener(ev, touched);
       ro.disconnect();
+      detachLabels();
       readyRef.current?.(null);
       m.remove();
       map.current = null;
@@ -216,7 +219,17 @@ export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, la
     const group = markerLayer.current;
     if (!m || !group) return;
     group.clearLayers();
-    for (const mk of markers) group.addLayer(layerFor(mk));
+    for (const mk of markers) {
+      const layer = layerFor(mk);
+      group.addLayer(layer);
+      // Lot outlines carry their parcel id, so a parcel can be found again after it becomes a lot.
+      const pid = mk.kind === "lot" ? mk.parcelId : null;
+      if (pid && layer instanceof L.GeoJSON) {
+        layer.eachLayer((l) => {
+          if (l instanceof L.Path) l.getElement()?.setAttribute("data-lot-parcel", pid);
+        });
+      }
+    }
   }, [markers]);
 
   useEffect(() => {

@@ -19,6 +19,7 @@ import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
 import { AlleyLayer } from "../../components/alleys/AlleyLayer.tsx";
 import { insideRect, rectBBox, rectRing, rectSize, STEP_LABEL, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
+import { STATUS_LABEL, STATUS_ORDER } from "../../lib/lotStatus.ts";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
 type Lot = RouterOutputs["admin"]["lots"]["list"][number];
@@ -30,12 +31,7 @@ type Mode = { kind: "idle" } | { kind: "add" } | { kind: "rect"; action: RectAct
 /** The server refuses bigger rectangles; about 25 by 33 km at Detroit's latitude. */
 const MAX_SPAN_DEG = 0.3;
 
-const STATUS_OPTIONS: ReadonlyArray<{ value: LotStatus; label: string }> = [
-  { value: "open", label: "Open" },
-  { value: "in_progress", label: "In progress" },
-  { value: "done", label: "Done" },
-  { value: "skipped", label: "Skipped" },
-];
+const STATUS_OPTIONS: ReadonlyArray<{ value: LotStatus; label: string }> = STATUS_ORDER.map((s) => ({ value: s, label: STATUS_LABEL[s] }));
 
 const RECT_LABEL: Record<RectAction, string> = {
   dlba: "Import DLBA",
@@ -564,10 +560,10 @@ export const LotsPage = () => {
               ) : (
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-2">
-                    <Stat value={byStatus.get("open") ?? 0} label="Open" tone="muted" />
+                    <Stat value={byStatus.get("open") ?? 0} label="Todo" tone="muted" />
                     <Stat value={byStatus.get("in_progress") ?? 0} label="In progress" tone="brand" />
                     <Stat value={byStatus.get("done") ?? 0} label="Done" tone="green" />
-                    <Stat value={byStatus.get("skipped") ?? 0} label="Skipped" tone="warn" />
+                    <Stat value={byStatus.get("do_not_touch") ?? 0} label="Do not touch" tone="warn" />
                   </div>
                   {bySource.length > 0 && (
                     <ul className="divide-y divide-line text-sm">

@@ -7,7 +7,8 @@ export type PillStatus =
   | "lot_open"
   | "in_progress"
   | "done"
-  | "skipped"
+  | "do_not_touch"
+  | "not_todo"
   | "idle"
   | "delivering"
   | "returning"
@@ -37,10 +38,11 @@ const STATUS: Record<PillStatus, { label: string; tone: Tone }> = {
   en_route: { label: "En route", tone: "brand" },
   delivered: { label: "Delivered", tone: "green" },
   cancelled: { label: "Cancelled", tone: "muted" },
-  lot_open: { label: "Open", tone: "outline" },
+  lot_open: { label: "Todo", tone: "crew" },
   in_progress: { label: "In progress", tone: "brand" },
   done: { label: "Done", tone: "green" },
-  skipped: { label: "Skipped", tone: "warn" },
+  do_not_touch: { label: "Do not touch", tone: "warn" },
+  not_todo: { label: "Not todo", tone: "outline" },
   idle: { label: "Idle", tone: "plain" },
   delivering: { label: "Delivering", tone: "green" },
   returning: { label: "Returning", tone: "brand" },
@@ -55,7 +57,7 @@ const STATUS: Record<PillStatus, { label: string; tone: Tone }> = {
 export const statusLabel = (s: PillStatus): string => STATUS[s].label;
 
 /** Lot statuses share keys with request statuses; `open` means a different thing for each. */
-export const lotPill = (s: "open" | "in_progress" | "done" | "skipped"): PillStatus => (s === "open" ? "lot_open" : s);
+export const lotPill = (s: "open" | "in_progress" | "done" | "do_not_touch" | "not_todo"): PillStatus => (s === "open" ? "lot_open" : s);
 
 export const StatusPill = ({ status, label, className = "" }: { status: PillStatus; label?: string; className?: string }) => {
   const tone = TONE[STATUS[status].tone];

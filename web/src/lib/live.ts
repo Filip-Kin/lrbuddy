@@ -107,7 +107,7 @@ const KIND: Record<string, Kind> = {
 /**
  * One `shared.onCc` stream per signed-in CC role. Each event marks the
  * matching queries stale, coalesced to one refetch per kind every 1.5 s. A
- * reconnect refetches everything.
+ * reconnect, or a move of the truck or crew to another CC, refetches everything.
  */
 export const useLiveInvalidation = (role: Role, enabled: boolean): void => {
   const utils = trpc.useUtils();
@@ -120,6 +120,11 @@ export const useLiveInvalidation = (role: Role, enabled: boolean): void => {
       void utils.invalidate();
     },
     onData: (msg) => {
+      // The truck or crew moved to another CC: the scope line and every list change.
+      if (msg.type === "scope.changed") {
+        void utils.invalidate();
+        return;
+      }
       const kind = KIND[msg.type];
       if (!kind || timers.current.has(kind)) return;
       timers.current.set(
@@ -129,6 +134,10 @@ export const useLiveInvalidation = (role: Role, enabled: boolean): void => {
           invalidate(utils, kind);
         }, COALESCE_MS),
       );
+    },
+    // The server ends the stream when the session is revoked; `me` then reads anon and the app shows the login.
+    onError: () => {
+      void utils.shared.me.invalidate();
     },
   });
 };

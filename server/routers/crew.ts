@@ -8,7 +8,7 @@ import { cancelRequest, createRequest, getRequest, getType, latestPosition } fro
 import { bboxAround, haversine, type LatLng } from "../geo.ts";
 import { emitLot } from "../lots-import.ts";
 import { latestPositions, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
-import { crewProcedure, router } from "../trpc.ts";
+import { crewProcedure, liveFor, readCcScope, router, sameCc } from "../trpc.ts";
 
 export const NEARBY_LOT_M = 400;
 /** A second identical request inside this window is a double tap or a retry, not a new ask. */
@@ -174,10 +174,14 @@ export const crewRouter = router({
   /** My requests and my lots, as they change. */
   onMine: crewProcedure.subscription(async function* ({ ctx, signal }) {
     const crewId = ctx.crew.id;
-    for await (const msg of bus.listen(signal)) {
+    const sessionId = ctx.session.id;
+    const start = { ccId: ctx.cc.id, dayId: ctx.day.id };
+    for await (const item of liveFor(signal, start, () => readCcScope(sessionId, null), sameCc)) {
+      if (item.kind !== "event") continue;
+      const { msg, scope } = item;
       if (msg.type === "request.changed" && msg.payload.request.crewId === crewId) yield msg;
       else if (msg.type === "lot.changed" && msg.payload.lot.crewId === crewId) yield msg;
-      else if (msg.type === "broadcast" && msg.ccId === ctx.cc.id) yield msg;
+      else if (msg.type === "broadcast" && msg.ccId === scope.ccId) yield msg;
     }
   }),
 });

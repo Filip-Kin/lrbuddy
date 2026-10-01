@@ -3,6 +3,7 @@ import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import { eq } from "drizzle-orm";
 import superjson from "superjson";
 import { getSession, sessionIdFrom } from "./auth.ts";
+import { bus, type BusMessage } from "./bus.ts";
 import { markTruckSeen } from "./dispatch.ts";
 import { db } from "./db/index.ts";
 import {
@@ -10,6 +11,7 @@ import {
   crews,
   days,
   events,
+  sessions,
   trucks,
   type CommandCenter,
   type Crew,
@@ -80,6 +82,81 @@ export const touchTruck = (truck: Truck, now = Date.now()): void => {
 };
 // #endregion
 
+// #region live streams
+/** The CC and day an open stream follows. */
+export interface CcScope {
+  ccId: number;
+  dayId: number;
+}
+
+/** Sent on `shared.onCc` when the session's truck or crew moves to another CC. The client refetches everything. */
+export type ScopeChanged = { type: "scope.changed"; ccId: number; dayId: number; payload: null };
+
+const RECHECK_MS = 10_000;
+
+/**
+ * The CC a session follows right now, read from the database without
+ * touching last-seen times. Null when the session is gone (signed out, or a
+ * new code or token was issued) or its crew, truck or CC no longer exists.
+ */
+export const readCcScope = (sessionId: string, ccOverride: number | null): CcScope | null => {
+  const s = db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
+  if (!s) return null;
+  let ccId: number | null = null;
+  if (s.role === "crew" && s.crewId !== null) {
+    ccId = db.select({ ccId: crews.ccId }).from(crews).where(eq(crews.id, s.crewId)).get()?.ccId ?? null;
+  } else if (s.role === "driver" && s.truckId !== null) {
+    ccId = db.select({ ccId: trucks.ccId }).from(trucks).where(eq(trucks.id, s.truckId)).get()?.ccId ?? null;
+  } else if (s.role === "green") {
+    ccId = s.ccId;
+  } else if (s.role === "admin") {
+    ccId = ccOverride;
+  }
+  if (ccId === null) return null;
+  const cc = db.select({ dayId: commandCenters.dayId }).from(commandCenters).where(eq(commandCenters.id, ccId)).get();
+  return cc ? { ccId, dayId: cc.dayId } : null;
+};
+
+/** True while the session exists and is still an admin session. */
+export const readAdmin = (sessionId: string): true | null =>
+  db.select({ role: sessions.role }).from(sessions).where(eq(sessions.id, sessionId)).get()?.role === "admin" ? true : null;
+
+export const sameCc = (a: CcScope, b: CcScope): boolean => a.ccId === b.ccId && a.dayId === b.dayId;
+
+export type LiveItem<S> = { kind: "event"; msg: BusMessage; scope: S } | { kind: "moved"; scope: S };
+
+/**
+ * Bus events for one session's open stream. Auth runs once when a stream
+ * opens, so the stream reads its session again on every scope check from the
+ * bus (and on the first event after 10 s without one, for writes that skipped
+ * the check). A session that is gone ends the stream with UNAUTHORIZED before
+ * any later event reaches it; a session whose CC changed yields `moved` and
+ * from then on carries the new scope.
+ */
+export async function* liveFor<S>(
+  signal: AbortSignal | undefined,
+  initial: S,
+  read: () => S | null,
+  same: (a: S, b: S) => boolean,
+): AsyncGenerator<LiveItem<S>> {
+  let scope = initial;
+  let readAt = Date.now();
+  for await (const msg of bus.listen(signal)) {
+    const now = Date.now();
+    if (msg.type === "scope.check" || now - readAt >= RECHECK_MS) {
+      readAt = now;
+      const next = read();
+      if (next === null) throw unauthorized();
+      if (!same(scope, next)) {
+        scope = next;
+        yield { kind: "moved", scope };
+      }
+    }
+    if (msg.type !== "scope.check") yield { kind: "event", msg, scope };
+  }
+}
+// #endregion
+
 // #region procedures
 const unauthorized = (): TRPCError => new TRPCError({ code: "UNAUTHORIZED", message: "Sign in" });
 const forbidden = (): TRPCError => new TRPCError({ code: "FORBIDDEN", message: "Not allowed" });
@@ -121,9 +198,14 @@ export const greenProcedure = authedProcedure.use(({ ctx, next }) => {
   return next({ ctx: { ...ctx, ...scope } });
 });
 
-export const adminProcedure = authedProcedure.use(({ ctx, next }) => {
+export const adminProcedure = authedProcedure.use(async ({ ctx, type, next }) => {
   if (ctx.session.role !== "admin") throw forbidden();
-  return next({ ctx });
+  const result = await next({ ctx });
+  // Admin writes delete sessions (new codes and tokens, deleted crews, trucks
+  // and CCs) and move trucks and crews between CCs. The sites that do so also
+  // call checkScopes at once; this catches any write that does it some other way.
+  if (type === "mutation") bus.checkScopes();
+  return result;
 });
 
 /**

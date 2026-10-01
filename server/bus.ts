@@ -18,6 +18,15 @@ export type BusMessage = {
   [K in BusEventType]: { type: K; ccId: number | null; dayId: number | null; payload: BusPayloads[K] };
 }[BusEventType];
 
+/**
+ * Internal, never sent to a client: something may have ended a session or
+ * moved it to another CC. Every open stream reads its scope again.
+ */
+export type ScopeCheck = { type: "scope.check" };
+
+/** What travels on the emitter: the public events plus scope checks. */
+export type WireMessage = BusMessage | ScopeCheck;
+
 const CHANNEL = "msg";
 
 class Bus {
@@ -33,16 +42,30 @@ class Bus {
     this.ee.emit(CHANNEL, msg);
   }
 
-  subscribe(fn: (msg: BusMessage) => void): () => void {
-    this.ee.on(CHANNEL, fn);
-    return () => this.ee.off(CHANNEL, fn);
+  /**
+   * Tells every open stream to read its session again. Call after anything
+   * that deletes a session or changes the CC a session follows. Delivered in
+   * order with the other events, so nothing emitted later reaches a stream
+   * before it has re-read its scope.
+   */
+  checkScopes(): void {
+    this.ee.emit(CHANNEL, { type: "scope.check" } satisfies ScopeCheck);
   }
 
-  /** Async iterator of every message until `signal` aborts. */
-  async *listen(signal: AbortSignal | undefined): AsyncGenerator<BusMessage> {
+  /** Public events only. */
+  subscribe(fn: (msg: BusMessage) => void): () => void {
+    const handler = (msg: WireMessage): void => {
+      if (msg.type !== "scope.check") fn(msg);
+    };
+    this.ee.on(CHANNEL, handler);
+    return () => this.ee.off(CHANNEL, handler);
+  }
+
+  /** Async iterator of every message, scope checks included, until `signal` aborts. */
+  async *listen(signal: AbortSignal | undefined): AsyncGenerator<WireMessage> {
     try {
       for await (const args of on(this.ee, CHANNEL, { signal })) {
-        yield (args as [BusMessage])[0];
+        yield (args as [WireMessage])[0];
       }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;

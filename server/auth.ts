@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { bus } from "./bus.ts";
 import { config } from "./config.ts";
 import { db } from "./db/index.ts";
 import { crews, greenCodes, sessions, trucks, type Role, type Session } from "./db/schema.ts";
@@ -77,7 +78,10 @@ export const createSession = (s: NewSession): Session => {
 };
 
 export const deleteSession = (id: string | null): void => {
-  if (id) db.delete(sessions).where(eq(sessions.id, id)).run();
+  if (!id) return;
+  db.delete(sessions).where(eq(sessions.id, id)).run();
+  // An open stream on this session ends now, not at its next reconnect.
+  bus.checkScopes();
 };
 // #endregion
 

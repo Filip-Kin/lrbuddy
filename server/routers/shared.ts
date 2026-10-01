@@ -23,7 +23,7 @@ import {
 import { crewLabel, markTruckSeen, onCrewMoved, onTruckMoved } from "../dispatch.ts";
 import { subscribe, unsubscribe, vapidPublicKey } from "../push.ts";
 import { activeEvent, catalogFor, ccCard } from "../queries.ts";
-import { authedProcedure, ccProcedure, publicProcedure, router } from "../trpc.ts";
+import { authedProcedure, ccProcedure, liveFor, publicProcedure, readCcScope, router, sameCc, type ScopeChanged } from "../trpc.ts";
 
 // #region me
 export type Me =
@@ -173,13 +173,24 @@ export const sharedRouter = router({
       throw new TRPCError({ code: "FORBIDDEN", message: "Crew and drivers only" });
     }),
 
-  onCc: ccProcedure.subscription(async function* ({ ctx, signal }) {
-    const ccId = ctx.cc.id;
-    const dayId = ctx.day.id;
-    for await (const msg of bus.listen(signal)) {
-      if (msg.ccId !== ccId) continue;
-      if (msg.dayId !== null && msg.dayId !== dayId) continue;
-      yield msg satisfies BusMessage;
+  /**
+   * Everything at the session's CC. The scope is read again on every scope
+   * check, so a revoked session stops at once and a moved truck or crew
+   * follows its new CC (the client gets `scope.changed` and refetches).
+   */
+  onCc: ccProcedure.subscription(async function* ({ ctx, signal }): AsyncGenerator<BusMessage | ScopeChanged> {
+    const sessionId = ctx.session.id;
+    const override = ctx.ccOverride;
+    const start = { ccId: ctx.cc.id, dayId: ctx.day.id };
+    for await (const item of liveFor(signal, start, () => readCcScope(sessionId, override), sameCc)) {
+      if (item.kind === "moved") {
+        yield { type: "scope.changed", ccId: item.scope.ccId, dayId: item.scope.dayId, payload: null };
+        continue;
+      }
+      const { msg, scope } = item;
+      if (msg.ccId !== scope.ccId) continue;
+      if (msg.dayId !== null && msg.dayId !== scope.dayId) continue;
+      yield msg;
     }
   }),
 

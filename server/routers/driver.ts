@@ -20,7 +20,7 @@ import {
 } from "../dispatch.ts";
 import { bboxAround, directionsUrl, haversine, type LatLng } from "../geo.ts";
 import { requestViews } from "../queries.ts";
-import { driverProcedure, router } from "../trpc.ts";
+import { driverProcedure, liveFor, readCcScope, router, sameCc } from "../trpc.ts";
 
 // #region constants
 /** A lot this close to a stop names the stop's street address. */
@@ -263,7 +263,11 @@ export const driverRouter = router({
   /** Route and stock changes for my truck. */
   onRoute: driverProcedure.subscription(async function* ({ ctx, signal }) {
     const truckId = ctx.truck.id;
-    for await (const msg of bus.listen(signal)) {
+    const sessionId = ctx.session.id;
+    const start = { ccId: ctx.cc.id, dayId: ctx.day.id };
+    for await (const item of liveFor(signal, start, () => readCcScope(sessionId, null), sameCc)) {
+      if (item.kind !== "event") continue;
+      const { msg } = item;
       if (msg.type === "route.changed" && msg.payload.truckId === truckId) yield msg;
       else if (msg.type === "stock.changed" && msg.payload.truckId === truckId) yield msg;
     }

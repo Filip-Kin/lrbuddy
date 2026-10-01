@@ -42,7 +42,7 @@ import {
 } from "../lots-import.ts";
 import { activeEvent, catalogFor, requestViews } from "../queries.ts";
 import { copySetupFromPreviousDay, createCc, createCrew, createEvent, createTruck, setActiveEvent, stockTypeOnTrucks } from "../setup.ts";
-import { adminProcedure, router } from "../trpc.ts";
+import { adminProcedure, liveFor, readAdmin, router } from "../trpc.ts";
 
 // #region helpers
 const bboxInput = z.tuple([z.number(), z.number(), z.number(), z.number()]);
@@ -276,6 +276,7 @@ const ccsRouter = router({
     }),
   delete: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
     db.delete(commandCenters).where(eq(commandCenters.id, input.id)).run();
+    bus.checkScopes();
     return { ok: true };
   }),
 });
@@ -302,6 +303,7 @@ const greenCodesRouter = router({
     db.insert(greenCodes).values({ ccId: input.ccId, code }).onConflictDoUpdate({ target: greenCodes.ccId, set: { code } }).run();
     // A new code exists to lock out whoever holds the old one.
     db.delete(sessions).where(and(eq(sessions.role, "green"), eq(sessions.ccId, input.ccId))).run();
+    bus.checkScopes();
     return { code };
   }),
 });
@@ -350,7 +352,11 @@ const trucksRouter = router({
       const reopened = moving ? reopenStops(tid) : [];
       const t = db.update(trucks).set(set).where(eq(trucks.id, tid)).returning().get();
       // Push to a CC goes by sessions.cc_id; the driver's phones follow the truck.
-      if (moving) db.update(sessions).set({ ccId: t.ccId }).where(eq(sessions.truckId, tid)).run();
+      if (moving) {
+        db.update(sessions).set({ ccId: t.ccId }).where(eq(sessions.truckId, tid)).run();
+        // Open streams switch to the new CC before the reopened stops go out.
+        bus.checkScopes();
+      }
       afterReopen(reopened, current);
       // Back from offline: it can take what sat open while it was off.
       if (current.status === "offline" && t.status !== "offline") sweepOpen(t.ccId, t.dayId);
@@ -361,6 +367,7 @@ const trucksRouter = router({
   regenerateCode: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
     const t = db.update(trucks).set({ code: uniqueCode() }).where(eq(trucks.id, input.id)).returning().get();
     db.delete(sessions).where(eq(sessions.truckId, input.id)).run();
+    bus.checkScopes();
     return t;
   }),
   setCapacity: adminProcedure
@@ -378,6 +385,7 @@ const trucksRouter = router({
     if (!truck) throw notFound("Truck");
     const reopened = reopenStops(truck.id);
     db.delete(trucks).where(eq(trucks.id, truck.id)).run();
+    bus.checkScopes();
     afterReopen(reopened, truck);
     return { ok: true, reopened: reopened.length };
   }),
@@ -439,6 +447,7 @@ const crewInput = z.object({
 const afterCrewMoved = (crewId: number, ccId: number): void => {
   db.update(lots).set({ crewId: null }).where(eq(lots.crewId, crewId)).run();
   db.update(sessions).set({ ccId }).where(eq(sessions.crewId, crewId)).run();
+  bus.checkScopes();
 };
 
 const crewsRouter = router({
@@ -479,12 +488,14 @@ const crewsRouter = router({
   }),
   delete: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
     db.delete(crews).where(eq(crews.id, input.id)).run();
+    bus.checkScopes();
     return { ok: true };
   }),
   /** Also signs out every phone that joined with the old link. */
   regenerateToken: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
     const row = db.update(crews).set({ token: newCrewToken() }).where(eq(crews.id, input.id)).returning().get();
     db.delete(sessions).where(eq(sessions.crewId, input.id)).run();
+    bus.checkScopes();
     return row;
   }),
   /** CSV `day, cc, company, lead_name, lead_phone, headcount`. Day matches label, date or number. */
@@ -1004,7 +1015,10 @@ export const adminRouter = router({
     return { event: ev, days: dayRows, lotCount, unplacedLots: unplaced };
   }),
   /** Every bus message, for admin screens to refetch on. Admin sees all CCs and days. */
-  onEvent: adminProcedure.subscription(async function* ({ signal }) {
-    for await (const msg of bus.listen(signal)) yield msg satisfies BusMessage;
+  onEvent: adminProcedure.subscription(async function* ({ ctx, signal }) {
+    const sessionId = ctx.session.id;
+    for await (const item of liveFor(signal, true, () => readAdmin(sessionId), () => true)) {
+      if (item.kind === "event") yield item.msg satisfies BusMessage;
+    }
   }),
 });

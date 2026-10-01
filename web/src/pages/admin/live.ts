@@ -65,5 +65,9 @@ export const useAdminLive = (): void => {
         }, COALESCE_MS[kind]),
       );
     },
+    // A signed-out admin session ends the stream; `me` then reads anon.
+    onError: () => {
+      void utils.shared.me.invalidate();
+    },
   });
 };

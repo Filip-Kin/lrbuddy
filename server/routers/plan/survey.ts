@@ -2,14 +2,48 @@ import { TRPCError } from "@trpc/server";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../db/index.ts";
-import { assignments, parcels, surveyTags, SURVEY_GRADES, SURVEY_SIDES } from "../../db/schema.ts";
+import { assignments, lots, parcels, surveyTags, SURVEY_GRADES, SURVEY_SIDES } from "../../db/schema.ts";
 import { normalizeBBox } from "../../geo.ts";
-import { cachedParcelsInBBox, loadParcelsBBox, newestTags, parcelsById, parcelsNear } from "../../parcels.ts";
+import { emitLot } from "../../lots-import.ts";
+import { BAND_LABELS, blockSides, cachedParcelsInBBox, loadParcelsBBox, newestTags, outlinePoints, parcelsById, parcelsNear, parcelsOnSides, SURVEY_RULES } from "../../parcels.ts";
 import { adminProcedure, router } from "../../trpc.ts";
 import { badRequest, bboxInput, dayOfEvent, eventInput, eventOrActive, id, notFound } from "./common.ts";
 
 /** Largest rectangle Load parcels takes, in degrees per side (about 5 km). */
 const MAX_LOAD_DEG = 0.06;
+
+/** Convex hull of [lng, lat] points (monotone chain), closed, for a block side outline. */
+export const hullRing = (pts: ReadonlyArray<readonly [number, number]>): Array<[number, number]> => {
+  const sorted = [...new Map(pts.map((p) => [`${p[0]},${p[1]}`, [p[0], p[1]] as [number, number]])).values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (sorted.length < 3) return sorted.length === 0 ? [] : [...sorted, sorted[0]!];
+  const cross = (o: [number, number], a: [number, number], b: [number, number]): number => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: Array<[number, number]> = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2]!, lower[lower.length - 1]!, p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper: Array<[number, number]> = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i]!;
+    while (upper.length >= 2 && cross(upper[upper.length - 2]!, upper[upper.length - 1]!, p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  const ring = [...lower.slice(0, -1), ...upper.slice(0, -1)];
+  return [...ring, ring[0]!];
+};
+
+/** Block side keys assigned to a day of the event. */
+const dayKeys = (eventId: number, dayId: number): Set<string> => {
+  dayOfEvent(dayId, eventId);
+  return new Set(
+    db
+      .select({ key: assignments.blockSideKey })
+      .from(assignments)
+      .where(and(eq(assignments.eventId, eventId), eq(assignments.dayId, dayId)))
+      .all()
+      .map((a) => a.key),
+  );
+};
 
 // #region parcels
 export const parcelsRouter = router({
@@ -179,5 +213,68 @@ export const surveyRouter = router({
         grade: tags.get(r.parcelId)?.grade ?? null,
       }));
     }),
+  /**
+   * Block sides the survey touched, with an outline (the hull of their parcels),
+   * counts and colour band, plus the survey rules and their labels. With
+   * `dayId`, only the sides assigned to that day.
+   */
+  sides: adminProcedure.input(z.object({ dayId: id.nullish(), ...eventInput }).optional()).query(({ input }) => {
+    const eventId = eventOrActive(input?.eventId);
+    const keys = input?.dayId != null ? dayKeys(eventId, input.dayId) : null;
+    const list = blockSides(eventId).filter((b) => !keys || keys.has(b.key));
+    const onSides = parcelsOnSides(list.map((b) => b.key));
+    const points = new Map<string, Array<[number, number]>>();
+    for (const p of parcelsById(onSides.map((r) => r.parcelId))) {
+      if (!p.blockSideKey) continue;
+      const acc = points.get(p.blockSideKey) ?? [];
+      for (const pt of outlinePoints(p.geometry)) acc.push([pt.lng, pt.lat]);
+      points.set(p.blockSideKey, acc);
+    }
+    return {
+      rules: { ...SURVEY_RULES, bands: BAND_LABELS },
+      sides: list.map((b) => ({
+        key: b.key,
+        label: b.label,
+        parcelCount: b.parcelCount,
+        high: b.high,
+        low: b.low,
+        clear: b.clear,
+        workCount: b.workCount,
+        band: b.band,
+        outline: hullRing(points.get(b.key) ?? []),
+      })),
+    };
+  }),
+  /** The event's lot on a parcel, if one exists, for its photos. */
+  lotOf: adminProcedure.input(z.object({ parcelId: z.string().min(1).max(40), ...eventInput })).query(({ input }) => {
+    const eventId = eventOrActive(input.eventId);
+    const lot = db.select({ id: lots.id }).from(lots).where(and(eq(lots.eventId, eventId), eq(lots.parcelId, input.parcelId))).get();
+    return { lotId: lot?.id ?? null };
+  }),
+  /**
+   * The event's lot on a parcel, made from the cached parcel (source survey,
+   * no CC, open) when there is none, so a survey photo has a lot to hang on.
+   * Publish later updates the same row (keyed on event and parcel).
+   */
+  lotForPhoto: adminProcedure.input(z.object({ parcelId: z.string().min(1).max(40), ...eventInput })).mutation(({ input }) => {
+    const eventId = eventOrActive(input.eventId);
+    const found = db.select({ id: lots.id }).from(lots).where(and(eq(lots.eventId, eventId), eq(lots.parcelId, input.parcelId))).get();
+    if (found) return { lotId: found.id };
+    const p = db.select().from(parcels).where(eq(parcels.parcelId, input.parcelId)).get();
+    if (!p) throw notFound("Parcel");
+    const lot = db
+      .insert(lots)
+      .values({ eventId, parcelId: p.parcelId, address: p.address, lat: p.lat, lng: p.lng, geometry: p.geometry, source: "survey", status: "open" })
+      .onConflictDoNothing()
+      .returning()
+      .get();
+    if (lot) {
+      emitLot(lot);
+      return { lotId: lot.id };
+    }
+    const again = db.select({ id: lots.id }).from(lots).where(and(eq(lots.eventId, eventId), eq(lots.parcelId, input.parcelId))).get();
+    if (!again) throw notFound("Lot");
+    return { lotId: again.id };
+  }),
 });
 // #endregion

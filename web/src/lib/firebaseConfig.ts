@@ -11,7 +11,14 @@ import type { FirebaseOptions } from "firebase/app";
  * the local emulator in docker-compose.yml is used.
  */
 const PROD_HOST = "lrbuddy.filipkin.com";
-const PROD_CONFIG: FirebaseOptions | null = null;
+const PROD_CONFIG: FirebaseOptions | null = {
+  apiKey: "AIzaSyBvjuv_mzHmZUhcj4Rf71-v77tcvKLr-PA",
+  authDomain: "lrbuddy-filipkin.firebaseapp.com",
+  projectId: "lrbuddy-filipkin",
+  appId: "1:749282608874:web:b5a44249c4d04543087993",
+  messagingSenderId: "749282608874",
+  storageBucket: "lrbuddy-filipkin.firebasestorage.app"
+};
 
 const DEMO_CONFIG: FirebaseOptions = { apiKey: "demo-key", authDomain: "demo-lrbuddy.firebaseapp.com", projectId: "demo-lrbuddy" };
 

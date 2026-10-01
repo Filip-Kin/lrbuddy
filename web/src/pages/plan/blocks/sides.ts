@@ -1,0 +1,214 @@
+import L from "leaflet";
+import { useEffect, useRef, useState } from "react";
+import type { RouterOutputs } from "../../../lib/trpc.ts";
+
+export type Side = RouterOutputs["plan"]["blocks"]["list"][number];
+export type SideShape = RouterOutputs["plan"]["blocks"]["shapes"][number];
+export type Band = Side["band"];
+
+// #region labels
+/** "E CANFIELD ST" to "E Canfield St". */
+export const titleCase = (s: string): string => s.toLowerCase().replace(/(^|[\s-])([a-z])/g, (_m, a: string, b: string) => a + b.toUpperCase());
+
+export const BAND_LABEL: Record<Band, string> = { none: "0", light: "1 to 4", mid: "5 to 9", dark: "10+" };
+
+export const parityLabel = (p: Side["parity"]): string => (p === "odd" ? "Odd" : "Even");
+
+/** "Ford 2, Day 1", or the company alone before crews exist. */
+export const assignedLabel = (a: Side["assignment"], withDay = true): string | null => {
+  if (!a) return null;
+  const who = a.crewName ?? a.companyName ?? `CC ${a.ccName}`;
+  return withDay ? `${who}, ${a.dayLabel}` : who;
+};
+// #endregion
+
+// #region styles
+/**
+ * Block side colours. A red ramp from --crew for the work bands, so no new
+ * accent colour enters the palette; the dark band mixes --crew with black.
+ * Injected once, like the oriented rectangle's styles.
+ */
+const CSS = `
+.lrb-side { stroke-width: 1.5px; stroke-linejoin: round; }
+.lrb-side-none { stroke: var(--muted); fill: var(--muted); fill-opacity: 0.16; stroke-opacity: 0.7; }
+.lrb-side-light { stroke: var(--crew); fill: var(--crew); fill-opacity: 0.22; }
+.lrb-side-mid { stroke: var(--crew); fill: var(--crew); fill-opacity: 0.55; }
+.lrb-side-dark { stroke: color-mix(in srgb, var(--crew) 55%, #000); fill: color-mix(in srgb, var(--crew) 55%, #000); fill-opacity: 0.85; }
+.lrb-side-here { stroke: var(--brand-green); fill: var(--brand-green); fill-opacity: 0.45; }
+.lrb-side-away { stroke: var(--muted); fill: var(--muted); fill-opacity: 0.08; stroke-dasharray: 3 3; }
+.lrb-side-focus { stroke: var(--ink); stroke-width: 3px; stroke-opacity: 1; }
+.lrb-side-sel { stroke: var(--ink); stroke-width: 3.5px; stroke-opacity: 1; fill: var(--brand); fill-opacity: 0.7; }
+.lrb-area { stroke: var(--muted); fill: none; stroke-width: 2px; stroke-dasharray: 8 5; }
+.lrb-area-label { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 9999px; padding: 1px 8px; font: 600 12px/18px ui-sans-serif, system-ui, sans-serif; white-space: nowrap; box-shadow: 0 1px 2px rgb(0 0 0 / 0.2); transform: translate(-50%, -50%); width: max-content; }
+`;
+const injectCss = (): void => {
+  if (typeof document === "undefined" || document.getElementById("lrb-sides-css")) return;
+  const el = document.createElement("style");
+  el.id = "lrb-sides-css";
+  el.textContent = CSS;
+  document.head.appendChild(el);
+};
+
+/** Swatch classes for legends, matching the map. */
+export const SWATCH: Record<Band | "here" | "away" | "sel", string> = {
+  none: "bg-muted/25 ring-1 ring-inset ring-muted",
+  light: "bg-crew/25 ring-1 ring-inset ring-crew",
+  mid: "bg-crew/60 ring-1 ring-inset ring-crew",
+  dark: "bg-[color-mix(in_srgb,var(--crew)_55%,#000)]",
+  here: "bg-brand-green/50 ring-1 ring-inset ring-brand-green",
+  away: "bg-muted/10 ring-1 ring-inset ring-muted",
+  sel: "bg-brand ring-2 ring-inset ring-ink",
+};
+// #endregion
+
+// #region layers
+export interface DrawnSide {
+  key: string;
+  ring: SideShape["ring"];
+  /** Extra classes after `lrb-side`: a band, `here`, `away`, plus `focus` or `sel`. */
+  classes: string;
+}
+
+export interface SideClick {
+  key: string;
+  /** Shift, Ctrl or Cmd held: add or remove instead of replacing. */
+  toggle: boolean;
+}
+
+/**
+ * Block side outlines on a Leaflet map, redrawn when `sides` changes.
+ * `onClick` is skipped (and the click passes to the map) while `passive`,
+ * so a drawing tool can take the clicks.
+ */
+export const useSidesLayer = (map: L.Map | null, sides: readonly DrawnSide[], onClick: (c: SideClick) => void, passive = false): void => {
+  const group = useRef<L.LayerGroup | null>(null);
+  const click = useRef(onClick);
+  click.current = onClick;
+  const quiet = useRef(passive);
+  quiet.current = passive;
+
+  useEffect(() => {
+    if (!map) return;
+    injectCss();
+    const g = L.layerGroup().addTo(map);
+    group.current = g;
+    return () => {
+      g.remove();
+      group.current = null;
+    };
+  }, [map]);
+
+  useEffect(() => {
+    const g = group.current;
+    if (!g) return;
+    g.clearLayers();
+    for (const s of sides) {
+      const poly = L.polygon(
+        s.ring.slice(0, -1).map(([lng, lat]) => [lat, lng] as [number, number]),
+        { className: `lrb-side ${s.classes}`, weight: 1.5, fillOpacity: 0.3 },
+      );
+      poly.on("click", (e: L.LeafletMouseEvent) => {
+        if (quiet.current) return;
+        L.DomEvent.stopPropagation(e);
+        const ev = e.originalEvent;
+        click.current({ key: s.key, toggle: ev.shiftKey || ev.ctrlKey || ev.metaKey });
+      });
+      g.addLayer(poly);
+    }
+  }, [map, sides]);
+};
+
+export interface DrawnArea {
+  id: number;
+  label: string;
+  ring: ReadonlyArray<ReadonlyArray<number>>;
+}
+
+/** Crew areas as thin dashed outlines with the crew's name in the middle. Not clickable. */
+export const useAreasLayer = (map: L.Map | null, areas: readonly DrawnArea[]): void => {
+  const group = useRef<L.LayerGroup | null>(null);
+  useEffect(() => {
+    if (!map) return;
+    injectCss();
+    const g = L.layerGroup().addTo(map);
+    group.current = g;
+    return () => {
+      g.remove();
+      group.current = null;
+    };
+  }, [map]);
+  useEffect(() => {
+    const g = group.current;
+    if (!g) return;
+    g.clearLayers();
+    for (const a of areas) {
+      const pts: Array<[number, number]> = [];
+      for (const p of a.ring) if (p[0] !== undefined && p[1] !== undefined) pts.push([p[1], p[0]]);
+      if (pts.length < 3) continue;
+      const poly = L.polygon(pts, { className: "lrb-area", interactive: false, fill: false });
+      g.addLayer(poly);
+      const c = poly.getBounds().getCenter();
+      const label = document.createElement("span");
+      label.className = "lrb-area-label";
+      label.textContent = a.label;
+      g.addLayer(L.marker(c, { icon: L.divIcon({ className: "lrb-area-tag", html: label, iconSize: [0, 0] }), interactive: false, keyboard: false }));
+    }
+  }, [map, areas]);
+};
+
+/** Fits the map to the points once per key (and again when the key changes). */
+export const useFitOnce = (map: L.Map | null, key: string | null, points: ReadonlyArray<[number, number]>): void => {
+  const done = useRef<string | null>(null);
+  useEffect(() => {
+    if (!map || key === null || done.current === key || points.length === 0) return;
+    done.current = key;
+    if (points.length === 1) map.setView(points[0]!, 16);
+    else map.fitBounds(L.latLngBounds([...points]), { padding: [30, 30], maxZoom: 17 });
+  }, [map, key, points]);
+};
+// #endregion
+
+// #region capacity
+export interface Capacity {
+  /** Low work parcels one crew takes. */
+  parcels: number;
+  /** High work parcels one crew takes. */
+  high: number;
+}
+
+const CAP_KEY = "lrb.plan.capacity";
+export const DEFAULT_CAPACITY: Capacity = { parcels: 10, high: 5 };
+
+const readCapacity = (): Capacity => {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(CAP_KEY) ?? "null");
+    if (typeof raw === "object" && raw !== null && "parcels" in raw && "high" in raw) {
+      const { parcels, high } = raw as { parcels: unknown; high: unknown };
+      if (typeof parcels === "number" && typeof high === "number" && parcels >= 1 && high >= 1) return { parcels, high };
+    }
+  } catch {
+    // A broken stored value falls back to the defaults.
+  }
+  return DEFAULT_CAPACITY;
+};
+
+/** Per-crew capacity, shared by Blocks and Assignments and kept in this browser. */
+export const useCapacity = (): [Capacity, (c: Capacity) => void] => {
+  const [cap, setCap] = useState<Capacity>(readCapacity);
+  const set = (c: Capacity): void => {
+    setCap(c);
+    try {
+      localStorage.setItem(CAP_KEY, JSON.stringify(c));
+    } catch {
+      // Private mode without storage still works for this visit.
+    }
+  };
+  return [cap, set];
+};
+
+/** Crews a load of work needs at this capacity, as a fraction (2.4 crews). */
+export const crewLoad = (high: number, low: number, cap: Capacity): number => low / Math.max(1, cap.parcels) + high / Math.max(1, cap.high);
+
+/** "2.4" or "3". */
+export const loadText = (n: number): string => (Number.isInteger(Math.round(n * 10) / 10) ? String(Math.round(n)) : (Math.round(n * 10) / 10).toFixed(1));
+// #endregion

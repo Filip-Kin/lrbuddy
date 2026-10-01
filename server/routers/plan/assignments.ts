@@ -104,6 +104,8 @@ const companiesOfDay = (eventId: number, dayId: number, ccId: number | null) => 
         name: c.name,
         attending: att !== null || mine.length > 0,
         ccId: att?.ccId ?? mine[0]?.ccId ?? null,
+        /** The CC on the company's day row itself; editing the headcount keeps it. */
+        attendCcId: att?.ccId ?? null,
         headcount,
         /** Crews the headcount makes, one per 10. */
         crewCapacity: Math.ceil(headcount / CREW_SIZE),

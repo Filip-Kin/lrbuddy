@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { errorText, useGreenInvalidate, type GreenLot } from "../../components/green/hooks.ts";
@@ -7,11 +7,11 @@ import { MissingAfterToggle, PairPill } from "../../components/photos/PairPill.t
 import { Segmented } from "../../components/Segmented.tsx";
 import { Skeleton } from "../../components/Skeleton.tsx";
 import { lotPill, StatusPill } from "../../components/StatusPill.tsx";
-import { MapView, type MapLine, type MapMarker } from "../../lib/map/MapView.tsx";
+import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
+import { insideRect, STEP_LABEL, useLeafletMap, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
 import { trpc } from "../../lib/trpc.ts";
 
 type StatusFilter = "all" | GreenLot["status"];
-type Corner = { lat: number; lng: number };
 const NO_CREW = "none";
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
@@ -20,14 +20,6 @@ const STATUS_OPTIONS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
   { value: "in_progress", label: "In progress" },
   { value: "done", label: "Done" },
   { value: "skipped", label: "Skipped" },
-];
-
-const rectLine = (a: Corner, b: Corner): Array<[number, number]> => [
-  [a.lat, a.lng],
-  [a.lat, b.lng],
-  [b.lat, b.lng],
-  [b.lat, a.lng],
-  [a.lat, a.lng],
 ];
 
 export const LotsPage = () => {
@@ -40,8 +32,11 @@ export const LotsPage = () => {
   const [missingAfter, setMissingAfter] = useState(false);
   const [target, setTarget] = useState<string>("");
   const [drawing, setDrawing] = useState(false);
-  const [corner, setCorner] = useState<Corner | null>(null);
-  const [rect, setRect] = useState<[Corner, Corner] | null>(null);
+  const [rect, setRect] = useState<OrientedRect | null>(null);
+  // Lots the rectangle added, so moving its handles swaps them for the new set.
+  const fromRect = useRef<Set<number>>(new Set());
+  const holder = useRef<HTMLDivElement>(null);
+  const map = useLeafletMap(holder);
   const [err, setErr] = useState<string | null>(null);
   const [flash, showFlash] = useFlash();
 
@@ -69,21 +64,15 @@ export const LotsPage = () => {
       return next;
     });
 
-  const onMapClick = (lat: number, lng: number): void => {
-    if (!drawing) return;
-    if (!corner) {
-      setCorner({ lat, lng });
-      return;
-    }
-    const b: Corner = { lat, lng };
-    const [s, n] = [Math.min(corner.lat, b.lat), Math.max(corner.lat, b.lat)];
-    const [w, e] = [Math.min(corner.lng, b.lng), Math.max(corner.lng, b.lng)];
-    const inside = lots.filter((l) => l.lat >= s && l.lat <= n && l.lng >= w && l.lng <= e).map((l) => l.id);
-    setSelected((prev) => new Set([...prev, ...inside]));
-    setRect([corner, b]);
-    setCorner(null);
+  const onRect = (r: OrientedRect): void => {
+    const inside = new Set(insideRect(lots, r).map((l) => l.id));
+    const old = fromRect.current;
+    fromRect.current = inside;
+    setSelected((prev) => new Set([...[...prev].filter((id) => !old.has(id)), ...inside]));
+    setRect(r);
     setDrawing(false);
   };
+  const tool = useOrientedRect(map, { drawing, value: rect, editable: true, onChange: onRect, onCancel: () => setDrawing(false) });
 
   const markers = useMemo<MapMarker[]>(() => {
     const out: MapMarker[] = lots.map((l) => ({
@@ -98,15 +87,13 @@ export const LotsPage = () => {
       title: l.address ?? undefined,
       onClick: drawing ? undefined : () => toggle(l.id),
     }));
-    if (corner) out.push({ id: "corner", kind: "stop", n: 1, lat: corner.lat, lng: corner.lng, noFit: true, active: true });
     return out;
-  }, [lots, selected, corner, drawing]);
-
-  const lines = useMemo<MapLine[]>(() => (rect ? [{ id: "rect", points: rectLine(rect[0], rect[1]), style: "select" }] : []), [rect]);
+  }, [lots, selected, drawing]);
 
   const clear = (): void => {
     setSelected(new Set());
     setRect(null);
+    fromRect.current = new Set();
     setErr(null);
   };
 
@@ -164,18 +151,15 @@ export const LotsPage = () => {
       <h1 className="mb-4 text-2xl font-bold tracking-tight">Lots</h1>
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-6">
         <div className="lg:sticky lg:top-4 lg:self-start">
-          <div className={`relative h-[45dvh] overflow-hidden rounded-2xl ring-1 ring-line lg:h-[calc(100dvh-10rem)] ${drawing ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
-            <MapView markers={markers} lines={lines} onMapClick={onMapClick} label="Lots map" className="absolute inset-0" />
+          <div ref={holder} className={`relative h-[45dvh] overflow-hidden rounded-2xl ring-1 ring-line lg:h-[calc(100dvh-10rem)] ${drawing ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
+            <MapView markers={markers} label="Lots map" className="absolute inset-0" />
             <div className="pointer-events-none absolute top-3 right-3 z-[1000] flex flex-col items-end gap-2">
               {drawing ? (
                 <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-ink py-1 pr-1 pl-4 text-surface shadow-lg">
-                  <span className="font-semibold">{corner ? "Corner 2" : "Corner 1"}</span>
+                  <span className="font-semibold">{STEP_LABEL[tool.step ?? "first"]}</span>
                   <button
                     type="button"
-                    onClick={() => {
-                      setDrawing(false);
-                      setCorner(null);
-                    }}
+                    onClick={() => setDrawing(false)}
                     className="min-h-10 rounded-full bg-surface px-4 text-sm font-semibold text-ink"
                   >
                     Cancel

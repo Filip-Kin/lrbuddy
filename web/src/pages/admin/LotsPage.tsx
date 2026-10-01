@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field, Select, TextArea } from "../../components/Field.tsx";
@@ -13,9 +13,9 @@ import { MapMode } from "../../components/admin/MapMode.tsx";
 import { errorText, Notice, type NoticeValue } from "../../components/admin/Notice.tsx";
 import { Panel, Stat } from "../../components/Panel.tsx";
 import { SkeletonList } from "../../components/Skeleton.tsx";
-import { bboxText, inBBox, useRectDraw, type BBox } from "../../components/admin/rect.ts";
 import { Segmented } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
+import { insideRect, rectBBox, rectSize, STEP_LABEL, useLeafletMap, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
 type Lot = RouterOutputs["admin"]["lots"]["list"][number];
@@ -57,7 +57,7 @@ const CcOptions = ({ ccs }: { ccs: readonly Cc[] }) => (
 // #region rectangle sheet
 const RectSheet = ({
   action,
-  bbox,
+  rect,
   lots,
   ccs,
   onClose,
@@ -65,7 +65,8 @@ const RectSheet = ({
   notify,
 }: {
   action: RectAction | null;
-  bbox: BBox | null;
+  /** Imports send the rectangle's bounding box (the layers take an envelope); assign and remove use the rectangle itself. */
+  rect: OrientedRect | null;
   lots: readonly Lot[];
   ccs: readonly Cc[];
   onClose: () => void;
@@ -73,9 +74,10 @@ const RectSheet = ({
   notify: (n: NoticeValue) => void;
 }) => {
   const utils = trpc.useUtils();
-  const open = action !== null && bbox !== null;
+  const open = action !== null && rect !== null;
+  const bbox = useMemo(() => (rect ? rectBBox(rect) : null), [rect]);
   const tooBig = bbox !== null && (bbox[2] - bbox[0] > MAX_SPAN_DEG || bbox[3] - bbox[1] > MAX_SPAN_DEG);
-  const inside = useMemo(() => (bbox ? lots.filter((l) => inBBox(l, bbox)) : []), [lots, bbox]);
+  const inside = useMemo(() => (rect ? insideRect(lots, rect) : []), [lots, rect]);
   const [ccId, setCcId] = useState<number | "none">("none");
   useEffect(() => {
     if (open) setCcId(action === "assign" ? (ccs[0]?.id ?? "none") : "none");
@@ -116,19 +118,31 @@ const RectSheet = ({
     onSuccess: (r) => finish(`${plural(r.added, "lot")} added, ${r.updated.toLocaleString("en-US")} updated${assignedText(r.assigned)}`),
     onError: fail,
   });
-  const assign = trpc.admin.lots.assignCc.useMutation({
-    onSuccess: (r) => {
-      const cc = ccs.find((c) => c.id === ccId);
-      finish(cc ? `${plural(r.updated, "lot")} to CC ${cc.name}` : `${plural(r.updated, "lot")} without CC`);
-    },
-    onError: fail,
-  });
-  const remove = trpc.admin.lots.deleteInBBox.useMutation({
+  // One update per lot inside the rectangle; tRPC batches them into one request.
+  const update = trpc.admin.lots.update.useMutation();
+  const [assigning, setAssigning] = useState(false);
+  const target = ccId === "none" ? null : ccId;
+  const moving = inside.filter((l) => l.ccId !== target);
+  const assignInside = async (): Promise<void> => {
+    const todo = moving;
+    setAssigning(true);
+    try {
+      await Promise.all(todo.map((l) => update.mutateAsync({ id: l.id, ccId: target })));
+      const cc = ccs.find((c) => c.id === target);
+      finish(cc ? `${plural(todo.length, "lot")} to CC ${cc.name}` : `${plural(todo.length, "lot")} without CC`);
+    } catch (e) {
+      refresh();
+      fail(e);
+    } finally {
+      setAssigning(false);
+    }
+  };
+  const remove = trpc.admin.lots.delete.useMutation({
     onSuccess: (r) => finish(`${plural(r.deleted, "lot")} removed`),
     onError: fail,
   });
 
-  if (!open || !action || !bbox) return null;
+  if (!open || !action || !rect || !bbox) return null;
 
   let body: ReactNode = null;
   let footer: ReactNode = null;
@@ -179,14 +193,14 @@ const RectSheet = ({
       </div>
     );
     footer = (
-      <Button block size="lg" busy={assign.isPending} disabled={inside.length === 0} onClick={() => assign.mutate({ bbox, ccId: ccId === "none" ? null : ccId })}>
-        {inside.length ? `Assign ${plural(inside.length, "lot")}` : "No lots here"}
+      <Button block size="lg" busy={assigning} disabled={moving.length === 0} onClick={() => void assignInside()}>
+        {moving.length ? `Assign ${plural(moving.length, "lot")}` : inside.length ? (target === null ? "Already without CC" : "Already at this CC") : "No lots here"}
       </Button>
     );
   } else {
     body = <Stat value={plural(inside.length, "lot")} label="In this area" tone="warn" />;
     footer = (
-      <Button block size="lg" variant="danger" busy={remove.isPending} disabled={inside.length === 0} onClick={() => remove.mutate({ bbox })}>
+      <Button block size="lg" variant="danger" busy={remove.isPending} disabled={inside.length === 0} onClick={() => remove.mutate({ ids: inside.map((l) => l.id) })}>
         {inside.length ? `Remove ${plural(inside.length, "lot")}` : "No lots here"}
       </Button>
     );
@@ -195,7 +209,7 @@ const RectSheet = ({
   return (
     <Sheet open onClose={onClose} title={RECT_LABEL[action]} footer={footer}>
       <div className="space-y-3 pb-2">
-        <p className="text-sm text-muted">Area {bboxText(bbox)}</p>
+        <p className="text-sm text-muted">Area {rectSize(rect)}</p>
         {body}
       </div>
     </Sheet>
@@ -389,13 +403,21 @@ export const LotsPage = () => {
   const ccsQ = trpc.admin.ccs.list.useQuery(undefined, { retry: false });
   const utils = trpc.useUtils();
   const [mode, setMode] = useState<Mode>({ kind: "idle" });
-  const [sheetBBox, setSheetBBox] = useState<BBox | null>(null);
+  const [sheetRect, setSheetRect] = useState<OrientedRect | null>(null);
   const [lotId, setLotId] = useState<number | null>(null);
   const [csvOpen, setCsvOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const [notice, setNotice] = useState<NoticeValue>(null);
   const clear = useCallback(() => setNotice(null), []);
-  const rect = useRectDraw();
+  const holder = useRef<HTMLDivElement>(null);
+  const map = useLeafletMap(holder);
+  const drawingRect = mode.kind === "rect" && sheetRect === null;
+  const rectTool = useOrientedRect(map, {
+    drawing: drawingRect,
+    value: mode.kind === "rect" ? sheetRect : null,
+    onChange: setSheetRect,
+    onCancel: () => setMode({ kind: "idle" }),
+  });
   const lots = lotsQ.data ?? [];
   const ccs = ccsQ.data ?? [];
   const noEvent = lotsQ.error?.data?.code === "PRECONDITION_FAILED";
@@ -411,19 +433,15 @@ export const LotsPage = () => {
 
   const stopMode = (): void => {
     setMode({ kind: "idle" });
-    rect.reset();
+    setSheetRect(null);
   };
   const startRect = (action: RectAction): void => {
-    rect.reset();
+    setSheetRect(null);
     setMode({ kind: "rect", action });
   };
 
   const onMapClick = (lat: number, lng: number): void => {
     if (mode.kind === "add") add.mutate({ lat, lng });
-    else if (mode.kind === "rect") {
-      const bbox = rect.tap(lat, lng);
-      if (bbox) setSheetBBox(bbox);
-    }
   };
 
   // CC flags: one per place, not one per day.
@@ -456,7 +474,7 @@ export const LotsPage = () => {
       })),
     [shown, idle],
   );
-  const markers = useMemo(() => [...lotMarkers, ...ccMarkers, ...rect.markers], [lotMarkers, ccMarkers, rect.markers]);
+  const markers = useMemo(() => [...lotMarkers, ...ccMarkers], [lotMarkers, ccMarkers]);
 
   const byStatus = new Map((counts.data?.byStatus ?? []).map((r) => [r.status, r.n]));
   const bySource = counts.data?.bySource ?? [];
@@ -512,15 +530,15 @@ export const LotsPage = () => {
         {tools}
         <Notice value={notice} onClear={clear} />
         <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <div className="relative h-[62dvh] min-h-80 overflow-hidden rounded-2xl ring-1 ring-line lg:h-[calc(100dvh-13rem)]">
+          <div ref={holder} className="relative h-[62dvh] min-h-80 overflow-hidden rounded-2xl ring-1 ring-line lg:h-[calc(100dvh-13rem)]">
             {lotsQ.isLoading ? (
               <div className="h-full w-full animate-pulse bg-surface-2" aria-busy="true" aria-label="Loading" />
             ) : (
-              <MapView markers={markers} lines={rect.lines} onMapClick={idle ? undefined : onMapClick} fitKey="lots" label="Lots map" className="absolute inset-0" />
+              <MapView markers={markers} onMapClick={mode.kind === "add" ? onMapClick : undefined} fitKey="lots" label="Lots map" className="absolute inset-0" />
             )}
             {mode.kind === "add" && <MapMode label="Add lot" detail={add.isPending ? "Adding…" : undefined} onCancel={stopMode} cancelLabel="Done" />}
             {mode.kind === "rect" && (
-              <MapMode label={RECT_LABEL[mode.action]} detail={rect.step === 1 ? "Corner 1 of 2" : "Corner 2 of 2"} onCancel={stopMode} />
+              <MapMode label={RECT_LABEL[mode.action]} detail={rectTool.step ? STEP_LABEL[rectTool.step] : undefined} onCancel={stopMode} />
             )}
             {!lotsQ.isLoading && lots.length === 0 && idle && (
               <div className="pointer-events-none absolute inset-x-4 bottom-10 z-[1000] flex justify-center">
@@ -589,17 +607,11 @@ export const LotsPage = () => {
       </div>
       <RectSheet
         action={mode.kind === "rect" ? mode.action : null}
-        bbox={sheetBBox}
+        rect={sheetRect}
         lots={lots}
         ccs={ccs}
-        onClose={() => {
-          setSheetBBox(null);
-          stopMode();
-        }}
-        onRedraw={() => {
-          setSheetBBox(null);
-          rect.reset();
-        }}
+        onClose={stopMode}
+        onRedraw={() => setSheetRect(null)}
         notify={setNotice}
       />
       <LotSheet lot={selected} ccs={ccs} onClose={() => setLotId(null)} notify={setNotice} />

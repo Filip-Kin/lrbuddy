@@ -167,6 +167,7 @@ export const companies = sqliteTable(
  * A printed work area (SPEC 19): one rectangle shared by one or more crews of a
  * day. `polygon` is null until Publish or a drag sets it; `label` overrides the
  * crews' names joined ("GM 9, GM 10 & GM 11") and is normally null.
+ * `doNotTouch` is the sharpie X (SPEC 19 Marks): maps and sheets draw the area hatched.
  */
 export const crewAreas = sqliteTable(
   "crew_areas",
@@ -180,6 +181,7 @@ export const crewAreas = sqliteTable(
       .references(() => days.id, { onDelete: "cascade" }),
     polygon: text("polygon", { mode: "json" }).$type<AreaPolygon>(),
     label: text("label"),
+    doNotTouch: integer("do_not_touch", { mode: "boolean" }),
   },
   (t) => [index("crew_areas_day_idx").on(t.dayId)],
 );

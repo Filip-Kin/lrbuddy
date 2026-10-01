@@ -87,7 +87,7 @@ export const printRouter = router({
     // One entry per area, shared or not, labelled the way the sheets print it.
     const areas = dayAreas(day.id, names)
       .filter((a): a is typeof a & { polygon: AreaPolygon } => a.polygon !== null && a.ccId !== null)
-      .map((a) => ({ areaId: a.id, ccId: a.ccId ?? 0, companyId: a.companyId, crewIds: a.crewIds, name: a.label, area: a.polygon }));
+      .map((a) => ({ areaId: a.id, ccId: a.ccId ?? 0, companyId: a.companyId, crewIds: a.crewIds, name: a.label, area: a.polygon, doNotTouch: a.doNotTouch }));
     const areaOfCrew = new Map(areas.flatMap((a) => a.crewIds.map((c) => [c, a] as const)));
     const loginUrl = `${config.publicUrl}/login`;
     const loginQrSvg = await QRCode.toString(loginUrl, { type: "svg", margin: 1 });
@@ -172,6 +172,8 @@ export const printRouter = router({
           area: areaOfCrew.get(crew.id)?.area ?? null,
           /** The name on the crew's rectangle; a shared area names every crew in it. */
           areaName: areaOfCrew.get(crew.id)?.name ?? null,
+          /** Marked Do not touch in the field: the sheets draw it hatched. */
+          areaDoNotTouch: areaOfCrew.get(crew.id)?.doNotTouch ?? false,
           lots: mine.map((l) => lotView(l, gradeOf(l))),
           otherAreas: areas.filter((a) => a.ccId === crew.ccId && a.areaId !== areaOfCrew.get(crew.id)?.areaId),
           greenShirts: shirts.filter((g) => g.ccId === crew.ccId).map((g) => ({ name: g.name, phone: g.phone, roleLabel: g.roleLabel })),

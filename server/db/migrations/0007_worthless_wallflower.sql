@@ -1,0 +1,1 @@
+ALTER TABLE `crew_areas` ADD `do_not_touch` integer;

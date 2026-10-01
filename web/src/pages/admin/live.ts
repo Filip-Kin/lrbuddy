@@ -34,6 +34,10 @@ const invalidate = (utils: Utils, kind: Kind): void => {
       void utils.admin.photos.invalidate();
       void utils.admin.export.counts.invalidate();
       void utils.shared.lotPhotos.invalidate();
+      // Plan Assignments shows the day as the greens mark it (SPEC 19 Marks).
+      void utils.plan.assignments.invalidate();
+      void utils.plan.crews.invalidate();
+      void utils.plan.blocks.list.invalidate();
       break;
     case "stock":
       void utils.admin.days.get.invalidate();

@@ -1,7 +1,10 @@
-import { useMemo, useState } from "react";
+import type { Map as LeafletMap } from "leaflet";
+import { useCallback, useMemo, useState } from "react";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { AddStopSheet } from "../../components/green/AddStopSheet.tsx";
+import { AreaSheet, SideSheet } from "../../components/green/DayOfSheets.tsx";
+import { useDayOfLayer } from "../../components/green/dayOfLayer.ts";
 import { isUrgent, useNow, type GreenRequest } from "../../components/green/hooks.ts";
 import { CrewSheet, LotSheet, StopSheet, TruckSheet } from "../../components/green/MapSheets.tsx";
 import { FilterSelect, PinIcon, useFlash } from "../../components/green/ui.tsx";
@@ -9,7 +12,7 @@ import { ToggleChip } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { trpc } from "../../lib/trpc.ts";
 
-type Selected = { kind: "crew" | "truck" | "lot" | "stop"; id: number } | null;
+type Selected = { kind: "crew" | "truck" | "lot" | "stop" | "area"; id: number } | { kind: "side"; key: string } | null;
 
 export const MapPage = () => {
   const now = useNow();
@@ -19,6 +22,9 @@ export const MapPage = () => {
   const [showRequests, setShowRequests] = useState(true);
   const [showLots, setShowLots] = useState(true);
   const [showTrucks, setShowTrucks] = useState(true);
+  const [showAreas, setShowAreas] = useState(true);
+  const [map, setMap] = useState<LeafletMap | null>(null);
+  const plan = trpc.green.plan.useQuery(undefined, { refetchInterval: 60_000 });
   const [selected, setSelected] = useState<Selected>(null);
   const [placing, setPlacing] = useState(false);
   const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null);
@@ -81,7 +87,13 @@ export const MapPage = () => {
     return out;
   }, [d, openRequests, visibleCrewIds, showLots, showRequests, showTrucks, pin, now]);
 
+  const onArea = useCallback((id: number) => setSelected({ kind: "area", id }), []);
+  const onSide = useCallback((key: string) => setSelected({ kind: "side", key }), []);
+  useDayOfLayer(map, plan.data, showAreas && !placing, onArea, onSide);
+
   const companyCrews = company === null ? crews : crews.filter((c) => c.companyId === company);
+  const selArea = selected?.kind === "area" ? (plan.data?.areas.find((a) => a.id === selected.id) ?? null) : null;
+  const selSide = selected?.kind === "side" ? (plan.data?.sides.find((x) => x.key === selected.key) ?? null) : null;
   const selCrew = selected?.kind === "crew" ? (crews.find((c) => c.id === selected.id) ?? null) : null;
   const selTruck = selected?.kind === "truck" ? (trucks.find((t) => t.id === selected.id) ?? null) : null;
   const selLot = selected?.kind === "lot" ? (d?.lots.find((l) => l.id === selected.id) ?? null) : null;
@@ -137,6 +149,11 @@ export const MapPage = () => {
           <ToggleChip on={showTrucks} onChange={setShowTrucks}>
             Trucks
           </ToggleChip>
+          {(plan.data?.areas.length ?? 0) + (plan.data?.sides.length ?? 0) > 0 && (
+            <ToggleChip on={showAreas} onChange={setShowAreas}>
+              Areas
+            </ToggleChip>
+          )}
         </div>
       </div>
       <div className={`relative min-h-0 flex-1 ${placing ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
@@ -145,6 +162,7 @@ export const MapPage = () => {
           fitKey={`${company ?? "all"}-${crewFilter ?? "all"}`}
           label="Command center map"
           className="absolute inset-0"
+          onReady={setMap}
           onMapClick={
             placing
               ? (lat, lng) => {
@@ -187,6 +205,13 @@ export const MapPage = () => {
       />
       <TruckSheet truck={selTruck} now={now} onClose={close} />
       <LotSheet lot={selLot} crews={crews} onClose={close} />
+      <AreaSheet area={selArea} companies={plan.data?.companies ?? []} onClose={close} onDone={showFlash} />
+      <SideSheet
+        side={selSide}
+        areaLabel={selSide?.areaId != null ? (plan.data?.areas.find((a) => a.id === selSide.areaId)?.label ?? null) : null}
+        onClose={close}
+        onDone={showFlash}
+      />
       <StopSheet request={selStop} trucks={trucks} now={now} onClose={close} onDone={showFlash} />
     </div>
   );

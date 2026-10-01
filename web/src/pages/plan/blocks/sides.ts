@@ -1,5 +1,6 @@
 import L from "leaflet";
 import { useEffect, useRef, useState } from "react";
+import { hatchLines } from "../../../lib/map/hatch.ts";
 import type { RouterOutputs } from "../../../lib/trpc.ts";
 
 export type Side = RouterOutputs["plan"]["blocks"]["list"][number];
@@ -24,7 +25,7 @@ export const assignedLabel = (a: Side["assignment"], withDay = true): string | n
 
 // #region styles
 /** Swatch classes for legends, matching the map. */
-export const SWATCH: Record<Band | "here" | "away" | "sel", string> = {
+export const SWATCH: Record<Band | "here" | "away" | "sel" | "done" | "dnt", string> = {
   none: "bg-muted/25 ring-1 ring-inset ring-muted",
   light: "bg-crew/25 ring-1 ring-inset ring-crew",
   mid: "bg-crew/60 ring-1 ring-inset ring-crew",
@@ -32,6 +33,8 @@ export const SWATCH: Record<Band | "here" | "away" | "sel", string> = {
   here: "bg-brand-green/50 ring-1 ring-inset ring-brand-green",
   away: "bg-muted/10 ring-1 ring-inset ring-muted",
   sel: "bg-brand ring-2 ring-inset ring-ink",
+  done: "bg-brand-green/75 ring-1 ring-inset ring-brand-green",
+  dnt: "bg-warn/45 ring-1 ring-inset ring-warn",
 };
 // #endregion
 
@@ -95,6 +98,8 @@ export interface DrawnArea {
   id: number;
   label: string;
   ring: ReadonlyArray<ReadonlyArray<number>>;
+  /** Marked Do not touch in the field: drawn hatched. */
+  doNotTouch?: boolean;
 }
 
 /** Crew areas as thin dashed outlines with the crew's name in the middle. Not clickable. */
@@ -117,8 +122,9 @@ export const useAreasLayer = (map: L.Map | null, areas: readonly DrawnArea[]): v
       const pts: Array<[number, number]> = [];
       for (const p of a.ring) if (p[0] !== undefined && p[1] !== undefined) pts.push([p[1], p[0]]);
       if (pts.length < 3) continue;
-      const poly = L.polygon(pts, { className: "lrb-area", interactive: false, fill: false });
+      const poly = L.polygon(pts, { className: `lrb-area${a.doNotTouch ? " lrb-area-dnt" : ""}`, interactive: false, fill: false });
       g.addLayer(poly);
+      if (a.doNotTouch) for (const seg of hatchLines(a.ring)) g.addLayer(L.polyline(seg, { className: "lrb-area-hatch", interactive: false }));
       const c = poly.getBounds().getCenter();
       const label = document.createElement("span");
       label.className = "lrb-area-label";

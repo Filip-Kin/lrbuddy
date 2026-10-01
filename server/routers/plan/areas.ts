@@ -22,6 +22,8 @@ export interface AreaView {
   /** CC and company of the first member; a shared area is one company at one CC. */
   ccId: number | null;
   companyId: number | null;
+  /** The sharpie X: drawn hatched on maps and sheets (SPEC 19 Marks). */
+  doNotTouch: boolean;
 }
 
 /** Every area of a day that has at least one crew, with its label. */
@@ -44,6 +46,7 @@ export const dayAreas = (dayId: number, names: Map<number, string> = teamNames(d
       crewIds: mine.map((m) => m.id),
       ccId: mine[0]?.ccId ?? null,
       companyId: mine[0]?.companyId ?? null,
+      doNotTouch: a.doNotTouch === true,
     };
   });
 };

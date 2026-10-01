@@ -80,6 +80,7 @@ const invalidate = (utils: Utils, kind: Kind): void => {
       void utils.crew.map.invalidate();
       void utils.green.lots.invalidate();
       void utils.green.overview.invalidate();
+      void utils.green.plan.invalidate();
       void utils.green.stats.invalidate();
       void utils.green.photos.invalidate();
       void utils.shared.lotPhotos.invalidate();

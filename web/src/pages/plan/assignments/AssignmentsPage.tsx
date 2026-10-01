@@ -21,6 +21,7 @@ import {
   type OrientedRect,
 } from "../../../lib/map/orientedRect.ts";
 import { trpc, type RouterOutputs } from "../../../lib/trpc.ts";
+import { useAdminLive } from "../../admin/live.ts";
 import { noEvent } from "../common.ts";
 import { CapacityBar, InlineNumber, InlineSelect, Legend } from "../blocks/parts.tsx";
 import {
@@ -216,6 +217,9 @@ export const AssignmentsPage = () => {
 
   const companiesQ = trpc.plan.assignments.companies.useQuery({ dayId: dayId ?? 0, ccId }, { enabled: dayId !== null && ccId !== null, retry: false });
   const crewsQ = trpc.plan.crews.list.useQuery({ dayId: dayId ?? 0 }, { enabled: dayId !== null, retry: false });
+  // Done and Do not touch from the green map, live (SPEC 19 Marks).
+  useAdminLive();
+  const dayOfQ = trpc.plan.assignments.dayOf.useQuery({ dayId: dayId ?? 0, ccId: ccId ?? 0 }, { enabled: dayId !== null && ccId !== null, retry: false });
   const companies = companiesQ.data ?? [];
   const crews: CrewRow[] = crewsQ.data ?? [];
   const sides = sidesQ.data ?? [];
@@ -253,6 +257,7 @@ export const AssignmentsPage = () => {
   // #region mutations
   const refresh = (): void => {
     void utils.plan.blocks.invalidate();
+    void utils.plan.assignments.dayOf.invalidate();
     void utils.plan.assignments.invalidate();
     void utils.plan.crews.invalidate();
   };
@@ -326,6 +331,7 @@ export const AssignmentsPage = () => {
   // #region map layers
   const drawn = useMemo<DrawnSide[]>(() => {
     const byKey = new Map(sides.map((s) => [s.key, s]));
+    const field = new Map((dayOfQ.data?.sides ?? []).map((x) => [x.key, x.counts]));
     return (shapesQ.data ?? []).flatMap((sh) => {
       const s = byKey.get(sh.key);
       if (!s) return [];
@@ -336,22 +342,26 @@ export const AssignmentsPage = () => {
         (a?.crewId != null && crewPickSet.has(a.crewId)) ||
         (a?.areaId != null && crews.some((c) => c.areaId === a.areaId && crewPickSet.has(c.id)));
       if (a && target !== null && a.companyId === target && a.dayId === dayId && crewMatch) classes += " lrb-side-focus";
+      const c = field.get(s.key);
       if (sel.has(s.key)) classes += " lrb-side-sel";
+      else if (c && c.open + c.inProgress === 0 && c.skipped > 0) classes += " lrb-side-dnt";
+      else if (c && c.open + c.inProgress === 0 && c.done > 0) classes += " lrb-side-done";
       return [{ key: s.key, ring: sh.ring, classes }];
     });
-  }, [sides, shapesQ.data, dayId, ccId, target, crewPicks, crewPickSet, crews, sel]);
+  }, [sides, shapesQ.data, dayOfQ.data, dayId, ccId, target, crewPicks, crewPickSet, crews, sel]);
   useSidesLayer(map, drawn, onSide, drawSel || drawArea);
 
   // One outline per area, labelled the way the company sheet prints it ("GM 9, GM 10 & GM 11").
   const areas = useMemo<DrawnArea[]>(() => {
     const editing = areaRow?.areaId ?? null;
+    const dnt = new Set((dayOfQ.data?.areas ?? []).filter((a) => a.doNotTouch).map((a) => a.id));
     const out = new Map<number, DrawnArea>();
     for (const c of crews) {
       if (c.ccId !== ccId || c.areaId === null || !c.area || c.areaId === editing || c.id === areaCrew) continue;
-      if (!out.has(c.areaId)) out.set(c.areaId, { id: c.areaId, label: c.areaLabel ?? c.name, ring: c.area.coordinates[0] ?? [] });
+      if (!out.has(c.areaId)) out.set(c.areaId, { id: c.areaId, label: c.areaLabel ?? c.name, ring: c.area.coordinates[0] ?? [], doNotTouch: dnt.has(c.areaId) });
     }
     return [...out.values()];
-  }, [crews, ccId, areaCrew, areaRow]);
+  }, [crews, ccId, areaCrew, areaRow, dayOfQ.data]);
   useAreasLayer(map, areas);
 
   const markers = useMemo<MapMarker[]>(() => (cc ? [{ id: `cc-${cc.id}`, kind: "cc", lat: cc.lat, lng: cc.lng, name: `CC ${cc.name}`, letter: cc.letter, noFit: true }] : []), [cc]);
@@ -632,6 +642,8 @@ export const AssignmentsPage = () => {
               { swatch: SWATCH.here, label: `CC ${cc.name}` },
               { swatch: SWATCH.away, label: "Elsewhere" },
               { swatch: SWATCH.sel, label: "Selected" },
+              { swatch: SWATCH.done, label: "Done" },
+              { swatch: SWATCH.dnt, label: "Do not touch" },
             ]}
           />
         </div>

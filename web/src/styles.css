@@ -461,6 +461,93 @@
   transform: translate(-50%, -50%);
   width: max-content;
 }
+/* Do not touch (SPEC 19 Marks): a crew area drawn hatched on every map. */
+.lrb-area-dnt {
+  stroke: var(--warn);
+}
+.lrb-area-hatch {
+  stroke: var(--warn);
+  stroke-width: 1.5px;
+  stroke-opacity: 0.8;
+}
+.lrb-side-done {
+  stroke: var(--brand-green);
+  fill: var(--brand-green);
+  fill-opacity: 0.75;
+}
+.lrb-side-dnt {
+  stroke: var(--warn);
+  fill: var(--warn);
+  fill-opacity: 0.45;
+}
+
+/* Green map, day of (components/green/dayOfLayer.ts): block sides under the lots, rectangles over them. */
+.lrb-dayof-side {
+  stroke: var(--ink);
+  stroke-opacity: 0.35;
+  fill: var(--ink);
+  fill-opacity: 0.06;
+}
+.lrb-dayof-side-done {
+  stroke: var(--brand-green);
+  stroke-opacity: 0.8;
+  fill: var(--brand-green);
+  fill-opacity: 0.25;
+}
+.lrb-dayof-side-dnt {
+  stroke: var(--warn);
+  stroke-opacity: 0.8;
+  fill: var(--warn);
+  fill-opacity: 0.2;
+}
+.lrb-dayof-area {
+  stroke: #1f6fe5;
+  stroke-opacity: 0.9;
+}
+.lrb-dayof-area-dnt,
+.lrb-dayof-hatch {
+  stroke: var(--warn);
+}
+.lrb-dayof-hatch {
+  stroke-opacity: 0.75;
+}
+.lrb-dayof-tag {
+  overflow: visible;
+}
+.lrb-dayof-pill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  min-height: 40px;
+  padding: 0 12px;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+  white-space: nowrap;
+  font: 700 13px/1 ui-sans-serif, system-ui, sans-serif;
+  color: #1f6fe5;
+}
+.lrb-dayof-pill::before {
+  content: "";
+  position: absolute;
+  inset: 8px 0;
+  z-index: -1;
+  background: #ffffff;
+  border: 2px solid #1f6fe5;
+  border-radius: 9999px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+}
+.lrb-dayof-pill-dnt {
+  color: #8a3500;
+}
+.lrb-dayof-pill-dnt::before {
+  border-color: var(--warn);
+}
 /* #endregion */
 
 @media print {

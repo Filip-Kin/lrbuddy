@@ -2,6 +2,7 @@ import L from "leaflet";
 import { useEffect, useRef } from "react";
 import type { LotGeometry } from "../../../../../server/db/schema.ts";
 import { ESRI_BASE, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM, TILE_ATTRIB } from "../../../lib/map/basemap.ts";
+import { hatchLines } from "../../../lib/map/hatch.ts";
 import { escapeHtml } from "../../../lib/map/markers.ts";
 import { distance } from "../../../lib/format.ts";
 import { BLUE, INK, LOT_FILL, PAPER, WORK, YELLOW, GREY } from "./paper.ts";
@@ -19,7 +20,7 @@ export type LatLngPair = [number, number];
  */
 export type PrintLayer =
   | { kind: "lot"; key: string; geometry: LotGeometry | null; lat: number; lng: number; tone: "work" | "high" | "low"; label?: string; badge?: string }
-  | { kind: "area"; key: string; ring: LatLngPair[]; tone: "mine" | "other" | "crew" | "company" | "faint"; label?: string }
+  | { kind: "area"; key: string; ring: LatLngPair[]; tone: "mine" | "other" | "crew" | "company" | "faint"; label?: string; hatch?: boolean }
   | { kind: "tint"; key: string; rings: LatLngPair[][] };
 
 /** The CC on a printed map: its letter in a circle when it has one, else a star; `blue` is the company sheet's marker. */
@@ -205,6 +206,11 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
       L.polygon(a.ring, { color: INK, weight: 4, opacity: 1, fill: false, interactive: false, lineJoin: "round" }).addTo(group);
     } else {
       L.polygon(a.ring, { color: a.tone === "other" ? GREY : INK, weight: a.tone === "other" ? 1.5 : 2.5, opacity: 1, fill: false, interactive: false }).addTo(group);
+    }
+    // Do not touch (SPEC 19 Marks): hatched in the outline's own colour, so it survives greyscale.
+    if (a.hatch) {
+      const color = a.tone === "company" ? BLUE : a.tone === "faint" || a.tone === "other" ? GREY : INK;
+      for (const seg of hatchLines(a.ring.map(([lat, lng]) => [lng, lat]))) L.polyline(seg, { color, weight: 1.2, opacity: 0.9, interactive: false }).addTo(group);
     }
   }
   const anchors: Array<{ box: Box; at: L.Point; text: string; badge?: string }> = [];

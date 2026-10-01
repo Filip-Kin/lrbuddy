@@ -160,9 +160,9 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
   const overview = useMemo(() => {
     if (!cc) return null;
     const layers: PrintLayer[] = [
-      ...page.otherAreas.map((a): PrintLayer => ({ kind: "area", key: `a${a.areaId}`, ring: ring(a.area), tone: "other", label: a.name })),
+      ...page.otherAreas.map((a): PrintLayer => ({ kind: "area", key: `a${a.areaId}`, ring: ring(a.area), tone: "other", label: a.name, hatch: a.doNotTouch })),
       ...workLayers(cc),
-      { kind: "area", key: "mine", ring: ring(page.area), tone: "mine", label: page.areaName ?? page.teamName },
+      { kind: "area", key: "mine", ring: ring(page.area), tone: "mine", label: page.areaName ?? page.teamName, hatch: page.areaDoNotTouch },
     ];
     return { fit: ccFit(cc), layers, cc: { lat: cc.lat, lng: cc.lng, name: cc.name, letter: cc.letter } };
   }, [page, cc]);
@@ -171,7 +171,7 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
     const fit = detailFit(page);
     if (fit.length === 0) return null;
     const layers: PrintLayer[] = [
-      { kind: "area", key: "mine", ring: ring(page.area), tone: "mine" },
+      { kind: "area", key: "mine", ring: ring(page.area), tone: "mine", hatch: page.areaDoNotTouch },
       ...page.lots.map(
         (l): PrintLayer => ({
           kind: "lot",
@@ -309,7 +309,7 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
   const overview = useMemo(
     () => ({
       fit: ccFit(page),
-      layers: [...workLayers(page), ...page.areas.map((a): PrintLayer => ({ kind: "area", key: `a${a.areaId}`, ring: ring(a.area), tone: "crew", label: a.name }))],
+      layers: [...workLayers(page), ...page.areas.map((a): PrintLayer => ({ kind: "area", key: `a${a.areaId}`, ring: ring(a.area), tone: "crew", label: a.name, hatch: a.doNotTouch }))],
       cc: { lat: page.lat, lng: page.lng, name: page.name, letter: page.letter },
     }),
     [page],
@@ -470,7 +470,7 @@ export const CompanyPage = ({ page, cc, day, onReady }: { page: CompanySheet; cc
     const layers: PrintLayer[] = [
       { kind: "tint", key: "day", rings: cc.dayArea.map((r) => r.map(([lng, lat]) => [lat, lng] as LatLngPair)) },
       ...workLayers(cc),
-      ...cc.areas.map((a): PrintLayer => ({ kind: "area", key: `a${a.areaId}`, ring: ring(a.area), tone: mine.has(a.areaId) ? "company" : "faint", label: mine.has(a.areaId) ? a.name : undefined })),
+      ...cc.areas.map((a): PrintLayer => ({ kind: "area", key: `a${a.areaId}`, ring: ring(a.area), tone: mine.has(a.areaId) ? "company" : "faint", label: mine.has(a.areaId) ? a.name : undefined, hatch: a.doNotTouch })),
     ];
     const fit: LatLngPair[] = [
       [s, w],

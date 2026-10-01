@@ -3,6 +3,7 @@ import { and, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../db/index.ts";
 import { assignments, companies, companyDays, crewAreas, crews, days, lotPhotos, lots, type AreaPolygon, type Lot } from "../../db/schema.ts";
+import { dayOfMap } from "../../dayof.ts";
 import { emitLot } from "../../lots-import.ts";
 import { areaAround, isWork, newestTags, outlinePoints, parcelsOnSides, workParcelsOnSides, type BlockSide } from "../../parcels.ts";
 import { createCrew } from "../../setup.ts";
@@ -325,6 +326,16 @@ export const assignmentsRouter = router({
       const names = teamNames(input.dayId);
       return created.map((c) => ({ id: c.id, number: c.number, name: names.get(c.id) ?? `Crew ${c.number}`, headcount: c.headcount }));
     }),
+  /** The day as the field left it at one CC (SPEC 19 Marks): lot counts per block side and rectangle, Do not touch flags. */
+  dayOf: adminProcedure.input(z.object({ dayId: id, ccId: id, ...eventInput })).query(({ input }) => {
+    const day = dayOfEvent(input.dayId, eventOrActive(input.eventId));
+    const cc = ccOfDay(input.ccId, input.dayId);
+    const m = dayOfMap({ cc, day });
+    return {
+      sides: m.sides.map((x) => ({ key: x.key, counts: x.counts })),
+      areas: m.areas.map((a) => ({ id: a.id, doNotTouch: a.doNotTouch, counts: a.counts })),
+    };
+  }),
   /** Writes lots from the assigned block sides; see publishAssignments. */
   publish: adminProcedure
     .input(z.object({ dayId: id.nullish(), resetAreas: z.boolean().optional(), ...eventInput }).optional())

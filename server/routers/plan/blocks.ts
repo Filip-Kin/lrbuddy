@@ -93,8 +93,10 @@ export const convexHull = (pts: ReadonlyArray<readonly [number, number]>): Ring 
 };
 
 /** One outline per block side the event's survey touched: the hull of its parcels' outlines. */
-export const blockSideShapes = (eventId: number): Array<{ key: string; ring: Ring }> => {
-  const keys = blockSides(eventId).map((b) => b.key);
+export const blockSideShapes = (eventId: number): Array<{ key: string; ring: Ring }> => sideShapes(blockSides(eventId).map((b) => b.key));
+
+/** The outline of each given block side: the hull of its cached parcels' outlines. */
+export const sideShapes = (keys: readonly string[]): Array<{ key: string; ring: Ring }> => {
   const pts = new Map<string, Array<[number, number]>>();
   for (let i = 0; i < keys.length; i += 500) {
     const rows = db

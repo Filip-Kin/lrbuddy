@@ -17,6 +17,7 @@ import {
   stockFor,
   stopsForTruck,
 } from "../dispatch.ts";
+import { dayOfMap, markArea, markSide, reassignArea } from "../dayof.ts";
 import { emitLot } from "../lots-import.ts";
 import { filterPairs, pairState, photoCounts, photoPairs, photoSummary, sitePhotos } from "../photos.ts";
 import { pushToCc } from "../push.ts";
@@ -227,6 +228,26 @@ export const greenRouter = router({
       for (const l of updated) emitLot(l);
       return { updated: updated.length };
     }),
+
+  // #region day of (SPEC 19 Marks): rectangles and block sides on the map
+  /** This CC's rectangles and assigned block sides on its day, with lot counts, and the companies a rectangle can go to. */
+  plan: greenProcedure.query(({ ctx }) => dayOfMap({ cc: ctx.cc, day: ctx.day })),
+
+  /** Every unfinished lot of the rectangle done, or skipped as Do not touch (which also flags the rectangle). */
+  markArea: greenProcedure
+    .input(z.object({ areaId: z.number().int(), action: z.enum(["done", "doNotTouch"]) }))
+    .mutation(({ ctx, input }) => markArea({ cc: ctx.cc, day: ctx.day }, input.areaId, input.action)),
+
+  /** The same for one block side. */
+  markSide: greenProcedure
+    .input(z.object({ key: z.string().min(1).max(300), action: z.enum(["done", "doNotTouch"]) }))
+    .mutation(({ ctx, input }) => markSide({ cc: ctx.cc, day: ctx.day }, input.key, input.action)),
+
+  /** Hands a rectangle to one or more crews of a company at this CC. */
+  reassignArea: greenProcedure
+    .input(z.object({ areaId: z.number().int(), companyId: z.number().int(), crewIds: z.array(z.number().int()).min(1).max(50) }))
+    .mutation(({ ctx, input }) => reassignArea({ cc: ctx.cc, day: ctx.day }, input)),
+  // #endregion
 
   /** Before and after pairs at this CC's site, newest first, with the filter options. */
   photos: greenProcedure

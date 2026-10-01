@@ -500,14 +500,14 @@ describe("state machine and stock", () => {
     expect(restock.map((m) => m.delta)).toEqual([cap]);
   });
 
-  test("adjust clamps to zero and capacity", () => {
+  test("adjust floors at zero and may exceed capacity", () => {
     const now = Date.now();
     const t = addTruck(w, "A", CC, MIN, now);
     const snacks = w.typeId("snacks");
     const cap = stockOf(t.id, snacks).capacity;
     d.adjustStock(t.id, snacks, 50, now);
-    expect(stockOf(t.id, snacks).qty).toBe(cap);
-    d.adjustStock(t.id, snacks, -100, now);
+    expect(stockOf(t.id, snacks).qty).toBe(cap + 50);
+    d.adjustStock(t.id, snacks, -1000, now);
     expect(stockOf(t.id, snacks).qty).toBe(0);
   });
 });

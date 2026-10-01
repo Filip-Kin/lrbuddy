@@ -602,7 +602,8 @@ export const adjustStock = (truckId: number, typeId: number, delta: number, now 
     .where(and(eq(truckStock.truckId, truckId), eq(truckStock.typeId, typeId)))
     .get();
   if (!s) throw notFound("Stock item");
-  const after = Math.min(Math.max(0, s.qty + Math.round(delta)), Math.max(s.capacity, s.qty));
+  // Capacity is the expected load, not a ceiling: a truck can carry more than planned.
+  const after = Math.max(0, s.qty + Math.round(delta));
   const applied = after - s.qty;
   if (applied !== 0) {
     db.update(truckStock).set({ qty: after }).where(and(eq(truckStock.truckId, truckId), eq(truckStock.typeId, typeId))).run();

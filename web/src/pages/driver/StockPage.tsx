@@ -48,7 +48,7 @@ const Row = ({ s, onStep }: { s: StockRow; onStep: (delta: number) => void }) =>
         <output aria-live="polite" className="min-w-10 text-center text-2xl font-extrabold tabular-nums">
           {s.qty}
         </output>
-        <StepButton label={`${s.label} plus one`} disabled={s.qty >= s.capacity} onClick={() => onStep(1)}>
+        <StepButton label={`${s.label} plus one`} disabled={false} onClick={() => onStep(1)}>
           <PlusIcon />
         </StepButton>
       </div>
@@ -68,7 +68,7 @@ export const StockPage = () => {
       utils.driver.stock.setData(undefined, (prev) =>
         prev?.map((s) => {
           if (s.typeId !== typeId) return s;
-          const qty = Math.min(Math.max(0, s.qty + delta), Math.max(s.capacity, s.qty));
+          const qty = Math.max(0, s.qty + delta);
           return { ...s, qty, low: s.capacity > 0 && qty < s.capacity * LOW_RATIO };
         }),
       );

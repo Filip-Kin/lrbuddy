@@ -24,7 +24,7 @@ ROLES = {
         ("/", "Map"), ("/request", "Request"), ("/requests", "Requests"), ("/lots", "Lots"), ("/cc", "Command center"), ("/settings", "Settings")],
         "sizes": ["phone"]},
     "driver": {"login": {"code": "TRUCK1", "displayName": "Filip"}, "routes": [
-        ("/", "Queue"), ("/map", "Map"), ("/stock", "Stock"), ("/settings", "Settings")],
+        ("/", "Map"), ("/stock", "Stock"), ("/settings", "Settings")],
         "sizes": ["phone"]},
     "green": {"login": {"code": "EAST01", "displayName": "Filip"}, "routes": [
         ("/", "Map"), ("/requests", "Requests"), ("/lots", "Lots"), ("/photos", "Photos"), ("/crews", "Crews"), ("/trucks", "Trucks"), ("/broadcast", "Broadcast"), ("/stats", "Stats")],

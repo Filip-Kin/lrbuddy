@@ -54,13 +54,14 @@ interface WakeLockSentinelLike {
 type WakeNavigator = Navigator & { wakeLock?: { request: (type: "screen") => Promise<WakeLockSentinelLike> } };
 
 /**
- * Keeps a truck-mounted phone awake while a driver page is open. The browser
- * drops the lock when the page is hidden, so it is taken again on return.
+ * Keeps a truck-mounted phone awake while a driver page is open and `enabled`
+ * (the map passes "the truck has stops"). The browser drops the lock when the
+ * page is hidden, so it is taken again on return.
  */
-export const useWakeLock = (): void => {
+export const useWakeLock = (enabled = true): void => {
   useEffect(() => {
     const nav = navigator as WakeNavigator;
-    if (!nav.wakeLock) return;
+    if (!nav.wakeLock || !enabled) return;
     let lock: WakeLockSentinelLike | null = null;
     let cancelled = false;
     const acquire = async (): Promise<void> => {
@@ -94,7 +95,7 @@ export const useWakeLock = (): void => {
       window.removeEventListener("lrb-wake", onPref);
       release();
     };
-  }, []);
+  }, [enabled]);
 };
 // #endregion
 
@@ -145,7 +146,8 @@ export const useDriverActions = () => {
   const cancel = trpc.driver.cancel.useMutation(common);
   const setReturning = trpc.driver.setReturning.useMutation(common);
   const restocked = trpc.driver.restocked.useMutation(common);
-  return { enRoute, deliver, cancel, setReturning, restocked, error, clearError: () => setError(null) };
+  const pinNext = trpc.driver.pinNext.useMutation(common);
+  return { enRoute, deliver, cancel, setReturning, restocked, pinNext, error, clearError: () => setError(null) };
 };
 
 export type DriverActions = ReturnType<typeof useDriverActions>;

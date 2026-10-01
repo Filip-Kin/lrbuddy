@@ -166,13 +166,22 @@ const newestWithPosition = (rows: readonly Request[], crewId: number): Request |
   return best;
 };
 
-/** A truck's stops in its current route order; stops the route has not seen yet go last. */
+/** The truck's pinned stop key when that stop is still on the truck, else null. */
+export const activePin = (truck: Pick<Truck, "pinnedStopKey">, stops: readonly Pick<Stop, "key">[]): string | null =>
+  truck.pinnedStopKey !== null && stops.some((s) => s.key === truck.pinnedStopKey) ? truck.pinnedStopKey : null;
+
+/**
+ * A truck's stops in its current route order; stops the route has not seen yet
+ * go last. A pinned stop is first even before the route catches up.
+ */
 export const orderedStops = (truckId: number, now: number): Stop[] => {
   const stops = stopsForTruck(truckId, now);
+  const pin = activePin(getTruck(truckId), stops);
   const route = db.select().from(routes).where(eq(routes.truckId, truckId)).get();
-  if (!route) return stops;
   const rank = new Map<string, number>();
-  route.legs.forEach((l, i) => rank.set(l.key, i));
+  route?.legs.forEach((l, i) => rank.set(l.key, i));
+  if (pin) rank.set(pin, -1);
+  if (rank.size === 0) return stops;
   return [...stops].sort((a, b) => (rank.get(a.key) ?? 1e9) - (rank.get(b.key) ?? 1e9));
 };
 // #endregion
@@ -414,6 +423,17 @@ export const markEnRoute = (truckId: number, stopKey: string, now = Date.now()):
   return out;
 };
 
+/**
+ * Driver picks the next stop from the queue. The route visits it first until
+ * it is delivered, cancelled or moved to another truck.
+ */
+export const pinNext = (truckId: number, stopKey: string): Truck => {
+  if (requestsOfStop(truckId, stopKey).length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Stop not on this truck" });
+  const t = db.update(trucks).set({ pinnedStopKey: stopKey }).where(eq(trucks.id, truckId)).returning().get();
+  scheduleRoute(truckId);
+  return t;
+};
+
 export interface StockRow extends TruckStock {
   key: string;
   label: string;
@@ -616,18 +636,23 @@ export const computeRouteNow = async (truckId: number, now = Date.now()): Promis
   const destination = truck.status === "returning" ? { lat: cc.lat, lng: cc.lng } : null;
   const opts = { osrmUrl: config.osrmUrl };
 
-  const urgent = stops.filter((s) => s.urgent);
-  const rest = stops.filter((s) => !s.urgent);
+  // A stop the driver chose goes first, then urgent stops, then the rest; each group is its own trip from where the last one ended.
+  const pin = activePin(truck, stops);
+  if (truck.pinnedStopKey !== null && pin === null) db.update(trucks).set({ pinnedStopKey: null }).where(eq(trucks.id, truckId)).run();
+  const pinned = stops.filter((s) => s.key === pin);
+  const urgent = stops.filter((s) => s.urgent && s.key !== pin);
+  const rest = stops.filter((s) => !s.urgent && s.key !== pin);
+  const groups = [pinned, urgent, rest].filter((g) => g.length > 0);
+  if (groups.length === 0) groups.push([]);
 
   const segments: Array<{ stops: Stop[]; result: TripResult }> = [];
-  if (urgent.length > 0 && rest.length > 0) {
-    const first = await trip(origin, urgent.map(toPoint), null, opts);
-    const lastUrgent = urgent[first.order[first.order.length - 1]!]!;
-    const second = await trip(toPoint(lastUrgent), rest.map(toPoint), destination, opts);
-    segments.push({ stops: urgent, result: first }, { stops: rest, result: second });
-  } else {
-    const all = urgent.length > 0 ? urgent : rest;
-    segments.push({ stops: all, result: await trip(origin, all.map(toPoint), destination, opts) });
+  let from = origin;
+  for (let g = 0; g < groups.length; g++) {
+    const group = groups[g]!;
+    const result = await trip(from, group.map(toPoint), g === groups.length - 1 ? destination : null, opts);
+    segments.push({ stops: group, result });
+    const last = result.order[result.order.length - 1];
+    if (last !== undefined) from = toPoint(group[last]!);
   }
 
   const legs: RouteLeg[] = [];
@@ -640,7 +665,16 @@ export const computeRouteNow = async (truckId: number, now = Date.now()): Promis
       const leg = seg.result.legs[i];
       etaS += leg?.durationS ?? 0;
       distM += leg?.distanceM ?? 0;
-      legs.push({ key: s.key, crewId: s.crewId, requestIds: s.requests.map((r) => r.id), lat: s.lat, lng: s.lng, etaS, distanceM: distM });
+      legs.push({
+        key: s.key,
+        crewId: s.crewId,
+        requestIds: s.requests.map((r) => r.id),
+        lat: s.lat,
+        lng: s.lng,
+        etaS,
+        distanceM: distM,
+        ...(leg && leg.steps.length > 0 ? { steps: leg.steps } : {}),
+      });
     });
     for (const pt of seg.result.geometry) {
       const last = geometry[geometry.length - 1];
@@ -652,7 +686,16 @@ export const computeRouteNow = async (truckId: number, now = Date.now()): Promis
     const leg = lastSeg.result.legs[lastSeg.result.order.length];
     etaS += leg?.durationS ?? 0;
     distM += leg?.distanceM ?? 0;
-    legs.push({ key: "cc", crewId: null, requestIds: [], lat: cc.lat, lng: cc.lng, etaS, distanceM: distM });
+    legs.push({
+      key: "cc",
+      crewId: null,
+      requestIds: [],
+      lat: cc.lat,
+      lng: cc.lng,
+      etaS,
+      distanceM: distM,
+      ...(leg && leg.steps.length > 0 ? { steps: leg.steps } : {}),
+    });
   }
   const engine = segments.every((s) => s.result.engine === "osrm") ? "osrm" : "fallback";
 
@@ -735,8 +778,22 @@ export const startRouteRefresh = (): (() => void) => {
 
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
 
-/** Debounced route computation, 3 s per truck. */
+/**
+ * Clears a pin whose stop has left the truck (delivered, cancelled, moved).
+ * Done at once, not with the debounced route, so a crew that asks again later
+ * does not come back pinned.
+ */
+const dropStalePin = (truckId: number): void => {
+  const t = db.select({ pinnedStopKey: trucks.pinnedStopKey }).from(trucks).where(eq(trucks.id, truckId)).get();
+  if (!t || t.pinnedStopKey === null) return;
+  if (activePin(t, stopsForTruck(truckId, Date.now())) === null) {
+    db.update(trucks).set({ pinnedStopKey: null }).where(eq(trucks.id, truckId)).run();
+  }
+};
+
+/** Debounced route computation, 3 s per truck. Any change to a truck's stops comes through here. */
 export const scheduleRoute = (truckId: number): void => {
+  dropStalePin(truckId);
   const existing = timers.get(truckId);
   if (existing) clearTimeout(existing);
   const t = setTimeout(() => {

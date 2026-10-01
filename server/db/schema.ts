@@ -64,6 +64,22 @@ export interface RouteLeg {
   etaS: number;
   /** Metres from the origin to this stop, cumulative. */
   distanceM: number;
+  /** Turns on the way to this stop from the one before, from OSRM. Absent when the fallback routed the leg. */
+  steps?: Manoeuvre[];
+}
+
+/** One OSRM manoeuvre on a leg: where it is and what the driver does there. */
+export interface Manoeuvre {
+  /** OSRM maneuver type: turn, end of road, fork, merge, roundabout, arrive... */
+  type: string;
+  /** left, slight left, sharp left, right, ..., straight, uturn; null when OSRM gives none. */
+  modifier: string | null;
+  /** Street taken at the manoeuvre ("Harding Street"), else its ref, else "". */
+  name: string;
+  lat: number;
+  lng: number;
+  /** Metres from the start of the leg to the manoeuvre. */
+  atM: number;
 }
 
 /** Parcel outline in WGS84, as the city parcel layer returns it. */
@@ -178,6 +194,8 @@ export const trucks = sqliteTable(
     code: text("code").notNull().unique(),
     status: text("status", { enum: TRUCK_STATUSES }).notNull().default("idle"),
     lastSeenAt: integer("last_seen_at"),
+    /** Stop key the driver chose as next; the route visits it first until it is delivered or leaves the truck. */
+    pinnedStopKey: text("pinned_stop_key"),
   },
   (t) => [index("trucks_cc_idx").on(t.ccId)],
 );

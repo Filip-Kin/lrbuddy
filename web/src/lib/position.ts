@@ -29,7 +29,18 @@ export const useLocationStatus = (): LocationStatus =>
     snapshot.get,
   );
 
-let lastFix: { lat: number; lng: number; accuracy: number | null } | null = null;
+export interface DeviceFix {
+  lat: number;
+  lng: number;
+  accuracy: number | null;
+  /** Degrees clockwise from north, as the GPS reports it; null when standing still or unknown. */
+  heading: number | null;
+  /** Metres per second; null when unknown. */
+  speed: number | null;
+  at: number;
+}
+
+let lastFix: DeviceFix | null = null;
 /** Latest fix from this device outside React, for stamping a photo. Null for roles that do not report. */
 export const currentFix = (): { lat: number; lng: number } | null => lastFix;
 
@@ -97,7 +108,15 @@ export const usePositionReporter = (enabled: boolean): void => {
 
     const onFix = (pos: GeolocationPosition): void => {
       setStatus("on");
-      lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+      const c = pos.coords;
+      lastFix = {
+        lat: c.latitude,
+        lng: c.longitude,
+        accuracy: c.accuracy,
+        heading: c.heading !== null && Number.isFinite(c.heading) ? c.heading : null,
+        speed: c.speed !== null && Number.isFinite(c.speed) ? c.speed : null,
+        at: pos.timestamp || Date.now(),
+      };
       emit();
       const here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       if (!last || distM(last, here) >= MIN_MOVE_M || Date.now() - last.at >= MAX_GAP_MS) void send(pos);

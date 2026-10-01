@@ -3,7 +3,7 @@ import { and, between, eq } from "drizzle-orm";
 import { z } from "zod";
 import { bus } from "../bus.ts";
 import { db } from "../db/index.ts";
-import { lots, routes, sessions, trucks, type CommandCenter, type Route, type Truck } from "../db/schema.ts";
+import { lots, routes, sessions, trucks, type CommandCenter, type Manoeuvre, type Route, type Truck } from "../db/schema.ts";
 import {
   adjustStock,
   cancelRequest,
@@ -12,6 +12,7 @@ import {
   legEtaAt,
   markEnRoute,
   orderedStops,
+  pinNext,
   restocked,
   setReturning,
   stockFor,
@@ -184,6 +185,8 @@ export const buildQueue = (truckId: number, cc: CommandCenter, eventId: number, 
     lowStock: low.length > 0,
     low,
     stops: out,
+    /** Key of the stop the driver made next, while it is still on the truck. */
+    pinnedKey: truck.pinnedStopKey !== null && out.some((x) => x.key === truck.pinnedStopKey) ? truck.pinnedStopKey : null,
     origin,
     route: route
       ? {
@@ -205,11 +208,21 @@ const stopKey = z.string().regex(/^(crew|req):\d+$/);
 export const driverRouter = router({
   queue: driverProcedure.query(({ ctx }) => buildQueue(ctx.truck.id, ctx.cc, ctx.event.id)),
 
-  /** Route line and stops for the map. */
+  /**
+   * Route line, per-leg manoeuvres and stops for the map. `legs` is in visit
+   * order; a leg's steps lead from the stop before it (or the truck) to it.
+   */
   route: driverProcedure.query(({ ctx }) => {
     const route = routeOf(ctx.truck.id);
     const queue = buildQueue(ctx.truck.id, ctx.cc, ctx.event.id);
-    return { geometry: route?.geometry ?? [], queue };
+    const legs: Array<{ key: string; steps: Manoeuvre[] }> = route?.legs.map((l) => ({ key: l.key, steps: l.steps ?? [] })) ?? [];
+    return { geometry: route?.geometry ?? [], engine: route?.engine ?? null, legs, queue };
+  }),
+
+  /** Makes a stop next. The route keeps it first until it is delivered. */
+  pinNext: driverProcedure.input(z.object({ stopKey })).mutation(({ ctx, input }) => {
+    pinNext(ctx.truck.id, input.stopKey);
+    return buildQueue(ctx.truck.id, ctx.cc, ctx.event.id);
   }),
 
   enRoute: driverProcedure.input(z.object({ stopKey })).mutation(({ ctx, input }) => {

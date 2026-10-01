@@ -69,3 +69,36 @@ export const MapIcon = ({ size }: { size?: number }) => (
     <path d="M9 4v13.5M15 6.5V20" />
   </Svg>
 );
+
+/** Arrow pointing up, turned by `angle` degrees clockwise. */
+export const ArrowIcon = ({ size, angle }: { size?: number; angle: number }) => (
+  <span className="inline-grid place-items-center transition-transform duration-300" style={{ transform: `rotate(${angle}deg)` }}>
+    <Svg size={size}>
+      <path d="M12 20V5M5.5 11.5L12 5l6.5 6.5" />
+    </Svg>
+  </span>
+);
+
+/** Map pin, for an arrival. */
+export const PinIcon = ({ size }: { size?: number }) => (
+  <Svg size={size}>
+    <path d="M12 21s-6.5-6.2-6.5-11.2a6.5 6.5 0 0113 0C18.5 14.8 12 21 12 21z" />
+    <circle cx="12" cy="9.8" r="2.3" />
+  </Svg>
+);
+
+export const RecenterIcon = ({ size }: { size?: number }) => (
+  <Svg size={size}>
+    <circle cx="12" cy="12" r="3.5" />
+    <path d="M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5" />
+  </Svg>
+);
+
+export const ListIcon = ({ size }: { size?: number }) => (
+  <Svg size={size}>
+    <path d="M9 6h11M9 12h11M9 18h11" />
+    <circle cx="4.5" cy="6" r="1" />
+    <circle cx="4.5" cy="12" r="1" />
+    <circle cx="4.5" cy="18" r="1" />
+  </Svg>
+);

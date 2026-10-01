@@ -100,7 +100,8 @@ companies         id, event_id, name
 crews             id, day_id, cc_id, company_id, number (per day, shown as "Crew 7"), lead_name, lead_phone,
                   token (unique, 20 chars url-safe), headcount, notes, last_seen_at
 trucks            id, day_id, cc_id, name, driver_name, driver_phone, code (unique 6 chars, uppercase),
-                  status ('idle'|'delivering'|'returning'|'offline'), last_seen_at
+                  status ('idle'|'delivering'|'returning'|'offline'), last_seen_at,
+                  pinned_stop_key (nullable, the stop the driver made next; cleared when it leaves the truck)
 green_codes       id, cc_id, code (unique 6 chars)          -- one code per CC, shown on the QR sheet
 sessions          id (text uuid PK), role ('admin'|'green'|'driver'|'crew'), crew_id, truck_id, cc_id,
                   display_name, created_at, last_used_at, user_agent
@@ -125,8 +126,9 @@ lots              id, event_id, parcel_id, address, lat, lng, source ('dlba'|'pa
 push_subscriptions id, session_id, endpoint (unique), p256dh, auth, created_at
 broadcasts        id, cc_id, day_id, body, sent_by (session display_name), at
 routes            truck_id PK, computed_at, stop_order (json array of request ids), geometry (json [[lat,lng]...]),
-                  legs (json [{key, crewId, requestIds, lat, lng, etaS, distanceM}] in visit order, cumulative;
-                  key is 'crew:<id>', 'req:<id>' or 'cc'), distance_m, duration_s, ends_at_cc (bool),
+                  legs (json [{key, crewId, requestIds, lat, lng, etaS, distanceM, steps?}] in visit order, cumulative;
+                  key is 'crew:<id>', 'req:<id>' or 'cc'; steps are the OSRM manoeuvres on the way to that stop,
+                  [{type, modifier, name, lat, lng, atM}], absent when the fallback routed the leg), distance_m, duration_s, ends_at_cc (bool),
                   engine ('osrm'|'fallback'), origin_lat, origin_lng (truck position used, for the 250 m check)
 ```
 
@@ -192,6 +194,9 @@ the `ui-copy` skill: labels, not sentences. No "you", no "we", no explaining par
 | `/settings` | Display name, **Notifications** toggle (push subscribe), **Location** status, Leave crew. |
 
 ### Driver (phone mounted in truck)
+
+Superseded by section 17: `/` is the map with the next stop card and the Queue sheet, `/map` redirects
+to `/`. The table below is kept for the stop card contents and Restock behaviour.
 
 | Route | Contents |
 |---|---|
@@ -281,11 +286,14 @@ or the truck moving more than 250 m since the last computation:
    request. Stop position for a crew stop is the crew's latest position within 20 minutes, else the
    crew's most recent position, else the request's `lat,lng`, else the CC. A crewless stop sits at
    the request's `lat,lng`.
-3. If any stop holds a priority 3 request older than 10 minutes, route those stops first (their own
-   OSRM trip from origin), then the rest from the last urgent stop. Otherwise one trip.
+3. A stop the driver pinned (section 17, `driver.pinNext`) is routed first, on its own trip from the
+   origin. Then, if any stop holds a priority 3 request older than 10 minutes, those stops (their own
+   trip), then the rest from the last stop before them. Otherwise one trip. The pin clears when its
+   stop is delivered, cancelled or moved to another truck.
 4. OSRM: `GET {OSRM_URL}/trip/v1/driving/{lng,lat;...}?source=first&roundtrip=false[&destination=last]`
    with the CC appended as last when the truck is `returning`. Timeout 4 s. `overview=full`,
-   `geometries=geojson`.
+   `geometries=geojson`, `steps=true`; each leg's steps are kept on `routes.legs` minus `depart` and
+   straight-on name changes.
 5. Fallback: nearest neighbour from origin, straight polylines, duration at 25 km/h. `engine: 'fallback'`.
 6. Save to `routes`, emit `route.changed`. ETA per stop = cumulative leg duration.
 
@@ -306,7 +314,8 @@ open ──assign──▶ assigned ──en_route──▶ en_route ──deliv
   pill next to Restock. Nothing forces a return.
 
 Tests in `dispatch.test.ts`: insertion cost picks the nearer truck; a truck not seen for 16 minutes is
-skipped; urgent stops go first; fallback ordering is nearest neighbour; delivering floors stock at 0.
+skipped; urgent stops go first; a pinned stop goes first until delivered; fallback ordering is nearest
+neighbour; delivering floors stock at 0. `osrm.test.ts` parses steps from a recorded OSRM answer.
 
 ## 8. Lots
 

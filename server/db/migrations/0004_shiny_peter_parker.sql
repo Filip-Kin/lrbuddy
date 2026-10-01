@@ -1,0 +1,1 @@
+ALTER TABLE `trucks` ADD `pinned_stop_key` text;

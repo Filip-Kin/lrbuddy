@@ -118,6 +118,19 @@ describe("survey", () => {
     expect(near[0]).toMatchObject({ parcelId: "Garland-3963.", grade: "high", distanceM: 0 });
     expect(near.map((r) => r.parcelId)).not.toContain("Garland-3965.");
   });
+
+  test("Load parcels with the assessor layer down reads as the Survey notice", async () => {
+    const real = globalThis.fetch;
+    globalThis.fetch = Object.assign(async () => { throw new TypeError("fetch failed"); }, { preconnect: real.preconnect });
+    try {
+      await expect(admin.parcels.loadBbox({ bbox: [-82.991, 42.38, -82.99, 42.381] })).rejects.toMatchObject({
+        code: "BAD_GATEWAY",
+        message: "Parcels not loaded. Try again.",
+      });
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
 });
 
 describe("assignments and publish", () => {

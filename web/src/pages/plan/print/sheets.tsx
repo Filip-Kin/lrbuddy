@@ -127,10 +127,15 @@ const Legend = ({ items }: { items: ReadonlyArray<[Parameters<typeof Swatch>[0][
   </ul>
 );
 
-const MapBlock = ({ caption, children }: { caption: string; children: ReactNode }) => (
-  <section className="mt-2">
+/**
+ * A captioned map. `fill` makes it take the height the rest of the page leaves
+ * on paper size (never under 2 in), so a sheet with more rows below gets a
+ * shorter map and still prints on one page.
+ */
+const MapBlock = ({ caption, fill = false, children }: { caption: string; fill?: boolean; children: ReactNode }) => (
+  <section className={fill ? "mt-2 flex flex-col sm:min-h-[2.2in] sm:flex-[1_1_0]" : "mt-2"}>
     <Caps>{caption}</Caps>
-    <div className="mt-0.5 overflow-hidden rounded-md ring-1 ring-[#0e3038]">{children}</div>
+    <div className={`mt-0.5 overflow-hidden rounded-md ring-1 ring-[#0e3038] ${fill ? "flex min-h-0 flex-1 flex-col" : ""}`}>{children}</div>
   </section>
 );
 // #endregion
@@ -283,8 +288,6 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
 // #endregion
 
 // #region cc sheet
-/** The overview map gives up height for each truck's QR row, so the sheet stays one page. */
-const CC_MAP_HEIGHT = ["h-[4.2in]", "h-[3.75in]", "h-[3.3in]", "h-[2.85in]", "h-[2.6in]"] as const;
 
 export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: string; day: Sheets["day"]; onReady: OnReady }) => {
   const overview = useMemo(
@@ -316,7 +319,7 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
         </figure>
       </div>
 
-      <MapBlock caption={`Overview, ${plural(page.workLots.length, "work lot")}`}>
+      <MapBlock caption={`Overview, ${plural(page.workLots.length, "work lot")}`} fill>
         <PrintMap
           readyKey={ccMapKey(page)}
           onReady={onReady}
@@ -324,7 +327,7 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
           layers={overview.layers}
           cc={overview.cc}
           padding={16}
-          className={`${CC_MAP_HEIGHT[Math.min(page.trucks.length, CC_MAP_HEIGHT.length - 1)]} w-full`}
+          className="h-[3in] w-full sm:h-auto sm:min-h-0 sm:flex-1"
           label={`Overview map for CC ${page.name}`}
         />
       </MapBlock>
@@ -338,7 +341,7 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
         />
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="mt-3 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
         <table className="w-full text-left text-xs">
           <caption className="pb-0.5 text-left">
             <Caps>Trucks</Caps>

@@ -54,7 +54,7 @@ export const parcelsRouter = router({
     try {
       return await loadParcelsBBox([w, s, e, n]);
     } catch (err) {
-      throw new TRPCError({ code: "BAD_GATEWAY", message: "Parcel layer unavailable", cause: err });
+      throw new TRPCError({ code: "BAD_GATEWAY", message: "Parcels not loaded. Try again.", cause: err });
     }
   }),
   /** Cached parcels in the rectangle with outlines and the event's newest grade. */

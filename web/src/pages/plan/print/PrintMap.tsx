@@ -40,6 +40,8 @@ export const LABEL_FONT = '700 10px ui-sans-serif, system-ui, -apple-system, "Se
 const LABEL_H = 15;
 const LABEL_PAD = 3;
 const BADGE_W = 12;
+/** Grid step in pixels when a label has to search the whole frame for room. */
+const SCAN_STEP = 4;
 
 const STAR_SVG = `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 1.8l3 6.6 7.2.8-5.4 4.9 1.5 7.1L12 17.6l-6.3 3.6 1.5-7.1L1.8 9.2 9 8.4z" fill="#000" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 const ARROW_SVG = `<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M2 8.5h11V3l9 9-9 9v-5.5H2z" fill="#000" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
@@ -65,9 +67,11 @@ const inside = (b: Box, size: L.Point, m: number): boolean => b.x >= m && b.y >=
  * First spot next to the anchor box where the label fits the frame and clears
  * every label and lot already placed, in rings further out on each miss
  * (`far` then wants a leader line). `inner` is an area the label may sit
- * inside, along its top edge first.
+ * inside, along its top edge first. With every ring taken, the free spot
+ * nearest the anchor anywhere in the frame; null when the frame has none, and
+ * the label is left off rather than drawn over another.
  */
-const placeBox = (a: Box, w: number, h: number, taken: readonly Box[], size: L.Point, inner?: Box): { box: Box; far: boolean } => {
+const placeBox = (a: Box, w: number, h: number, taken: readonly Box[], size: L.Point, inner?: Box): { box: Box; far: boolean } | null => {
   const cx = a.x + a.w / 2;
   const cy = a.y + a.h / 2;
   const spots: Array<[number, number, boolean]> = [];
@@ -95,8 +99,19 @@ const placeBox = (a: Box, w: number, h: number, taken: readonly Box[], size: L.P
     const box = { x, y, w, h };
     if (inside(box, size, 2) && !taken.some((t) => overlaps(t, box))) return { box, far };
   }
-  const [x, y] = spots[0] ?? [cx, cy];
-  return { box: { x: Math.min(Math.max(x, 2), size.x - w - 2), y: Math.min(Math.max(y, 2), size.y - h - 2), w, h }, far: false };
+  let best: Box | null = null;
+  let bestD = Infinity;
+  for (let y = 2; y + h <= size.y - 2; y += SCAN_STEP) {
+    for (let x = 2; x + w <= size.x - 2; x += SCAN_STEP) {
+      const d = (x + w / 2 - cx) ** 2 + (y + h / 2 - cy) ** 2;
+      if (d >= bestD) continue;
+      const box = { x, y, w, h };
+      if (taken.some((t) => overlaps(t, box))) continue;
+      best = box;
+      bestD = d;
+    }
+  }
+  return best ? { box: best, far: true } : null;
 };
 
 const around = (p: L.Point, r: number): Box => ({ x: p.x - r, y: p.y - r, w: 2 * r, h: 2 * r });
@@ -188,8 +203,11 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
       const text = `CC ${cc.name}`;
       const w = labelWidth(text);
       const placed = placeBox(around(p, 12), w, LABEL_H, taken, size);
-      taken.push(placed.box);
-      labelMarker(m, p, placed.box, labelHtml(text), "lrb-pm-cc").addTo(group);
+      if (placed) {
+        taken.push(placed.box);
+        if (placed.far) leader(m, around(p, 12), placed.box).addTo(group);
+        labelMarker(m, p, placed.box, labelHtml(text), "lrb-pm-cc").addTo(group);
+      }
     } else {
       const c = L.point(size.x / 2, size.y / 2);
       const dx = p.x - c.x;
@@ -208,8 +226,11 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
       taken.push({ x: e.x - 13, y: e.y - 13, w: 26, h: 26 });
       const text = `CC ${cc.name} ${distance(metres(m.containerPointToLatLng(c), L.latLng(cc.lat, cc.lng)))}`;
       const placed = placeBox(around(e, 13), labelWidth(text), LABEL_H, taken, size);
-      taken.push(placed.box);
-      labelMarker(m, e, placed.box, labelHtml(text), "lrb-pm-cc").addTo(group);
+      if (placed) {
+        taken.push(placed.box);
+        if (placed.far) leader(m, around(e, 13), placed.box).addTo(group);
+        labelMarker(m, e, placed.box, labelHtml(text), "lrb-pm-cc").addTo(group);
+      }
     }
   }
 
@@ -237,7 +258,7 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
     const text = a.label ?? "";
     const mine = a.tone === "mine";
     const placed = placeBox(area, labelWidth(text), LABEL_H, mine ? taken : [...taken, ...guard], size, area);
-    if (!mine && guard.some((g) => overlaps(g, placed.box))) continue;
+    if (!placed || (!mine && guard.some((g) => overlaps(g, placed.box)))) continue;
     taken.push(placed.box);
     if (placed.far) leader(m, area, placed.box).addTo(group);
     labelMarker(m, at, placed.box, labelHtml(text), a.tone === "other" ? "lrb-pm-other" : "lrb-pm-area").addTo(group);
@@ -247,6 +268,7 @@ const drawOverlays = (m: L.Map, group: L.LayerGroup, layers: readonly PrintLayer
   anchors.sort((a, b) => a.at.x - b.at.x || a.at.y - b.at.y);
   for (const a of anchors) {
     const placed = placeBox(a.box, labelWidth(a.text, a.badge), LABEL_H, taken, size);
+    if (!placed) continue;
     taken.push(placed.box);
     if (placed.far) leader(m, a.box, placed.box).addTo(group);
     labelMarker(m, a.at, placed.box, labelHtml(a.text, a.badge), "").addTo(group);

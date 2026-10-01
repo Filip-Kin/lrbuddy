@@ -980,3 +980,14 @@ admin draws the shape and it becomes a lot like any other.
   migration (none were marked in the field yet).
 - Gate: as DURFB1 at zoom 17, Draw lot with four taps along a mid-block gap, Save, the lot appears
   red, is in the driver's lot list, and is tappable; overflow 0 at 390 and 1440.
+
+Flag screen map strip (Filip, 2026-10-01 16:29)
+- A map strip sits across the bottom of the Flag screen above the buttons, about 28 % of the
+  height: north-up, centred on the phone, following it, with the heading cone, the picked parcel
+  outlined in yellow, every parcel in its current status colour (same layers as the green map,
+  bare parcels as thin outlines), crew rectangles, and the CC star. Zoom 18.
+- An **Expand** arrow button on the strip's top right makes the map full screen; the camera pauses
+  but the Todo, Do not touch and Wrong lot buttons stay at the bottom and act on the picked parcel,
+  and a tap on any parcel picks it (replacing Wrong lot's separate mini map, which goes away). A
+  **Collapse** button in the same corner brings the strip back down and resumes the camera.
+- The strip remembers its state for the session. Both buttons at least 44 px. Overflow 0 at 390.

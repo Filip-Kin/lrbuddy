@@ -956,3 +956,27 @@ the sharpie: pick a brush, drag across the parcels.
 - Red shirts and drivers do not get Paint.
 - Gate: at 1440 and at 390 as DURFB1, Paint opens the bar, a drag across three parcels sets them
   Todo (count reads 3), Undo returns them, overflow 0, chips at least 44 px tall.
+
+## 24. Draw lot: custom parcels for alleys and odd spaces (Filip, 2026-10-01 15:35)
+
+The city parcel layer has no polygon for an alley between backyards, a boulevard median, a corner
+dump site. Those are work too. Instead of a separate alley object from OpenStreetMap, a green or
+admin draws the shape and it becomes a lot like any other.
+
+- **Draw lot** button next to Draw area on the green map and the admin lots map. Tap points to
+  outline a polygon (tap the first point or **Close** to finish; drag a point to adjust; **Undo
+  point**); a long polygon such as an alley is fine. Minimum three points, at least 10 m across.
+- On close, a small sheet: **Name** (prefilled "Alley, Lawrence to Collingwood" from the two nearest
+  parallel streets when the shape is long and thin, else "Lot"), status (default Todo), crew
+  (prefilled with the rectangle that contains the centroid). **Save** creates a `lots` row with
+  `source: 'drawn'`, no `parcel_id`, the drawn `geometry`, centroid lat/lng, the name in `address`.
+- Drawn lots behave like every other lot: five statuses, Paint mode, photos, crew visibility,
+  driver map, print sheets, stats, exports, Flag screen hit test (a drawn lot wins over a parcel
+  when the point is inside both). Green and admin can **Edit shape** and **Delete lot** from its
+  sheet; a lot with photos or history cannot be deleted, only set Not todo.
+- The OpenStreetMap alley layer (section 20) becomes a map toggle **OSM alleys**, off by default,
+  shown as a thin dashed centreline only (no 3 m polygon, no status, no sheet), there as a hint for
+  where to draw. The `alleys` table and its status sheet are removed; existing rows are dropped by the
+  migration (none were marked in the field yet).
+- Gate: as DURFB1 at zoom 17, Draw lot with four taps along a mid-block gap, Save, the lot appears
+  red, is in the driver's lot list, and is tappable; overflow 0 at 390 and 1440.

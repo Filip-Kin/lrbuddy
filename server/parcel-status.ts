@@ -226,7 +226,7 @@ const crewPoint = (crew: Crew, cc: CommandCenter): LatLng => {
 };
 
 /** Throws when the actor may not touch the target at all. */
-const checkPlace = (actor: Actor, t: Target): void => {
+export const checkPlace = (actor: Actor, t: Target): void => {
   const site = siteCcIds(actor.cc.id);
   if (t.lot && t.lot.ccId !== null && !site.includes(t.lot.ccId)) throw forbidden("Lot not at this command center");
   if (actor.role === "green" || actor.role === "admin") return;
@@ -279,6 +279,13 @@ export interface SetLotResult {
   /** The lot after the write; null when the parcel is (now) Not todo with no row. */
   lot: Lot | null;
   deleted: boolean;
+  /** The `clear` survey tag a delete added, so Paint's Undo can take it back. */
+  clearedTagId?: number | null;
+}
+
+export interface SetLotOptions {
+  /** Where lot.changed goes; Paint collects them and emits after its transaction. */
+  emit?: (lot: Lot) => void;
 }
 
 const resolve = (actor: Actor, input: SetLotInput): Target & { parcel: typeof parcels.$inferSelect | null } => {
@@ -307,26 +314,29 @@ const surveyGrade = (eventId: number, parcelId: string | null): LotGrade | null 
  * A parcel the green took off the work list is cleared in the survey too, so
  * a later Publish does not put the lot back (SPEC 16: clear removes it).
  */
-const clearSurvey = (actor: Actor, lot: Lot, by: string | null): void => {
+const clearSurvey = (actor: Actor, lot: Lot, by: string | null): number | null => {
   // Only a lot Publish wrote from the survey comes back on the next Publish.
-  if (!lot.parcelId || lot.source !== "survey") return;
+  if (!lot.parcelId || lot.source !== "survey") return null;
   const newest = db
     .select()
     .from(surveyTags)
     .where(and(eq(surveyTags.eventId, actor.event.id), eq(surveyTags.parcelId, lot.parcelId)))
     .orderBy(desc(surveyTags.at), desc(surveyTags.id))
     .get();
-  if (!newest || !isWork(newest.grade)) return;
-  db.insert(surveyTags)
+  if (!newest || !isWork(newest.grade)) return null;
+  return db
+    .insert(surveyTags)
     .values({ eventId: actor.event.id, parcelId: lot.parcelId, grade: "clear", side: "tap", note: null, lat: null, lng: null, heading: null, by, at: Date.now() })
-    .run();
+    .returning({ id: surveyTags.id })
+    .get().id;
 };
 
 /**
  * Sets a parcel's status (and grade or note) for the actor, creating or
  * deleting the lot row as SPEC 21 says. Emits lot.changed for every write.
  */
-export const setLot = (actor: Actor, input: SetLotInput, by: string | null = null): SetLotResult => {
+export const setLot = (actor: Actor, input: SetLotInput, by: string | null = null, opts: SetLotOptions = {}): SetLotResult => {
+  const emit = opts.emit ?? emitLot;
   const t = resolve(actor, input);
   checkPlace(actor, t);
   const now = Date.now();
@@ -360,7 +370,7 @@ export const setLot = (actor: Actor, input: SetLotInput, by: string | null = nul
       })
       .returning()
       .get();
-    emitLot(lot);
+    emit(lot);
     return { lot, deleted: false };
   }
   // #endregion
@@ -370,9 +380,9 @@ export const setLot = (actor: Actor, input: SetLotInput, by: string | null = nul
   checkStatus(actor, lot.status, status);
   if (status === "not_todo" && lot.status !== "not_todo" && untouched(lot) && note === undefined) {
     db.delete(lots).where(eq(lots.id, lot.id)).run();
-    clearSurvey(actor, lot, by);
-    emitLot(lot);
-    return { lot: null, deleted: true };
+    const clearedTagId = clearSurvey(actor, lot, by);
+    emit(lot);
+    return { lot: null, deleted: true, clearedTagId };
   }
   const set: Partial<typeof lots.$inferInsert> = {};
   if (status !== lot.status) {
@@ -387,7 +397,7 @@ export const setLot = (actor: Actor, input: SetLotInput, by: string | null = nul
   if (status === "open" && lot.status !== "open" && lot.crewId === null) set.crewId = crewForPoint(actor.cc, actor.day, t.point, lot.parcelId);
   if (Object.keys(set).length === 0) return { lot, deleted: false };
   const updated = db.update(lots).set(set).where(eq(lots.id, lot.id)).returning().get();
-  emitLot(updated);
+  emit(updated);
   return { lot: updated, deleted: false };
 };
 // #endregion

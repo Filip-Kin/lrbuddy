@@ -64,7 +64,7 @@ export const publicProcedure = t.procedure;
 // #region scope helpers
 const TOUCH_MS = 30_000;
 
-const loadCcScope = (ccId: number): { cc: CommandCenter; day: Day; event: Event } => {
+export const loadCcScope = (ccId: number): { cc: CommandCenter; day: Day; event: Event } => {
   const cc = db.select().from(commandCenters).where(eq(commandCenters.id, ccId)).get();
   if (!cc) throw new TRPCError({ code: "NOT_FOUND", message: "Command center not found" });
   const day = db.select().from(days).where(eq(days.id, cc.dayId)).get();

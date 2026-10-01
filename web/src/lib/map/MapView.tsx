@@ -233,12 +233,22 @@ export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, la
     for (const mk of markers) {
       const layer = layerFor(mk);
       group.addLayer(layer);
-      // Lot outlines carry their parcel id, so a parcel can be found again after it becomes a lot.
-      const pid = mk.kind === "lot" ? mk.parcelId : null;
-      if (pid && layer instanceof L.GeoJSON) {
-        layer.eachLayer((l) => {
-          if (l instanceof L.Path) l.getElement()?.setAttribute("data-lot-parcel", pid);
-        });
+      // Lot outlines carry their parcel id, so a parcel can be found again after it becomes a lot,
+      // and their lot id (`lot-<id>` markers), which Paint uses to colour a stroke as it goes.
+      if (mk.kind === "lot") {
+        const pid = mk.parcelId;
+        const lotId = mk.id.startsWith("lot-") ? mk.id.slice(4) : null;
+        if (layer instanceof L.GeoJSON) {
+          layer.eachLayer((l) => {
+            if (!(l instanceof L.Path)) return;
+            const el = l.getElement();
+            if (!el || el.classList.contains("lrb-lot-hatch")) return;
+            if (pid) el.setAttribute("data-lot-parcel", pid);
+            if (lotId) el.setAttribute("data-lot-id", lotId);
+          });
+        } else if (layer instanceof L.Marker && lotId) {
+          layer.getElement()?.setAttribute("data-lot-id", lotId);
+        }
       }
     }
   }, [markers]);

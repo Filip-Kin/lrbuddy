@@ -5,19 +5,19 @@ import { Field, Select } from "../Field.tsx";
 import { ToggleChip } from "../Segmented.tsx";
 import { Sheet } from "../Sheet.tsx";
 import { trpc } from "../../lib/trpc.ts";
-import type { DayOfArea, DayOfPlan, DayOfSide } from "./dayOfLayer.ts";
+import type { DayOfArea, DayOfPlan } from "./dayOfLayer.ts";
 import { errorText, useGreenInvalidate } from "./hooks.ts";
 import { Fact } from "./ui.tsx";
 
 const lots = (n: number): string => `${n.toLocaleString("en-US")} ${n === 1 ? "lot" : "lots"}`;
-const unfinished = (c: DayOfSide["counts"]): number => c.open + c.inProgress;
+const unfinished = (c: DayOfArea["counts"]): number => c.open + c.inProgress;
 const joinNames = (names: readonly string[]): string => (names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`);
 
 type Step = "menu" | "reassign" | "done" | "dnt" | "delete";
 
 const DntTag = () => <span className="inline-flex rounded-full px-2.5 py-0.5 text-sm font-bold ring-2 ring-inset ring-warn">Do not touch</span>;
 
-const Counts = ({ c }: { c: DayOfSide["counts"] }) => (
+const Counts = ({ c }: { c: DayOfArea["counts"] }) => (
   <>
     <Fact label="Todo">{unfinished(c)}</Fact>
     <Fact label="Done">{c.done}</Fact>
@@ -25,7 +25,7 @@ const Counts = ({ c }: { c: DayOfSide["counts"] }) => (
   </>
 );
 
-/** Done and Do not touch, then their confirm with the count. Shared by the rectangle and the block side sheets. */
+/** Done and Do not touch, then their confirm with the count. For the rectangle sheet. */
 const useMark = (onDone: (msg: string) => void, onClose: () => void) => {
   const refresh = useGreenInvalidate();
   const [err, setErr] = useState<string | null>(null);
@@ -34,7 +34,6 @@ const useMark = (onDone: (msg: string) => void, onClose: () => void) => {
     onError: (x: unknown) => setErr(errorText(x)),
   };
   const area = trpc.green.markArea.useMutation(opts);
-  const side = trpc.green.markSide.useMutation(opts);
   const finish = (action: "done" | "doNotTouch", changed: number): void => {
     onDone(action === "done" ? `${lots(changed)} done` : `Do not touch, ${lots(changed)}`);
     onClose();
@@ -42,9 +41,8 @@ const useMark = (onDone: (msg: string) => void, onClose: () => void) => {
   return {
     err,
     clearErr: () => setErr(null),
-    busy: area.isPending || side.isPending,
+    busy: area.isPending,
     markArea: (areaId: number, action: "done" | "doNotTouch") => area.mutate({ areaId, action }, { onSuccess: (r) => finish(action, r.changed) }),
-    markSide: (key: string, action: "done" | "doNotTouch") => side.mutate({ key, action }, { onSuccess: (r) => finish(action, r.changed) }),
   };
 };
 
@@ -400,58 +398,3 @@ export const AssignAreaSheet = ({
 };
 // #endregion
 
-// #region block side
-export const SideSheet = ({
-  side,
-  areaLabel,
-  onClose,
-  onDone,
-}: {
-  side: DayOfSide | null;
-  areaLabel: string | null;
-  onClose: () => void;
-  onDone: (msg: string) => void;
-}) => {
-  const [step, setStep] = useState<Step>("menu");
-  const mark = useMark(onDone, onClose);
-  const key = side?.key ?? null;
-  useEffect(() => {
-    setStep("menu");
-    mark.clearErr();
-  }, [key]);
-  if (!side) return null;
-  const open = unfinished(side.counts);
-  if (step === "done" || step === "dnt") {
-    const dnt = step === "dnt";
-    return (
-      <ConfirmSheet
-        open
-        title={dnt ? (open > 0 ? `Do not touch, ${lots(open)}` : "Do not touch") : `Mark ${lots(open)} done`}
-        body={
-          <div className="space-y-2">
-            <p className="font-semibold text-ink">{side.label}</p>
-            <ErrorLine text={mark.err} />
-          </div>
-        }
-        action={dnt ? "Do not touch" : "Done"}
-        busy={mark.busy}
-        onConfirm={() => mark.markSide(side.key, dnt ? "doNotTouch" : "done")}
-        onClose={() => setStep("menu")}
-      />
-    );
-  }
-  return (
-    <Sheet open onClose={onClose} title={side.label}>
-      <div className="space-y-4 pb-2">
-        <div className="grid grid-cols-2 gap-3 rounded-2xl bg-surface-2 p-3 sm:grid-cols-4">
-          <div className="col-span-2">
-            <Fact label="Area">{areaLabel ?? "None"}</Fact>
-          </div>
-          <Counts c={side.counts} />
-        </div>
-        <Actions open={open} onStep={setStep} reassign={false} />
-      </div>
-    </Sheet>
-  );
-};
-// #endregion

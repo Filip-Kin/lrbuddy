@@ -334,7 +334,6 @@ export const AssignmentsPage = () => {
   // #region map layers
   const drawn = useMemo<DrawnSide[]>(() => {
     const byKey = new Map(sides.map((s) => [s.key, s]));
-    const field = new Map((dayOfQ.data?.sides ?? []).map((x) => [x.key, x]));
     return (shapesQ.data ?? []).flatMap((sh) => {
       const s = byKey.get(sh.key);
       if (!s) return [];
@@ -345,15 +344,11 @@ export const AssignmentsPage = () => {
         (a?.crewId != null && crewPickSet.has(a.crewId)) ||
         (a?.areaId != null && crews.some((c) => c.areaId === a.areaId && crewPickSet.has(c.id)));
       if (a && target !== null && a.companyId === target && a.dayId === dayId && crewMatch) classes += " lrb-side-focus";
-      const f = field.get(s.key);
-      const c = f?.counts;
+      // Block sides carry no field status (Filip, 2026-10-01): status colour is the lot outlines' alone.
       if (sel.has(s.key)) classes += " lrb-side-sel";
-      // The band only for a side a green marked Do not touch as a whole (SPEC 21: one lot hatches its own parcel).
-      else if (f?.doNotTouch) classes += " lrb-side-dnt";
-      else if (c && c.open + c.inProgress === 0 && c.done > 0) classes += " lrb-side-done";
       return [{ key: s.key, ring: sh.ring, classes }];
     });
-  }, [sides, shapesQ.data, dayOfQ.data, dayId, ccId, target, crewPicks, crewPickSet, crews, sel]);
+  }, [sides, shapesQ.data, dayId, ccId, target, crewPicks, crewPickSet, crews, sel]);
   useSidesLayer(map, drawn, onSide, drawSel || drawArea);
 
   // One outline per area, labelled the way the company sheet prints it ("GM 9, GM 10 & GM 11").

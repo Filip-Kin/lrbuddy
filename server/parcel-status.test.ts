@@ -147,7 +147,7 @@ describe("green and admin", () => {
   test("Not todo deletes a lot nobody worked on, and keeps one with history as not_todo", async () => {
     const fresh = (await w.green.setLotStatus({ parcelId: pid("a1"), status: "open" })).lot!;
     const r = await w.green.setLotStatus({ lotId: fresh.id, status: "not_todo" });
-    expect(r).toEqual({ lot: null, deleted: true });
+    expect(r).toEqual({ lot: null, deleted: true, clearedTagId: null });
     expect(lotOf("a1")).toBeUndefined();
 
     const worked = (await w.green.setLotStatus({ parcelId: pid("a2"), status: "done" })).lot!;

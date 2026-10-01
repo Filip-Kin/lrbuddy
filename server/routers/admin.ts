@@ -48,7 +48,9 @@ import { activeEvent, catalogFor, requestViews } from "../queries.ts";
 import { loadAlleysForCc } from "../alleys.ts";
 import { loadOnewayForCc, scheduleOneway, scheduleOnewayForDay } from "../oneway.ts";
 import { copySetupFromPreviousDay, createCc, createCrew, createEvent, createTruck, setActiveEvent, stockTypeOnTrucks } from "../setup.ts";
-import { adminProcedure, liveFor, readAdmin, router } from "../trpc.ts";
+import { adminProcedure, liveFor, loadCcScope, readAdmin, router } from "../trpc.ts";
+import { paint, paintDepth, paintInput, undoPaint } from "../paint.ts";
+import { bareParcelsFor, type Actor } from "../parcel-status.ts";
 
 // #region helpers
 /** A drawn rectangle as a GeoJSON ring of [lng, lat] pairs. */
@@ -716,6 +718,9 @@ const catalogRouter = router({
 // #endregion
 
 // #region lots
+/** Admin painting at a CC: the SPEC 21 admin rules, scoped to that CC's site and day. */
+const adminActor = (ccId: number): Actor => ({ role: "admin", ...loadCcScope(ccId), crew: null });
+
 const lotsRouter = router({
   /** Every lot of the event with its crew's number. */
   list: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) =>
@@ -833,6 +838,15 @@ const lotsRouter = router({
       emitLot(next);
       return next;
     }),
+  // #region Paint (SPEC 23), at one CC picked on the Lots map
+  /** Bare parcels in the CC's day area, drawn while painting. */
+  parcels: adminProcedure.input(z.object({ ccId: id })).query(({ input }) => bareParcelsFor(adminActor(input.ccId))),
+  paint: adminProcedure
+    .input(paintInput.extend({ ccId: id }))
+    .mutation(({ ctx, input }) => paint(adminActor(input.ccId), ctx.session.id, input, ctx.session.displayName)),
+  paintUndo: adminProcedure.input(z.object({ ccId: id })).mutation(({ ctx, input }) => undoPaint(adminActor(input.ccId), ctx.session.id)),
+  paintState: adminProcedure.input(z.object({ ccId: id })).query(({ ctx, input }) => ({ strokes: paintDepth(ctx.session.id, input.ccId) })),
+  // #endregion
   delete: adminProcedure.input(z.object({ ids: z.array(id).min(1).max(5000) })).mutation(({ input }) => {
     const r = db.delete(lots).where(inArray(lots.id, input.ids)).returning({ id: lots.id }).all();
     sweepPhotoFiles();

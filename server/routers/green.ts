@@ -17,8 +17,9 @@ import {
   stockFor,
   stopsForTruck,
 } from "../dispatch.ts";
-import { assignDrawnArea, dayOfMap, deleteArea, markArea, markSide, moveArea, reassignArea } from "../dayof.ts";
-import { bareParcelsFor, setLot } from "../parcel-status.ts";
+import { assignDrawnArea, dayOfMap, deleteArea, markArea, moveArea, reassignArea } from "../dayof.ts";
+import { paint, paintDepth, paintInput, undoPaint } from "../paint.ts";
+import { bareParcelsFor, setLot, type Actor } from "../parcel-status.ts";
 import { buildCrewsFor } from "./plan/assignments.ts";
 import { areaInput } from "./plan/common.ts";
 import { emitLot } from "../lots-import.ts";
@@ -30,6 +31,14 @@ import { greenProcedure, router } from "../trpc.ts";
 const ACTIVE_CREW_MS = 30 * 60_000;
 
 // #region builders
+const greenActor = (ctx: { session: { role: string }; cc: Actor["cc"]; day: Actor["day"]; event: Actor["event"] }): Actor => ({
+  role: ctx.session.role === "admin" ? "admin" : "green",
+  cc: ctx.cc,
+  day: ctx.day,
+  event: ctx.event,
+  crew: null,
+});
+
 const crewsAt = (ccId: number, dayId: number) => {
   const rows = db
     .select({ crew: crews, company: companies })
@@ -217,8 +226,8 @@ export const greenRouter = router({
       return { updated: updated.length };
     }),
 
-  // #region day of (SPEC 19 Marks): rectangles and block sides on the map
-  /** This CC's rectangles and assigned block sides on its day, with lot counts, and the companies a rectangle can go to. */
+  // #region day of (SPEC 19 Marks): rectangles on the map
+  /** This CC's rectangles on its day, with lot counts, and the companies a rectangle can go to. */
   plan: greenProcedure.query(({ ctx }) => {
     const m = dayOfMap({ cc: ctx.cc, day: ctx.day });
     // Companies of the event with no crew on the day: Draw area offers Build crews for them.
@@ -242,10 +251,6 @@ export const greenRouter = router({
     .input(z.object({ areaId: z.number().int(), action: z.enum(["done", "doNotTouch"]) }))
     .mutation(({ ctx, input }) => markArea({ cc: ctx.cc, day: ctx.day }, input.areaId, input.action)),
 
-  /** The same for one block side. */
-  markSide: greenProcedure
-    .input(z.object({ key: z.string().min(1).max(300), action: z.enum(["done", "doNotTouch"]) }))
-    .mutation(({ ctx, input }) => markSide({ cc: ctx.cc, day: ctx.day }, input.key, input.action)),
 
   /** Hands a rectangle to one or more crews of a company at this CC. */
   reassignArea: greenProcedure
@@ -275,6 +280,15 @@ export const greenRouter = router({
         ctx.session.displayName,
       ),
     ),
+
+  /** Paint mode (SPEC 23): one stroke of statuses or a crew over many parcels. */
+  paint: greenProcedure.input(paintInput).mutation(({ ctx, input }) => paint(greenActor(ctx), ctx.session.id, input, ctx.session.displayName)),
+
+  /** Takes back this session's last stroke at the CC. */
+  paintUndo: greenProcedure.mutation(({ ctx }) => undoPaint(greenActor(ctx), ctx.session.id)),
+
+  /** Strokes Undo can take back, for the Undo button when Paint opens. */
+  paintState: greenProcedure.query(({ ctx }) => ({ strokes: paintDepth(ctx.session.id, ctx.cc.id) })),
 
   /** Draw area, then Assign: the crews take the rectangle and the Todo lots inside it. */
   assignArea: greenProcedure

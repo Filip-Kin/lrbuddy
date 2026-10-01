@@ -85,8 +85,6 @@ const LOTS_PANE = "lrb-driver-lots";
 const AREAS_Z = "395";
 /** A tap that takes the map from following snaps it north up; whatever lands under the finger then is not what was aimed at. */
 const TAKE_GRACE_MS = 600;
-const NO_SIDES: [] = [];
-const noSide = (): void => undefined;
 
 const setInteractive = (m: L.Map, on: boolean): void => {
   for (const h of [m.dragging, m.touchZoom, m.scrollWheelZoom, m.doubleClickZoom]) {
@@ -317,8 +315,8 @@ export const DriverMap = ({
     for (const c of crews) L.marker([c.lat, c.lng], { icon: crewDotIcon(c.label), interactive: false, keyboard: false, zIndexOffset: 200 }).addTo(g);
   }, [crews]);
 
-  const plan = useMemo(() => (areas ? { areas: [...areas], sides: NO_SIDES } : undefined), [areas]);
-  useDayOfLayer(leaflet, plan, showLots, onArea, noSide, AREAS_Z);
+  const plan = useMemo(() => (areas ? { areas: [...areas] } : undefined), [areas]);
+  useDayOfLayer(leaflet, plan, showLots, onArea, AREAS_Z);
 
   return (
     <div ref={outer} role="region" aria-label="Route map" className="lrb-driver-map absolute inset-0 overflow-hidden bg-surface-2">

@@ -20,7 +20,7 @@ import { scheduleOneway } from "./oneway.ts";
 import { pushToCrew } from "./push.ts";
 import { crewIdsOnDay, siteCcIds } from "./queries.ts";
 import { areaForCrews, dayAreas, joinNames, pruneAreas, splitSides, type AreaView } from "./routers/plan/areas.ts";
-import { sideShapes, type Ring } from "./routers/plan/blocks.ts";
+import type { Ring } from "./routers/plan/blocks.ts";
 
 export const DO_NOT_TOUCH = "Do not touch";
 const UNFINISHED: readonly LotStatus[] = ["open", "in_progress"];
@@ -57,7 +57,7 @@ const notHere = (what: string): TRPCError => new TRPCError({ code: "NOT_FOUND", 
 interface Snapshot {
   areas: AreaView[];
   /** Assigned block sides at the CC on the day, in assignment order. */
-  sides: Array<{ key: string; areaId: number | null; crewId: number | null; companyId: number | null; doNotTouch: boolean }>;
+  sides: Array<{ key: string; areaId: number | null; crewId: number | null; companyId: number | null }>;
   lots: Lot[];
   sideOfParcel: Map<string, string>;
   /** "W Boston Blvd" per block side key, from the parcels' addresses. */
@@ -83,7 +83,6 @@ const snapshot = ({ cc, day }: Scope): Snapshot => {
     areaId: r.areaId ?? (r.crewId !== null ? (crewArea.get(r.crewId) ?? null) : null),
     crewId: r.crewId,
     companyId: r.companyId,
-    doNotTouch: r.doNotTouch === true,
   }));
   const today = crewIdsOnDay(day.id);
   const lotRows = db
@@ -119,7 +118,6 @@ const snapshot = ({ cc, day }: Scope): Snapshot => {
   return { areas, sides, lots: lotRows, sideOfParcel, streetOf, names };
 };
 
-const lotsOnSide = (s: Snapshot, key: string): Lot[] => s.lots.filter((l) => l.parcelId !== null && s.sideOfParcel.get(l.parcelId) === key);
 
 const lotsOfArea = (s: Snapshot, area: AreaView): Lot[] => {
   const keys = new Set(s.sides.filter((x) => x.areaId === area.id).map((x) => x.key));
@@ -154,17 +152,6 @@ export interface DayOfArea {
   counts: Counts;
 }
 
-export interface DayOfSide {
-  key: string;
-  label: string;
-  ring: Ring;
-  areaId: number | null;
-  companyId: number | null;
-  /** Marked Do not touch as a whole by a green (the band); one Do not touch lot never sets it. */
-  doNotTouch: boolean;
-  counts: Counts;
-}
-
 /** The CC's rectangles with their lot counts. */
 const areaViews = (scope: Scope, s: Snapshot): DayOfArea[] => {
   const companyRows = db.select().from(companies).where(eq(companies.eventId, scope.day.eventId)).all();
@@ -191,17 +178,11 @@ const areaViews = (scope: Scope, s: Snapshot): DayOfArea[] => {
 /** The CC's rectangles on its day with lot counts, without block sides (the driver map). */
 export const dayOfAreas = (scope: Scope): DayOfArea[] => areaViews(scope, snapshot(scope));
 
-/** Rectangles and block sides at the CC for the green map, with lot counts, and the companies a rectangle can go to. */
+/** Rectangles at the CC for the green map, with lot counts, and the companies a rectangle can go to. */
 export const dayOfMap = (scope: Scope) => {
   const s = snapshot(scope);
   const companyRows = db.select().from(companies).where(eq(companies.eventId, scope.day.eventId)).all();
   const areas = areaViews(scope, s);
-  const shapes = new Map(sideShapes(s.sides.map((x) => x.key)).map((x) => [x.key, x.ring]));
-  const sides: DayOfSide[] = s.sides.flatMap((x) => {
-    const ring = shapes.get(x.key);
-    if (!ring) return [];
-    return [{ key: x.key, label: sideName(s, x.key), ring, areaId: x.areaId, companyId: x.companyId, doNotTouch: x.doNotTouch, counts: count(lotsOnSide(s, x.key)) }];
-  });
   const crewRows = db.select().from(crews).where(and(eq(crews.dayId, scope.day.id), eq(crews.ccId, scope.cc.id))).orderBy(crews.number).all();
   const here = companyRows
     .filter((c) => crewRows.some((r) => r.companyId === c.id))
@@ -211,7 +192,7 @@ export const dayOfMap = (scope: Scope) => {
       name: c.name,
       crews: crewRows.filter((r) => r.companyId === c.id).map((r) => ({ id: r.id, name: r.name, areaId: r.areaId })),
     }));
-  return { areas, sides, companies: here };
+  return { areas, companies: here };
 };
 // #endregion
 
@@ -220,12 +201,6 @@ const areaOf = (s: Snapshot, areaId: number): AreaView => {
   const a = s.areas.find((x) => x.id === areaId);
   if (!a) throw notHere("Area");
   return a;
-};
-
-const sideOf = (s: Snapshot, key: string): Snapshot["sides"][number] => {
-  const x = s.sides.find((y) => y.key === key);
-  if (!x) throw notHere("Block side");
-  return x;
 };
 
 /** Sets the status of the unfinished lots; returns the rows written. */
@@ -266,22 +241,6 @@ export const markArea = (scope: Scope, areaId: number, action: "done" | "doNotTo
   emitAll(written, inArea);
   const what = areaStreets(s, area.id) || area.label;
   notify([...area.crewIds, ...crewsOf(written)], scope.cc, `${action === "done" ? "Done" : DO_NOT_TOUCH}: ${what}`, `area-${area.id}`);
-  return { changed: written.length };
-};
-
-export const markSide = (scope: Scope, key: string, action: "done" | "doNotTouch"): MarkResult => {
-  const s = snapshot(scope);
-  const side = sideOf(s, key);
-  const onSide = lotsOnSide(s, side.key);
-  const written = mark(onSide, action === "done" ? "done" : "do_not_touch");
-  // The band on the map: set by Do not touch on the side, cleared by Done on it.
-  db.update(assignments)
-    .set({ doNotTouch: action === "doNotTouch" ? true : null })
-    .where(and(eq(assignments.dayId, scope.day.id), eq(assignments.ccId, scope.cc.id), eq(assignments.blockSideKey, side.key)))
-    .run();
-  emitAll(written, onSide);
-  const area = side.areaId !== null ? s.areas.find((a) => a.id === side.areaId) : undefined;
-  notify([...(area?.crewIds ?? []), ...(side.crewId !== null ? [side.crewId] : []), ...crewsOf(written)], scope.cc, `${action === "done" ? "Done" : DO_NOT_TOUCH}: ${sideName(s, side.key)}`, `side-${side.key}`);
   return { changed: written.length };
 };
 

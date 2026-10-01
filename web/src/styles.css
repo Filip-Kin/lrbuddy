@@ -487,36 +487,8 @@
   stroke-width: 1.5px;
   stroke-opacity: 0.8;
 }
-.lrb-side-done {
-  stroke: var(--brand-green);
-  fill: var(--brand-green);
-  fill-opacity: 0.75;
-}
-.lrb-side-dnt {
-  stroke: var(--warn);
-  fill: var(--warn);
-  fill-opacity: 0.45;
-}
 
-/* Green map, day of (components/green/dayOfLayer.ts): block sides under the lots, rectangles over them. */
-.lrb-dayof-side {
-  stroke: var(--ink);
-  stroke-opacity: 0.35;
-  fill: var(--ink);
-  fill-opacity: 0.06;
-}
-.lrb-dayof-side-done {
-  stroke: var(--brand-green);
-  stroke-opacity: 0.8;
-  fill: var(--brand-green);
-  fill-opacity: 0.25;
-}
-.lrb-dayof-side-dnt {
-  stroke: var(--warn);
-  stroke-opacity: 0.8;
-  fill: var(--warn);
-  fill-opacity: 0.2;
-}
+/* Green and driver maps, day of (components/green/dayOfLayer.ts): rectangles over the lots. */
 .lrb-dayof-area {
   stroke: #1f6fe5;
   stroke-opacity: 0.9;

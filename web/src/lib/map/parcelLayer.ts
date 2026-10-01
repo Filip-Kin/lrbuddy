@@ -27,6 +27,8 @@ export const useParcelLayer = (
   onTap: (parcelId: string) => void,
   /** Pending statuses from `useSetLot`, keyed `p:<parcel id>`. */
   pending?: ReadonlyMap<string, LotStatus>,
+  /** Paint mode draws them at any zoom, so there is something to hit (SPEC 23). */
+  anyZoom = false,
 ): void => {
   const group = useRef<L.LayerGroup | null>(null);
   const renderer = useRef<L.Renderer | null>(null);
@@ -57,7 +59,7 @@ export const useParcelLayer = (
     const r = renderer.current;
     if (!g || !r) return;
     g.clearLayers();
-    if (!visible || !zoomOk || !parcels) return;
+    if (!visible || (!zoomOk && !anyZoom) || !parcels) return;
     for (const p of parcels) {
       const status = pending?.get(`p:${p.parcelId}`) ?? null;
       const layer = status && status !== "not_todo" ? lotShape(p.geometry, status, true, false, { pane: PANE, renderer: r }) : parcelShape(p.geometry, { pane: PANE, renderer: r });
@@ -70,5 +72,5 @@ export const useParcelLayer = (
         if (l instanceof L.Path) l.getElement()?.setAttribute("data-parcel", p.parcelId);
       });
     }
-  }, [parcels, visible, zoomOk, pending]);
+  }, [parcels, visible, zoomOk, pending, anyZoom]);
 };

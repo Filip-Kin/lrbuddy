@@ -7,52 +7,35 @@ import type { RouterOutputs } from "../../lib/trpc.ts";
 
 export type DayOfPlan = RouterOutputs["green"]["plan"];
 export type DayOfArea = DayOfPlan["areas"][number];
-export type DayOfSide = DayOfPlan["sides"][number];
 
-/**
- * Do not touch only when a green marked the whole side so (the flag); a single Do not touch lot
- * shows hatched on its own parcel. Done when lots were done and nothing is left to do.
- */
-export const sideState = (s: Pick<DayOfSide, "counts" | "doNotTouch">): "open" | "done" | "dnt" =>
-  s.doNotTouch ? "dnt" : s.counts.open + s.counts.inProgress > 0 ? "open" : s.counts.done > 0 ? "done" : "open";
-
-const SIDES_PANE = "lrb-dayof-sides";
 const AREAS_PANE = "lrb-dayof-areas";
 
 /**
- * The CC's rectangles and block sides on the green map (SPEC 19 Marks). Block
- * sides sit in a pane under the lot outlines, so a tap on a lot opens the lot
- * and a tap between lots opens the side. Rectangles are outlines (hatched for
- * Do not touch) with a tappable name pill on their top edge.
+ * The CC's rectangles on the green and driver maps (SPEC 19 Marks): blue
+ * outlines (hatched when a green marked the rectangle Do not touch) with a
+ * tappable name pill on their top edge. Status colour belongs to the lot
+ * outlines only; block sides are a planning idea and are not drawn here.
  */
 export const useDayOfLayer = (
   map: L.Map | null,
-  plan: Pick<DayOfPlan, "areas" | "sides"> | undefined,
+  plan: Pick<DayOfPlan, "areas"> | undefined,
   visible: boolean,
   onArea: (id: number) => void,
-  onSide: (key: string) => void,
   /** Stacking of the rectangles' pane; 405 sits over the lot outlines, the driver map puts them under its route. */
   areasZ = "405",
 ): void => {
   const group = useRef<L.LayerGroup | null>(null);
-  const renderers = useRef<{ sides: L.Renderer; areas: L.Renderer } | null>(null);
+  const renderer = useRef<L.Renderer | null>(null);
   const areaClick = useRef(onArea);
   areaClick.current = onArea;
-  const sideClick = useRef(onSide);
-  sideClick.current = onSide;
 
   useEffect(() => {
     if (!map) return;
-    for (const [name, z] of [
-      [SIDES_PANE, "390"],
-      [AREAS_PANE, areasZ],
-    ] as const) {
-      const pane = map.getPane(name) ?? map.createPane(name);
-      pane.style.zIndex = z;
-    }
+    const pane = map.getPane(AREAS_PANE) ?? map.createPane(AREAS_PANE);
+    pane.style.zIndex = areasZ;
     // The rectangles never take a tap; their pills do.
-    map.getPane(AREAS_PANE)!.style.pointerEvents = "none";
-    renderers.current = { sides: L.svg({ pane: SIDES_PANE }), areas: L.svg({ pane: AREAS_PANE }) };
+    pane.style.pointerEvents = "none";
+    renderer.current = L.svg({ pane: AREAS_PANE });
     const g = L.layerGroup().addTo(map);
     group.current = g;
     const detachLabels = attachLabelDeclutter(map);
@@ -60,35 +43,24 @@ export const useDayOfLayer = (
       detachLabels();
       g.remove();
       group.current = null;
-      renderers.current = null;
+      renderer.current = null;
     };
   }, [map, areasZ]);
 
   useEffect(() => {
     const g = group.current;
-    const r = renderers.current;
+    const r = renderer.current;
     if (!g || !r) return;
     g.clearLayers();
     if (!plan || !visible) return;
-    for (const s of plan.sides) {
-      const poly = L.polygon(
-        s.ring.slice(0, -1).map(([lng, lat]) => [lat, lng] as [number, number]),
-        { renderer: r.sides, pane: SIDES_PANE, className: `lrb-dayof-side lrb-dayof-side-${sideState(s)}`, weight: 1.5 },
-      );
-      poly.on("click", (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e);
-        sideClick.current(s.key);
-      });
-      g.addLayer(poly);
-    }
     // SPEC 20: from zoom 14 to 16 only the six largest rectangles keep their pill.
     const big = largestAreaIds(plan.areas);
     for (const a of plan.areas) {
       const pts = a.ring.slice(0, -1).map(([lng, lat]) => [lat, lng] as [number, number]);
       if (pts.length < 3) continue;
-      g.addLayer(L.polygon(pts, { renderer: r.areas, pane: AREAS_PANE, className: `lrb-dayof-area${a.doNotTouch ? " lrb-dayof-area-dnt" : ""}`, interactive: false, fill: false, weight: 3 }));
+      g.addLayer(L.polygon(pts, { renderer: r, pane: AREAS_PANE, className: `lrb-dayof-area${a.doNotTouch ? " lrb-dayof-area-dnt" : ""}`, interactive: false, fill: false, weight: 3 }));
       if (a.doNotTouch) {
-        for (const seg of hatchLines(a.ring)) g.addLayer(L.polyline(seg, { renderer: r.areas, pane: AREAS_PANE, className: "lrb-dayof-hatch", interactive: false, weight: 1.5 }));
+        for (const seg of hatchLines(a.ring)) g.addLayer(L.polyline(seg, { renderer: r, pane: AREAS_PANE, className: "lrb-dayof-hatch", interactive: false, weight: 1.5 }));
       }
       // The pill sits on the edge whose middle is furthest north, the way the printed sheet labels it.
       let top: L.LatLngTuple = pts[0]!;

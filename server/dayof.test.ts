@@ -154,8 +154,6 @@ describe("green day of", () => {
     expect(shared.streets).toBe("W Boston Blvd");
     expect(shared.counts).toEqual({ open: 4, inProgress: 2, done: 2, doNotTouch: 0 });
     expect(shared.doNotTouch).toBe(false);
-    expect(p.sides.map((x) => x.key).sort()).toEqual([w.bostonEven, w.bostonOdd, w.rochester].sort());
-    expect(p.sides.find((x) => x.key === w.rochester)!.areaId).toBe(w.own.id);
     expect(p.companies.map((c) => c.name)).toEqual(["DTE", "General Motors"]);
     expect(p.companies[1]!.crews.map((c) => c.name)).toEqual(["GM 1", "GM 2", "GM 3"]);
   });
@@ -177,30 +175,12 @@ describe("green day of", () => {
 
   test("Do not touch marks the unfinished lots do not touch and flags the rectangle", async () => {
     const r = await w.green.markArea({ areaId: w.own.id, action: "doNotTouch" });
-    // A rectangle's Do not touch flags the rectangle, not its block sides.
-    expect((await w.green.plan()).sides.find((x) => x.key === w.rochester)!.doNotTouch).toBe(false);
     expect(r.changed).toBe(3);
     const rows = lotsOn(w.rochester);
     expect(rows.filter((l) => l.status === "do_not_touch").length).toBe(3);
     expect(rows.find((l) => l.status === "done")!.note).toBeNull();
     expect(db.select().from(s.crewAreas).where(eq(s.crewAreas.id, w.own.id)).get()!.doNotTouch).toBe(true);
     expect((await w.green.plan()).areas.find((a) => a.id === w.own.id)!.doNotTouch).toBe(true);
-    expect(db.select().from(s.crewAreas).where(eq(s.crewAreas.id, w.shared.id)).get()!.doNotTouch).toBeNull();
-  });
-
-  test("a block side's Done and Do not touch touch only that side", async () => {
-    expect((await w.green.markSide({ key: w.bostonOdd, action: "done" })).changed).toBe(3);
-    expect(lotsOn(w.bostonOdd).every((l) => l.status === "done")).toBe(true);
-    expect(lotsOn(w.bostonEven).filter((l) => l.status !== "done").length).toBe(3);
-    expect((await w.green.markSide({ key: w.bostonEven, action: "doNotTouch" })).changed).toBe(3);
-    expect(lotsOn(w.bostonEven).filter((l) => l.status === "do_not_touch").length).toBe(3);
-    // The band follows the side's flag, set by Do not touch on the side and cleared by Done.
-    const plan = await w.green.plan();
-    expect(plan.sides.find((x) => x.key === w.bostonEven)!.doNotTouch).toBe(true);
-    expect(plan.sides.find((x) => x.key === w.bostonOdd)!.doNotTouch).toBe(false);
-    await w.green.markSide({ key: w.bostonEven, action: "done" });
-    expect((await w.green.plan()).sides.find((x) => x.key === w.bostonEven)!.doNotTouch).toBe(false);
-    // A side's Do not touch does not flag the whole rectangle.
     expect(db.select().from(s.crewAreas).where(eq(s.crewAreas.id, w.shared.id)).get()!.doNotTouch).toBeNull();
   });
 
@@ -256,7 +236,6 @@ describe("green day of", () => {
     const west = greenOf(w.west.id);
     await expect(west.reassignArea({ areaId: w.shared.id, companyId: w.gm.id, crewIds: [w.gm4.id] })).rejects.toThrow("Area not at this command center");
     await expect(west.markArea({ areaId: w.shared.id, action: "done" })).rejects.toThrow("Area not at this command center");
-    await expect(west.markSide({ key: w.rochester, action: "done" })).rejects.toThrow("Block side not at this command center");
     expect(lotsOn(w.rochester).filter((l) => l.status === "open").length).toBe(2);
   });
 });

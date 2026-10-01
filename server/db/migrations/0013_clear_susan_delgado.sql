@@ -1,0 +1,1 @@
+ALTER TABLE `assignments` DROP COLUMN `do_not_touch`;

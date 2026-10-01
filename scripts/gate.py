@@ -746,11 +746,176 @@ def stock_expected_checks() -> None:
 
 # endregion
 
-static_checks()
-dynamic_checks()
-stock_expected_checks()
-parcel_status_checks()
-flag_checks()
+# region Paint mode (SPEC 23)
+# As DURFB1 (CC Webb, the real day) at 1440 and 390: Paint opens the brush bar with chips at least
+# 44 px tall, a mouse drag across three neighbouring bare parcels at zoom 17 makes them Todo with the
+# counter reading "3 lots", and Undo takes them back to bare. Overflow 0. Undo leaves the data as found.
+PAINT_GREEN = {"code": "DURFB1", "displayName": "Gate"}
+CHIP_MIN_PX = 44
+
+PAINT_TRIPLE_JS = """() => {
+  const map = document.querySelector('.leaflet-container').getBoundingClientRect();
+  const bar = document.querySelector('[data-paint-bar]');
+  const bottom = bar ? bar.getBoundingClientRect().top - 10 : map.bottom - 10;
+  const legend = document.querySelector('[data-legend]');
+  const lr = legend ? legend.getBoundingClientRect() : null;
+  const pts = [];
+  for (const el of document.querySelectorAll('[data-parcel]')) {
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    if (x < map.left + 50 || x > map.right - 50 || y < map.top + 50 || y > bottom) continue;
+    if (lr && x > lr.left - 10 && y < lr.bottom + 10) continue;
+    if (document.elementFromPoint(x, y) !== el) continue;
+    pts.push({ x, y, pid: el.getAttribute('data-parcel'), el });
+  }
+  const cx = map.left + map.width / 2, cy = (map.top + bottom) / 2;
+  pts.sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
+  const clean = (path, ok) => {
+    for (let i = 0; i + 1 < path.length; i++) {
+      const a = path[i], b = path[i + 1];
+      const n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 2);
+      for (let k = 0; k <= n; k++) {
+        const e = document.elementFromPoint(a.x + (b.x - a.x) * k / n, a.y + (b.y - a.y) * k / n);
+        if (!e) return false;
+        if (e.hasAttribute('data-lot-id') || e.hasAttribute('data-lot-parcel')) return false;
+        if (e.hasAttribute('data-parcel') && !ok.has(e.getAttribute('data-parcel'))) return false;
+      }
+    }
+    return true;
+  };
+  for (const p of pts.slice(0, 40)) {
+    const near = pts.filter((q) => q !== p).map((q) => ({ q, d: Math.hypot(q.x - p.x, q.y - p.y) })).sort((a, b) => a.d - b.d);
+    for (const { q, d } of near.slice(0, 4)) {
+      if (d > 90) break;
+      const tx = q.x + (q.x - p.x), ty = q.y + (q.y - p.y);
+      const r = pts.find((o) => o !== p && o !== q && Math.hypot(o.x - tx, o.y - ty) < d * 0.35);
+      if (!r) continue;
+      const ok = new Set([p.pid, q.pid, r.pid]);
+      if (clean([p, q, r], ok)) return [p, q, r].map(({ x, y, pid }) => ({ x, y, pid }));
+    }
+  }
+  return null;
+}"""
+
+PAINT_STATE_JS = """() => ({
+  bar: !!document.querySelector('[data-paint-bar]'),
+  count: (document.querySelector('[data-paint-count]') || {}).textContent || '',
+  zoomLabel: !!document.querySelector('[data-paint-zoom]'),
+  chips: [...document.querySelectorAll('[data-brush]')].map((e) => e.getBoundingClientRect().height),
+  over: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+})"""
+
+
+def zoom_to(page, sel: str, target: float) -> None:
+    for _ in range(12):
+        if page.evaluate(ZOOM_JS) >= target:
+            return
+        at = page.evaluate(PARCEL_AT_JS, sel)
+        if not at:
+            return
+        page.mouse.move(at["x"], at["y"])
+        page.mouse.wheel(0, -120)
+        page.wait_for_timeout(450)
+
+
+def paint_checks() -> None:
+    only = {r for r in os.environ.get("GATE_ROLES", "").split(",") if r}
+    if only and "green" not in only:
+        return
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
+        for size, (w, h) in SIZES.items():
+            tag = f"green paint {size}"
+            phone = size == "phone"
+            ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=1, color_scheme="light", is_mobile=phone, has_touch=phone)
+            r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(PAINT_GREEN), headers={"content-type": "application/json"})
+            if r.status >= 400:
+                fail(f"{tag}: DURFB1 login returned {r.status}")
+                ctx.close()
+                continue
+            page = ctx.new_page()
+            painted: list[str] = []
+            try:
+                page.goto(BASE + "/", wait_until="networkidle", timeout=45000)
+                page.wait_for_timeout(800)
+                page.locator("[data-paint]").first.click()
+                page.wait_for_timeout(400)
+                st = page.evaluate(PAINT_STATE_JS)
+                if not st["bar"]:
+                    fail(f"{tag}: Paint opened no brush bar")
+                    continue
+                small = [round(c) for c in st["chips"] if c < CHIP_MIN_PX]
+                if len(st["chips"]) < 5 or small:
+                    fail(f"{tag}: brush chips {len(st['chips'])}, under {CHIP_MIN_PX}px: {small}")
+                page.wait_for_timeout(600)
+                first = page.evaluate(PARCEL_PICK_JS)
+                if not first:
+                    fail(f"{tag}: no bare parcel drawn while painting")
+                    continue
+                zoom_to(page, f'[data-parcel="{first}"]', 17)
+                if page.evaluate(ZOOM_JS) < 17:
+                    fail(f"{tag}: map did not reach zoom 17")
+                if page.evaluate(PAINT_STATE_JS)["zoomLabel"]:
+                    fail(f"{tag}: 'Zoom in to paint' still showing at zoom 17")
+                page.wait_for_timeout(500)
+                tri = page.evaluate(PAINT_TRIPLE_JS)
+                if not tri:
+                    fail(f"{tag}: no three neighbouring bare parcels in a row at zoom 17")
+                    continue
+                page.locator('[data-brush="open"]').click()
+                p, q, rr = tri
+                page.mouse.move(p["x"], p["y"])
+                page.mouse.down()
+                page.mouse.move(q["x"], q["y"], steps=8)
+                page.mouse.move(rr["x"], rr["y"], steps=8)
+                page.mouse.up()
+                painted = [t["pid"] for t in tri]
+                ok = False
+                for _ in range(20):
+                    page.wait_for_timeout(300)
+                    reds = [page.evaluate(LOT_FILL_JS, pid) for pid in painted]
+                    if all(x and "lrb-lot-shape-open" in x["cls"] and x["fill"] == RED for x in reds):
+                        ok = True
+                        break
+                st = page.evaluate(PAINT_STATE_JS)
+                page.screenshot(path=str(OUT / f"green_paint-{size}-light.png"))
+                if not ok:
+                    fail(f"{tag}: the three painted parcels did not turn red Todo")
+                if st["count"].strip() != "3 lots":
+                    fail(f"{tag}: counter reads '{st['count']}', expected '3 lots'")
+                if st["over"] != 0:
+                    fail(f"{tag}: horizontal overflow {st['over']}px")
+                page.locator("[data-paint-undo]").click()
+                back = False
+                for _ in range(20):
+                    page.wait_for_timeout(300)
+                    if all(page.locator(f'[data-parcel="{pid}"]').count() > 0 for pid in painted):
+                        back = True
+                        break
+                page.screenshot(path=str(OUT / f"green_paint_undo-{size}-light.png"))
+                if not back:
+                    fail(f"{tag}: Undo did not return the three parcels to Not todo")
+                else:
+                    painted = []
+                page.locator("[data-paint-exit]").click()
+            except Exception as e:  # noqa: BLE001
+                fail(f"{tag}: {type(e).__name__} {str(e)[:160]}")
+            finally:
+                for pid in painted:
+                    ctx.request.post(f"{BASE}/trpc/green.setLotStatus", data=json.dumps({"json": {"parcelId": pid, "status": "not_todo"}}),
+                                     headers={"content-type": "application/json"})
+                ctx.close()
+        browser.close()
+
+
+# endregion
+
+CHECKS = [static_checks, dynamic_checks, stock_expected_checks, parcel_status_checks, flag_checks, paint_checks]
+# GATE_ONLY=paint_checks,flag_checks runs just those groups while working on one screen; the release gate runs all.
+_only = {c for c in os.environ.get("GATE_ONLY", "").split(",") if c}
+for check in CHECKS:
+    if not _only or check.__name__ in _only:
+        check()
 print()
 print(f"{len(failures)} failures, {len(warnings)} warnings, screenshots in {OUT}")
 sys.exit(1 if failures else 0)

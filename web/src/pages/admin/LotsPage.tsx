@@ -17,6 +17,10 @@ import { SkeletonList } from "../../components/Skeleton.tsx";
 import { Segmented } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
+import { useParcelLayer } from "../../lib/map/parcelLayer.ts";
+import type { PaintTarget } from "../../lib/map/paintHit.ts";
+import { PaintBar, PaintFrame, PaintIcon, usePaint } from "../../components/PaintBar.tsx";
+import { FilterSelect } from "../../components/green/ui.tsx";
 import { AlleyLayer } from "../../components/alleys/AlleyLayer.tsx";
 import { insideRect, rectBBox, rectRing, rectSize, STEP_LABEL, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
 import { STATUS_LABEL, STATUS_ORDER } from "../../lib/lotStatus.ts";
@@ -393,6 +397,10 @@ const CsvSheet = ({ open, onClose, notify, ccs }: { open: boolean; onClose: () =
 
 type Filter = "all" | "none" | number;
 
+/** One place across days: a CC's lots belong to every day's row of it (SPEC 8). */
+const siteKey = (c: Pick<Cc, "name" | "lat" | "lng">): string => `${c.name}|${c.lat.toFixed(4)}|${c.lng.toFixed(4)}`;
+const noTap = (): void => undefined;
+
 export const LotsPage = () => {
   const lotsQ = trpc.admin.lots.list.useQuery(undefined, { retry: false });
   const counts = trpc.admin.lots.counts.useQuery(undefined, { retry: false });
@@ -416,6 +424,28 @@ export const LotsPage = () => {
   });
   const lots = lotsQ.data ?? [];
   const ccs = ccsQ.data ?? [];
+
+  // #region Paint (SPEC 23): at one CC, the Show filter's, else today's, else the first.
+  const [paintCcPick, setPaintCc] = useState<number | null>(null);
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Detroit" });
+  const paintCc = paintCcPick ?? (typeof filter === "number" ? filter : (ccs.find((c) => c.date === today)?.id ?? ccs[0]?.id ?? null));
+  const paintSite = useMemo(() => {
+    const cc = ccs.find((c) => c.id === paintCc);
+    return cc ? new Set(ccs.filter((c) => siteKey(c) === siteKey(cc)).map((c) => c.id)) : new Set<number>();
+  }, [ccs, paintCc]);
+  const [paintOn, setPaintOn] = useState(false);
+  const bare = trpc.admin.lots.parcels.useQuery({ ccId: paintCc ?? 0 }, { enabled: paintOn && paintCc !== null, retry: false });
+  const paintTargets = useMemo<PaintTarget[]>(() => {
+    const out: PaintTarget[] = lots
+      .filter((l) => l.ccId === null || paintSite.has(l.ccId))
+      .map((l) => ({ key: `l:${l.id}`, lotId: l.id, parcelId: l.parcelId, status: l.status, crewId: l.crewId, lat: l.lat, lng: l.lng, geometry: l.geometry }));
+    for (const p of bare.data ?? []) out.push({ key: `p:${p.parcelId}`, lotId: null, parcelId: p.parcelId, status: null, crewId: null, lat: p.lat, lng: p.lng, geometry: p.geometry });
+    return out;
+  }, [lots, paintSite, bare.data]);
+  const paint = usePaint(map, { kind: "admin", ccId: paintCc }, paintTargets);
+  useEffect(() => setPaintOn(paint.on), [paint.on]);
+  useParcelLayer(map, bare.data, paint.on, noTap, paint.pending, true);
+  // #endregion
   const noEvent = lotsQ.error?.data?.code === "PRECONDITION_FAILED";
 
   const add = trpc.admin.lots.add.useMutation({
@@ -432,6 +462,7 @@ export const LotsPage = () => {
     setSheetRect(null);
   };
   const startRect = (action: RectAction): void => {
+    paint.close();
     setSheetRect(null);
     setMode({ kind: "rect", action });
   };
@@ -454,7 +485,7 @@ export const LotsPage = () => {
     () => lots.filter((l) => filter === "all" || (filter === "none" ? l.ccId === null : l.ccId === filter)),
     [lots, filter],
   );
-  const idle = mode.kind === "idle";
+  const idle = mode.kind === "idle" && !paint.on;
   const lotMarkers = useMemo<MapMarker[]>(
     () =>
       shown.map((l) => ({
@@ -462,13 +493,14 @@ export const LotsPage = () => {
         kind: "lot",
         lat: l.lat,
         lng: l.lng,
-        status: l.status,
+        status: paint.pending.get(`l:${l.id}`) ?? l.status,
         geometry: l.geometry,
+        parcelId: l.parcelId,
         mine: l.ccId !== null,
         title: l.address ?? undefined,
         onClick: idle ? () => setLotId(l.id) : undefined,
       })),
-    [shown, idle],
+    [shown, idle, paint.pending],
   );
   const markers = useMemo(() => [...lotMarkers, ...ccMarkers], [lotMarkers, ccMarkers]);
 
@@ -495,7 +527,33 @@ export const LotsPage = () => {
         <UploadIcon />
         Import CSV
       </Button>
-      <Button size="sm" variant={mode.kind === "add" ? "primary" : "secondary"} onClick={() => (mode.kind === "add" ? stopMode() : setMode({ kind: "add" }))}>
+      <Button
+        size="sm"
+        variant={paint.on ? "primary" : "secondary"}
+        data-paint
+        disabled={ccs.length === 0}
+        onClick={() => {
+          if (paint.on) {
+            paint.close();
+            return;
+          }
+          stopMode();
+          setLotId(null);
+          paint.open();
+        }}
+      >
+        <PaintIcon />
+        Paint
+      </Button>
+      <Button
+        size="sm"
+        variant={mode.kind === "add" ? "primary" : "secondary"}
+        onClick={() => {
+          paint.close();
+          if (mode.kind === "add") stopMode();
+          else setMode({ kind: "add" });
+        }}
+      >
         <PinIcon />
         Add lot
       </Button>
@@ -526,18 +584,27 @@ export const LotsPage = () => {
         {tools}
         <Notice value={notice} onClear={clear} />
         <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <div className="relative h-[62dvh] min-h-80 overflow-hidden rounded-2xl ring-1 ring-line lg:h-[calc(100dvh-13rem)]">
+          <div className={`relative h-[62dvh] min-h-80 overflow-hidden rounded-2xl ring-1 ring-line lg:h-[calc(100dvh-13rem)] ${paint.on ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
             {lotsQ.isLoading ? (
               <div className="h-full w-full animate-pulse bg-surface-2" aria-busy="true" aria-label="Loading" />
             ) : (
               <MapView markers={markers} onMapClick={mode.kind === "add" ? onMapClick : undefined} fitKey="lots" label="Lots map" className="absolute inset-0" onReady={setMap} />
             )}
             <AlleyLayer map={map} />
+            <PaintFrame paint={paint} />
+            <PaintBar
+              paint={paint}
+              extra={
+                <FilterSelect label="Command center" value={paintCc ?? ""} onChange={(e) => setPaintCc(Number(e.target.value))} className="w-full">
+                  <CcOptions ccs={ccs} />
+                </FilterSelect>
+              }
+            />
             {mode.kind === "add" && <MapMode label="Add lot" detail={add.isPending ? "Adding…" : undefined} onCancel={stopMode} cancelLabel="Done" />}
             {mode.kind === "rect" && (
               <MapMode label={RECT_LABEL[mode.action]} detail={rectTool.step ? STEP_LABEL[rectTool.step] : undefined} onCancel={stopMode} />
             )}
-            {!lotsQ.isLoading && lots.length === 0 && idle && (
+            {!lotsQ.isLoading && lots.length === 0 && idle && !paint.on && (
               <div className="pointer-events-none absolute inset-x-4 bottom-10 z-[1000] flex justify-center">
                 <div className="pointer-events-auto rounded-2xl bg-surface px-5 py-4 text-center shadow-lg ring-1 ring-line">
                   <p className="font-semibold">No lots yet</p>

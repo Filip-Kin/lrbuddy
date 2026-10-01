@@ -338,13 +338,12 @@ export const assignmentsRouter = router({
       ccOfDay(input.ccId, input.dayId);
       return buildCrewsFor({ eventId, dayId: input.dayId, ccId: input.ccId, companyId: input.companyId, headcount: input.headcount });
     }),
-  /** The day as the field left it at one CC (SPEC 19 Marks): lot counts per block side and rectangle, Do not touch flags. */
+  /** The day as the field left it at one CC (SPEC 19 Marks): lot counts and the Do not touch flag per rectangle. */
   dayOf: adminProcedure.input(z.object({ dayId: id, ccId: id, ...eventInput })).query(({ input }) => {
     const day = dayOfEvent(input.dayId, eventOrActive(input.eventId));
     const cc = ccOfDay(input.ccId, input.dayId);
     const m = dayOfMap({ cc, day });
     return {
-      sides: m.sides.map((x) => ({ key: x.key, doNotTouch: x.doNotTouch, counts: x.counts })),
       areas: m.areas.map((a) => ({ id: a.id, doNotTouch: a.doNotTouch, counts: a.counts })),
     };
   }),

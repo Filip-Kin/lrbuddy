@@ -8,6 +8,7 @@ at phone and laptop widths, light and dark. Screenshots land in
 /home/filip/preview-shots/lrbuddy-gate/.
 """
 import json
+import os
 import pathlib
 import re
 import sys
@@ -224,8 +225,10 @@ def login_checks(browser) -> None:
         for label in info["labels"]:
             if re.search(r"\bcode\b", label, re.I):
                 fail(f"login-{scheme}: field labelled '{label}' on first paint")
-        if not info["staffLink"]:
+        if info["phoneForm"] and not info["staffLink"]:
             fail(f"login-{scheme}: no Staff password link")
+        if not info["phoneForm"] and not page.locator("input[type=password]").first.is_visible():
+            fail(f"login-{scheme}: Firebase off and no password field on first paint")
         if info["phoneForm"]:
             tel, otp = info["tel"], info["otp"]
             if not tel or not tel["visible"]:
@@ -259,7 +262,10 @@ def dynamic_checks() -> None:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
         login_checks(browser)
+        only = {r for r in os.environ.get("GATE_ROLES", "").split(",") if r}
         for role, cfg in ROLES.items():
+            if only and role not in only:
+                continue
             if role == "admin" and not ADMIN:
                 warn("no admin password given, admin routes skipped")
                 continue

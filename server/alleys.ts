@@ -1,19 +1,17 @@
 /**
- * Alleys as work units (SPEC 19). OpenStreetMap ways tagged `highway=service`
- * and `service=alley` in a CC's day area (the one-way bbox: day area padded
- * 300 m), stored per CC as the centreline buffered 3 m each side. A refetch
- * updates the shape and names and keeps the status and crew. Fails soft.
+ * OpenStreetMap alleys as a hint (SPEC 24). Ways tagged `highway=service` and
+ * `service=alley` in a CC's day area (the one-way bbox: day area padded 300 m),
+ * cached per way as the centreline. No status and no crew: work in an alley is
+ * a drawn lot. Fails soft. `streetsBeside` names a drawn lot from the parcels
+ * on each side of it.
  */
-import { and, eq, inArray, isNull, notInArray } from "drizzle-orm";
+import { and, gte, lte } from "drizzle-orm";
 import { db } from "./db/index.ts";
-import { alleys, type Alley, type AlleyStatus, type AreaPolygon, type ParcelRow } from "./db/schema.ts";
+import { osmAlleys, type ParcelRow } from "./db/schema.ts";
 import { ccOnewayBBox, isRecord, overpassJson, scopeOf, withRetry, type Fetcher, type RetryOpts } from "./oneway.ts";
-import { cachedParcelsInBBox } from "./parcels.ts";
 import type { BBox } from "./geo.ts";
 
 // #region constants
-/** Half the width of the drawn alley. */
-export const ALLEY_HALF_WIDTH_M = 3;
 /** Parcels this close to the alley's middle name its streets and cross streets. */
 const NAME_RADIUS_M = 80;
 const M_PER_DEG = 111320;
@@ -44,48 +42,6 @@ export const parseAlleys = (json: unknown): AlleyInput[] => {
 export const alleyQuery = (b: BBox): string => {
   const [w, s, e, n] = b.map((x) => x.toFixed(5));
   return `[out:json][timeout:25];way["highway"="service"]["service"="alley"](${s},${w},${n},${e});out geom;`;
-};
-
-/**
- * The line buffered `halfM` metres each side, as a GeoJSON Polygon ([lng, lat]).
- * Corners are mitred (the offset is along the average of the two segment
- * normals, stretched so the edges stay parallel); ends are square.
- */
-export const bufferLine = (points: ReadonlyArray<readonly [number, number]>, halfM = ALLEY_HALF_WIDTH_M): AreaPolygon => {
-  const lat0 = points.reduce((n, p) => n + p[0], 0) / points.length;
-  const kx = M_PER_DEG * Math.cos((lat0 * Math.PI) / 180);
-  const xy = points.map((p) => ({ x: p[1] * kx, y: p[0] * M_PER_DEG })).filter((p, i, a) => i === 0 || Math.hypot(p.x - a[i - 1]!.x, p.y - a[i - 1]!.y) > 0);
-  const normals: Array<{ x: number; y: number }> = [];
-  for (let i = 1; i < xy.length; i++) {
-    const dx = xy[i]!.x - xy[i - 1]!.x;
-    const dy = xy[i]!.y - xy[i - 1]!.y;
-    const len = Math.hypot(dx, dy);
-    normals.push({ x: -dy / len, y: dx / len });
-  }
-  const left: Array<{ x: number; y: number }> = [];
-  const right: Array<{ x: number; y: number }> = [];
-  xy.forEach((p, i) => {
-    const a = normals[Math.max(0, i - 1)]!;
-    const b = normals[Math.min(normals.length - 1, i)]!;
-    let nx = a.x + b.x;
-    let ny = a.y + b.y;
-    const nl = Math.hypot(nx, ny);
-    // A U-turn has no average normal: fall back to the incoming one.
-    if (nl < 1e-9) {
-      nx = a.x;
-      ny = a.y;
-    } else {
-      nx /= nl;
-      ny /= nl;
-    }
-    const cos = Math.max(0.25, nx * a.x + ny * a.y);
-    const d = halfM / cos;
-    left.push({ x: p.x + nx * d, y: p.y + ny * d });
-    right.push({ x: p.x - nx * d, y: p.y - ny * d });
-  });
-  const ring = [...left, ...right.reverse()].map((p) => [p.x / kx, p.y / M_PER_DEG]);
-  if (ring.length > 0) ring.push([...ring[0]!]);
-  return { type: "Polygon", coordinates: [ring] };
 };
 
 const title = (s: string): string => s.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase());
@@ -147,71 +103,46 @@ export interface AlleyLoad {
   error: string | null;
 }
 
-/**
- * Fetches the CC's alleys and upserts them on (cc, OSM way). Alleys gone from
- * OSM go too when nobody touched them (still open, no crew). Never throws.
- */
+const boundsOf = (pts: ReadonlyArray<readonly [number, number]>) => ({
+  minLat: Math.min(...pts.map((p) => p[0])),
+  maxLat: Math.max(...pts.map((p) => p[0])),
+  minLng: Math.min(...pts.map((p) => p[1])),
+  maxLng: Math.max(...pts.map((p) => p[1])),
+});
+
+/** Fetches the alleys round a CC's day area and upserts them by OSM way. Never throws; Overpass down keeps the cache. */
 export const loadAlleysForCc = async (ccId: number, opts: { fetcher?: Fetcher; timeoutMs?: number; now?: number } & RetryOpts = {}): Promise<AlleyLoad> => {
   const scope = scopeOf(ccId);
   if (!scope) return { alleys: 0, error: "Command center not found" };
   const box = ccOnewayBBox(scope.cc, scope.day);
   const r = await withRetry(async () => parseAlleys(await overpassJson(alleyQuery(box), opts)), opts);
-  if (!r.ok) return { alleys: db.select({ id: alleys.id }).from(alleys).where(eq(alleys.ccId, ccId)).all().length, error: r.error };
+  if (!r.ok) return { alleys: alleysIn(box).length, error: r.error };
   const now = opts.now ?? Date.now();
-  const parcels = cachedParcelsInBBox(box, 50_000);
   db.transaction((tx) => {
     for (const w of r.value) {
-      const names = alleyNames(w.points, parcels);
-      const shape = { polygon: bufferLine(w.points), centerline: w.points, ...names, fetchedAt: now };
-      tx.insert(alleys)
-        .values({ eventId: scope.day.eventId, dayId: scope.day.id, ccId, osmId: w.osmId, ...shape })
-        .onConflictDoUpdate({ target: [alleys.ccId, alleys.osmId], set: shape })
+      const row = { centerline: w.points, ...boundsOf(w.points), fetchedAt: now };
+      tx.insert(osmAlleys)
+        .values({ osmId: w.osmId, ...row })
+        .onConflictDoUpdate({ target: osmAlleys.osmId, set: row })
         .run();
     }
-    // Gone from OSM: removed when untouched; one with a status or a crew stays.
-    const kept = r.value.map((w) => w.osmId);
-    tx.delete(alleys)
-      .where(and(eq(alleys.ccId, ccId), eq(alleys.status, "open"), isNull(alleys.crewId), kept.length ? notInArray(alleys.osmId, kept) : undefined))
-      .run();
   });
-  return { alleys: db.select({ id: alleys.id }).from(alleys).where(eq(alleys.ccId, ccId)).all().length, error: null };
+  return { alleys: alleysIn(box).length, error: null };
 };
 // #endregion
 
-// #region read and write
-export interface AlleyView {
+// #region read
+export interface AlleyLine {
   id: number;
-  ccId: number;
-  polygon: AreaPolygon;
-  status: AlleyStatus;
-  crewId: number | null;
-  /** "Alley, Webb St and Burlingame St" or "Alley" when the parcels did not say. */
-  label: string;
-  /** "Dexter Ave to Wildemere St" or null. */
-  span: string | null;
+  /** [[lat, lng], ...] */
+  centerline: Array<[number, number]>;
 }
 
-export const alleyView = (a: Alley): AlleyView => {
-  const streets = [a.betweenStreet1, a.betweenStreet2].filter((s): s is string => !!s);
-  return {
-    id: a.id,
-    ccId: a.ccId,
-    polygon: a.polygon,
-    status: a.status,
-    crewId: a.crewId,
-    label: streets.length ? `Alley, ${streets.join(" and ")}` : "Alley",
-    span: a.fromCross && a.toCross ? `${a.fromCross} to ${a.toCross}` : null,
-  };
-};
-
-/** Alleys of these CCs. */
-export const alleysOf = (ccIds: readonly number[]): AlleyView[] =>
-  ccIds.length === 0 ? [] : db.select().from(alleys).where(inArray(alleys.ccId, [...ccIds])).orderBy(alleys.id).all().map(alleyView);
-
-export const setAlleyStatus = (id: number, status: AlleyStatus, now = Date.now()): AlleyView | null => {
-  const row = db.update(alleys).set({ status, statusAt: now }).where(eq(alleys.id, id)).returning().get();
-  return row ? alleyView(row) : null;
-};
-
-export const alleyById = (id: number): Alley | null => db.select().from(alleys).where(eq(alleys.id, id)).get() ?? null;
+/** Cached alley centrelines touching the box [west, south, east, north]. */
+export const alleysIn = (b: BBox): AlleyLine[] =>
+  db
+    .select({ id: osmAlleys.id, centerline: osmAlleys.centerline })
+    .from(osmAlleys)
+    .where(and(lte(osmAlleys.minLat, b[3]), gte(osmAlleys.maxLat, b[1]), lte(osmAlleys.minLng, b[2]), gte(osmAlleys.maxLng, b[0])))
+    .all();
 // #endregion

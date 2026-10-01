@@ -5,6 +5,8 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { AddStopSheet } from "../../components/green/AddStopSheet.tsx";
 import { AreaSheet, AssignAreaSheet } from "../../components/green/DayOfSheets.tsx";
 import { PaintBar, PaintFrame, PaintIcon, usePaint } from "../../components/PaintBar.tsx";
+import { DrawLotBar, DrawLotIcon, DrawLotSheet, useDrawLot } from "../../components/DrawLot.tsx";
+import { useOsmAlleys } from "../../lib/map/alleyLayer.ts";
 import type { PaintTarget } from "../../lib/map/paintHit.ts";
 import { useDayOfLayer } from "../../components/green/dayOfLayer.ts";
 import { isUrgent, useNow, type GreenRequest } from "../../components/green/hooks.ts";
@@ -17,7 +19,6 @@ import { FilterSelect, PinIcon, useFlash } from "../../components/green/ui.tsx";
 import { ToggleChip } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
-import { AlleyLayer } from "../../components/alleys/AlleyLayer.tsx";
 import { trpc } from "../../lib/trpc.ts";
 
 type Selected = { kind: "crew" | "truck" | "lot" | "stop" | "area"; id: number } | { kind: "parcel"; parcelId: string } | null;
@@ -37,6 +38,7 @@ export const MapPage = () => {
   const [showLots, setShowLots] = useState(true);
   const [showTrucks, setShowTrucks] = useState(true);
   const [showAreas, setShowAreas] = useState(true);
+  const [showOsmAlleys, setShowOsmAlleys] = useState(false);
   const [map, setMap] = useState<LeafletMap | null>(null);
   const plan = trpc.green.plan.useQuery(undefined, { refetchInterval: 60_000 });
   const [selected, setSelected] = useState<Selected>(null);
@@ -65,6 +67,10 @@ export const MapPage = () => {
   const paint = usePaint(map, { kind: "green" }, paintTargets);
   const pending = useMemo(() => (paint.pending.size === 0 ? lotWrites.pending : new Map([...lotWrites.pending, ...paint.pending])), [lotWrites.pending, paint.pending]);
   const painting = paint.on;
+  // Draw lot (SPEC 24): taps outline a new lot; Edit shape moves a drawn lot's points.
+  const drawLot = useDrawLot(map, { kind: "green" }, showFlash);
+  const lotDrawing = drawLot.mode !== null;
+  useOsmAlleys(map, showOsmAlleys);
 
   const d = overview.data;
   const crews = d?.crews ?? [];
@@ -97,7 +103,7 @@ export const MapPage = () => {
           mine: l.crewId !== null || status === "not_todo",
           noFit: true,
           title: l.address ?? undefined,
-          onClick: drawing || painting ? undefined : () => setSelected({ kind: "lot", id: l.id }),
+          onClick: drawing || painting || lotDrawing ? undefined : () => setSelected({ kind: "lot", id: l.id }),
         });
       }
     }
@@ -134,15 +140,15 @@ export const MapPage = () => {
     }
     if (pin) out.push({ id: "pin", kind: "request", lat: pin.lat, lng: pin.lng, urgent: true, noFit: true });
     return out;
-  }, [d, openRequests, visibleCrewIds, showLots, showRequests, showTrucks, pin, now, pending, drawing, painting]);
+  }, [d, openRequests, visibleCrewIds, showLots, showRequests, showTrucks, pin, now, pending, drawing, painting, lotDrawing]);
 
   const onArea = useCallback((id: number) => setSelected({ kind: "area", id }), []);
   const onParcel = useCallback((parcelId: string) => setSelected({ kind: "parcel", parcelId }), []);
   const editing = editAreaId !== null;
-  useDayOfLayer(map, plan.data, showAreas && !placing && !drawing && !editing, onArea);
+  useDayOfLayer(map, plan.data, showAreas && !placing && !drawing && !editing && !lotDrawing, onArea);
   // Bare parcels in the day area (SPEC 21), only with no crew or company filter: they belong to nobody yet.
   // While painting they show at any zoom and with any filter, so there is something to hit (SPEC 23).
-  useParcelLayer(map, parcels.data, (showLots || painting) && !placing && !drawing && !editing && (visibleCrewIds === null || painting), onParcel, pending, painting);
+  useParcelLayer(map, parcels.data, (showLots || painting) && !placing && !drawing && !editing && !lotDrawing && (visibleCrewIds === null || painting), onParcel, pending, painting);
 
   const editArea = editAreaId !== null ? (plan.data?.areas.find((a) => a.id === editAreaId) ?? null) : null;
   const editRect = useMemo(() => (editArea ? rectFromRing(editArea.ring) : null), [editArea]);
@@ -183,6 +189,7 @@ export const MapPage = () => {
         note: sheetLot.note,
         crewId: sheetLot.crewId,
         statusAt: sheetLot.statusAt,
+        drawn: sheetLot.source === "drawn",
       }
     : selBare
       ? { lotId: null, parcelId: selBare.parcelId, address: selBare.address, status: pending.get(`p:${selBare.parcelId}`) ?? null, grade: null, note: null, crewId: null, statusAt: null }
@@ -244,9 +251,12 @@ export const MapPage = () => {
               Areas
             </ToggleChip>
           )}
+          <ToggleChip on={showOsmAlleys} onChange={setShowOsmAlleys}>
+            OSM alleys
+          </ToggleChip>
         </div>
       </div>
-      <div className={`relative min-h-0 flex-1 ${placing || drawing || painting ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
+      <div className={`relative min-h-0 flex-1 ${placing || drawing || painting || lotDrawing ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
         <MapView
           markers={markers}
           fitKey={`${company ?? "all"}-${crewFilter ?? "all"}`}
@@ -262,7 +272,6 @@ export const MapPage = () => {
               : undefined
           }
         />
-        <AlleyLayer map={map} />
         {!d && <div aria-hidden="true" className="absolute inset-0 z-[500] animate-pulse bg-surface-2/60" />}
         {placing && (
           <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex justify-center px-3">
@@ -293,11 +302,12 @@ export const MapPage = () => {
             </div>
           </div>
         )}
-        {!placing && !drawing && !editing && <MapLegend className="absolute top-2.5 right-2.5 z-[900]" />}
+        <DrawLotBar draw={drawLot} />
+        {!placing && !drawing && !editing && !lotDrawing && <MapLegend className="absolute top-2.5 right-2.5 z-[900]" osmAlleys={showOsmAlleys} />}
         <div className="pointer-events-none absolute inset-x-0 bottom-[max(5.5rem,calc(env(safe-area-inset-bottom)+5rem))] z-[1000] flex justify-center px-3">{flash}</div>
         <PaintFrame paint={paint} />
         <PaintBar paint={paint} crews={crews} />
-        {!placing && !drawing && !editing && !painting && (
+        {!placing && !drawing && !editing && !painting && !lotDrawing && (
           <div className="pointer-events-none absolute right-4 bottom-[max(2.25rem,env(safe-area-inset-bottom))] left-4 z-[1000] flex flex-wrap justify-end gap-2">
             <Button
               size="lg"
@@ -328,6 +338,20 @@ export const MapPage = () => {
               <DrawIcon />
               Draw area
             </Button>
+            <Button
+              size="lg"
+              variant="secondary"
+              data-draw-lot
+              className="pointer-events-auto shadow-lg"
+              onClick={() => {
+                setSelected(null);
+                drawLot.start();
+              }}
+              disabled={!d || !map}
+            >
+              <DrawLotIcon />
+              Draw lot
+            </Button>
             <Button size="lg" className="pointer-events-auto shadow-lg" onClick={() => setPlacing(true)} disabled={!d}>
               <PinIcon />
               Add stop
@@ -345,7 +369,19 @@ export const MapPage = () => {
         onDone={showFlash}
       />
       <TruckSheet truck={selTruck} now={now} onClose={close} />
-      <LotSheet parcel={sheetParcel} crews={crews} lots={lotWrites} onClose={close} />
+      <LotSheet
+        parcel={sheetParcel}
+        crews={crews}
+        lots={lotWrites}
+        onClose={close}
+        onEditShape={(id) => {
+          const lot = d?.lots.find((l) => l.id === id);
+          if (!lot?.geometry) return;
+          setSelected(null);
+          drawLot.edit(id, lot.geometry);
+        }}
+      />
+      <DrawLotSheet draw={drawLot} scope={{ kind: "green" }} crews={crews} onSaved={showFlash} />
       <AreaSheet
         area={selArea}
         companies={plan.data?.companies ?? []}

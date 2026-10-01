@@ -18,7 +18,6 @@ import { SkeletonList } from "../../components/Skeleton.tsx";
 import { ago, telHref } from "../../lib/format.ts";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
-import { AlleyLayer } from "../../components/alleys/AlleyLayer.tsx";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
 type DayData = RouterOutputs["admin"]["days"]["get"];
@@ -756,7 +755,6 @@ export const DayPage = ({ id }: { id: number }) => {
         >
           <div className="relative h-72 nav:h-[26rem]">
             <MapView markers={markers} onMapClick={mode.kind === "idle" ? undefined : onMapClick} fitKey={`${day.id}:${ccs.length}`} label="Command centers map" className="absolute inset-0" onReady={setMap} />
-            <AlleyLayer map={map} />
             {mode.kind !== "idle" && (
               <MapMode label={mode.kind === "new" ? "New CC position" : `New position, CC ${mode.name}`} onCancel={() => setMode({ kind: "idle" })} />
             )}

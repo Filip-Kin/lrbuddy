@@ -30,32 +30,6 @@ describe("alley shapes", () => {
     expect(a.alleyQuery([-83.126, 42.373, -83.11, 42.385])).toContain('way["highway"="service"]["service"="alley"](42.37300,-83.12600,42.38500,-83.11000);out geom;');
   });
 
-  test("a straight alley buffers to a 6 m wide box around it", () => {
-    const line: Array<[number, number]> = [
-      [42.38, -83.12],
-      [42.38, -83.12 + 100 / (M * Math.cos((42.38 * Math.PI) / 180))],
-    ];
-    const ring = a.bufferLine(line).coordinates[0]!;
-    expect(ring).toHaveLength(5);
-    expect(ring[0]).toEqual(ring[4]!);
-    const lats = ring.map((p) => p[1]!);
-    expect((Math.max(...lats) - Math.min(...lats)) * M).toBeCloseTo(6, 3);
-  });
-
-  test("a bent alley keeps 3 m each side at the corner", () => {
-    const k = M * Math.cos((42.38 * Math.PI) / 180);
-    const line: Array<[number, number]> = [
-      [42.38, -83.12],
-      [42.38, -83.12 + 50 / k],
-      [42.38 + 50 / M, -83.12 + 50 / k],
-    ];
-    const ring = a.bufferLine(line).coordinates[0]!;
-    // Outer corner of a right angle sits 3 m out on both axes.
-    const corner = ring[1]!;
-    expect((corner[0]! - (-83.12 + 50 / k)) * k).toBeCloseTo(-3, 3);
-    expect((corner[1]! - 42.38) * M).toBeCloseTo(3, 3);
-  });
-
   test("names come from the parcels on each side and their cross streets", () => {
     const line: Array<[number, number]> = [
       [42.38, -83.121],
@@ -68,9 +42,10 @@ describe("alley shapes", () => {
   });
 });
 
-describe("alley store and access", () => {
+describe("alley hint cache", () => {
   const world = () => {
     db.delete(s.events).run();
+    db.delete(s.osmAlleys).run();
     const ev = setup.createEvent({ name: "Alleys", year: 2026, startDate: "2026-10-01", dayCount: 1, active: true });
     const day = db.select().from(s.days).where(eq(s.days.eventId, ev.id)).get()!;
     const cc = setup.createCc({ dayId: day.id, name: "Webb", lat: 42.38052, lng: -83.12056, address: "3201 Webb St" });
@@ -79,36 +54,25 @@ describe("alley store and access", () => {
   };
   const caller = (session: Parameters<typeof createSession>[0]) => alleysRouter.createCaller({ session: createSession(session), ip: "test", ccOverride: null });
 
-  test("a refetch keeps status; Overpass down keeps the rows", async () => {
-    const { cc } = world();
+  test("centrelines cached once per OSM way; a refetch updates in place; Overpass down keeps them", async () => {
+    const { cc, other } = world();
     expect(await a.loadAlleysForCc(cc.id, { fetcher: ok })).toEqual({ alleys: 3, error: null });
-    const row = db.select().from(s.alleys).where(eq(s.alleys.osmId, 558673969)).get()!;
-    a.setAlleyStatus(row.id, "done");
     await a.loadAlleysForCc(cc.id, { fetcher: ok });
-    expect(db.select().from(s.alleys).where(eq(s.alleys.id, row.id)).get()!.status).toBe("done");
+    expect(db.select().from(s.osmAlleys).all()).toHaveLength(3);
+    expect(db.select().from(s.osmAlleys).where(eq(s.osmAlleys.osmId, 558673969)).get()!.centerline.length).toBeGreaterThan(1);
     const down: Fetcher = async () => new Response("busy", { status: 429 });
     expect(await a.loadAlleysForCc(cc.id, { fetcher: down, retries: 0 })).toEqual({ alleys: 3, error: "Overpass 429" });
+    expect((await a.loadAlleysForCc(other.id, { fetcher: down, retries: 0 })).alleys).toBe(0);
   });
 
-  test("greens and drivers at the CC set the status; others cannot", async () => {
-    const { cc, other, day } = world();
+  test("any signed-in role reads the lines in its view; wide views get none", async () => {
+    const { cc, day } = world();
     await a.loadAlleysForCc(cc.id, { fetcher: ok });
-    const id = db.select().from(s.alleys).all()[0]!.id;
-    const truck = setup.createTruck({ dayId: day.id, ccId: cc.id, name: "B1" });
-    const farTruck = setup.createTruck({ dayId: day.id, ccId: other.id, name: "E1" });
     const crew = setup.createCrew({ dayId: day.id, ccId: cc.id, companyId: null });
-
-    expect((await caller({ role: "green", ccId: cc.id }).setStatus({ id, status: "in_progress" })).status).toBe("in_progress");
-    expect((await caller({ role: "driver", truckId: truck.id, ccId: cc.id }).setStatus({ id, status: "do_not_touch" })).status).toBe("do_not_touch");
-    expect((await caller({ role: "admin" }).setStatus({ id, status: "done" })).status).toBe("done");
-    await expect(caller({ role: "green", ccId: other.id }).setStatus({ id, status: "open" })).rejects.toThrow("Not allowed");
-    await expect(caller({ role: "driver", truckId: farTruck.id, ccId: other.id }).setStatus({ id, status: "open" })).rejects.toThrow("Not allowed");
-    await expect(caller({ role: "crew", crewId: crew.id, ccId: cc.id }).setStatus({ id, status: "open" })).rejects.toThrow("Not allowed");
-
     const view = { w: -83.13, s: 42.37, e: -83.11, n: 42.39 };
     expect(await caller({ role: "green", ccId: cc.id }).inView(view)).toHaveLength(3);
-    expect(await caller({ role: "green", ccId: other.id }).inView(view)).toHaveLength(0);
-    expect(await caller({ role: "admin" }).inView(view)).toHaveLength(3);
-    expect(await caller({ role: "admin" }).inView({ w: -83.0, s: 42.0, e: -82.9, n: 42.1 })).toHaveLength(0);
+    expect(await caller({ role: "crew", crewId: crew.id, ccId: cc.id }).inView(view)).toHaveLength(3);
+    expect(await caller({ role: "admin" }).inView({ w: -83.0, s: 42.0, e: -82.95, n: 42.05 })).toHaveLength(0);
+    expect(await caller({ role: "admin" }).inView({ w: -83.5, s: 42.0, e: -83.0, n: 42.5 })).toHaveLength(0);
   });
 });

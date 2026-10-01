@@ -1,13 +1,11 @@
 /**
- * Alleys on any Leaflet map (SPEC 19): from zoom 15 up, each alley the server
- * knows in the view as its 3 m buffered outline, ink dashed and filled with its
- * status colour at 15 %. A tap calls `onAlley`. Below zoom 15 the layer is empty.
+ * OpenStreetMap alleys as a hint (SPEC 24): from zoom 15 up, each alley in
+ * the view as a thin dashed centreline that takes no taps. Shown only while
+ * the map's OSM alleys toggle is on; work in an alley is a drawn lot.
  */
 import L from "leaflet";
-import { useEffect, useRef, useState } from "react";
-import { trpc, type RouterOutputs } from "../trpc.ts";
-
-export type AlleyItem = RouterOutputs["alleys"]["inView"][number];
+import { useEffect, useState } from "react";
+import { trpc } from "../trpc.ts";
 
 export const ALLEY_MIN_ZOOM = 15;
 const PANE = "lrb-alleys";
@@ -30,14 +28,14 @@ const snapped = (b: L.LatLngBounds): View => ({
 const sameView = (a: View | null, b: View | null): boolean =>
   a === b || (a !== null && b !== null && a.w === b.w && a.s === b.s && a.e === b.e && a.n === b.n);
 
-/** Draws the alleys and returns them, so a sheet can show the one tapped. */
-export const useAlleyLayer = (map: L.Map | null, onAlley: (a: AlleyItem) => void): AlleyItem[] => {
+export const useOsmAlleys = (map: L.Map | null, visible: boolean): void => {
   const [view, setView] = useState<View | null>(null);
-  const tap = useRef(onAlley);
-  tap.current = onAlley;
 
   useEffect(() => {
-    if (!map) return;
+    if (!map || !visible) {
+      setView(null);
+      return;
+    }
     const update = (): void => {
       const next = map.getZoom() >= ALLEY_MIN_ZOOM ? snapped(map.getBounds()) : null;
       setView((prev) => (sameView(prev, next) ? prev : next));
@@ -47,35 +45,24 @@ export const useAlleyLayer = (map: L.Map | null, onAlley: (a: AlleyItem) => void
     return () => {
       map.off("moveend zoomend", update);
     };
-  }, [map]);
+  }, [map, visible]);
 
-  const q = trpc.alleys.inView.useQuery(view ?? { w: 0, s: 0, e: 0, n: 0 }, {
-    enabled: view !== null,
-    // Other phones change statuses too; there is no live event for alleys.
-    refetchInterval: 30_000,
-    placeholderData: (prev) => prev,
-  });
+  const q = trpc.alleys.inView.useQuery(view ?? { w: 0, s: 0, e: 0, n: 0 }, { enabled: view !== null, staleTime: 600_000, placeholderData: (prev) => prev });
   const items = view ? (q.data ?? []) : [];
 
   useEffect(() => {
     if (!map || items.length === 0) return;
-    if (!map.getPane(PANE)) map.createPane(PANE).style.zIndex = "385";
+    if (!map.getPane(PANE)) {
+      const pane = map.createPane(PANE);
+      pane.style.zIndex = "385";
+      pane.style.pointerEvents = "none";
+    }
     const renderer = L.svg({ pane: PANE });
     const layer = L.layerGroup();
-    for (const a of items) {
-      const ring = (a.polygon.coordinates[0] ?? []).map((p): [number, number] => [p[1] ?? 0, p[0] ?? 0]);
-      const shape = L.polygon(ring, { renderer, pane: PANE, className: `lrb-alley lrb-alley-${a.status}`, weight: 1.5, fillOpacity: 0.15 });
-      shape.on("click", (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e);
-        tap.current(a);
-      });
-      layer.addLayer(shape);
-    }
+    for (const a of items) layer.addLayer(L.polyline(a.centerline, { renderer, pane: PANE, className: "lrb-osm-alley", weight: 1.5, interactive: false }));
     layer.addTo(map);
     return () => {
       layer.remove();
     };
   }, [map, items]);
-
-  return items;
 };

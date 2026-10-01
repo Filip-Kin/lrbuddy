@@ -61,3 +61,13 @@ describe("flag pick (SPEC 22)", () => {
     expect(compassPoint(359)).toBe("N");
   });
 });
+
+describe("drawn lots", () => {
+  test("a drawn lot wins over the parcel it lies across, by ray and under the fix", () => {
+    const big = parcel("p:1", -15, -5, 30, 40);
+    const drawn = { ...parcel("l:9", -3, -3, 6, 30), drawn: true };
+    expect(pickNearest(AT, [big, drawn])?.key).toBe("l:9");
+    expect(pickByRay(AT, 0, [big, drawn])?.key).toBe("l:9");
+    expect(pickByRay(AT, 0, [big])?.key).toBe("p:1");
+  });
+});

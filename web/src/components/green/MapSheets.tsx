@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Button } from "../Button.tsx";
+import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { Select } from "../Field.tsx";
 import { ParcelSheet, type ParcelView } from "../ParcelSheet.tsx";
 import type { useSetLot } from "../LotStatusControl.tsx";
@@ -84,24 +86,47 @@ export const TruckSheet = ({ truck, now, onClose }: { truck: GreenTruck | null; 
   </Sheet>
 );
 
-/** A lot or a bare parcel on the green map (SPEC 21): all five statuses, size, crew, photos and note. */
-export type GreenParcel = ParcelView & { crewId: number | null; statusAt: number | null };
+/** A lot or a bare parcel on the green map (SPEC 21): all five statuses, size, crew, photos and note. `drawn`: a drawn lot (SPEC 24). */
+export type GreenParcel = ParcelView & { crewId: number | null; statusAt: number | null; drawn?: boolean };
 
 export const LotSheet = ({
   parcel,
   crews,
   lots,
   onClose,
+  onEditShape,
 }: {
   parcel: GreenParcel | null;
   crews: readonly Pick<OverviewCrew, "id" | "name" | "companyName">[];
   lots: ReturnType<typeof useSetLot>;
   onClose: () => void;
+  /** Edit shape on a drawn lot: the map takes over with its points. */
+  onEditShape?: (lotId: number) => void;
 }) => {
   const refresh = useGreenInvalidate();
   const assign = trpc.green.assignLots.useMutation({ onSettled: refresh });
+  const del = trpc.green.deleteLot.useMutation({ onSettled: refresh });
   const [err, setErr] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [delErr, setDelErr] = useState<string | null>(null);
   const lotId = parcel?.lotId ?? null;
+  useEffect(() => {
+    setConfirmDelete(false);
+    setDelErr(null);
+  }, [lotId]);
+  if (confirmDelete && parcel && lotId !== null) {
+    return (
+      <ConfirmSheet
+        open
+        title={`Delete ${parcel.address ?? "lot"}`}
+        body={delErr && <p role="alert" className="font-semibold text-ink">{delErr}</p>}
+        action="Delete lot"
+        busy={del.isPending}
+        onConfirm={() => del.mutate({ lotId }, { onSuccess: onClose, onError: (x) => setDelErr(errorText(x)) })}
+        onClose={() => setConfirmDelete(false)}
+      />
+    );
+  }
   return (
     <ParcelSheet
       parcel={parcel}
@@ -136,6 +161,18 @@ export const LotSheet = ({
       }
     >
       {parcel?.statusAt != null && <Fact label="Changed">{dateTime(parcel.statusAt)}</Fact>}
+      {parcel?.drawn && lotId !== null && (
+        <div className="grid grid-cols-2 gap-2">
+          {onEditShape && (
+            <Button variant="secondary" size="lg" data-edit-shape onClick={() => onEditShape(lotId)}>
+              Edit shape
+            </Button>
+          )}
+          <Button variant="danger" size="lg" data-delete-lot onClick={() => setConfirmDelete(true)}>
+            Delete lot
+          </Button>
+        </div>
+      )}
     </ParcelSheet>
   );
 };

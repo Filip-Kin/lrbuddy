@@ -19,6 +19,7 @@ import {
 } from "../dispatch.ts";
 import { assignDrawnArea, dayOfMap, deleteArea, markArea, moveArea, reassignArea } from "../dayof.ts";
 import { paint, paintDepth, paintInput, undoPaint } from "../paint.ts";
+import { createDrawnLot, deleteDrawnLot, drawnPolygon, editDrawnShape, suggestDrawn } from "../drawn.ts";
 import { bareParcelsFor, setLot, type Actor } from "../parcel-status.ts";
 import { buildCrewsFor } from "./plan/assignments.ts";
 import { areaInput } from "./plan/common.ts";
@@ -289,6 +290,18 @@ export const greenRouter = router({
 
   /** Strokes Undo can take back, for the Undo button when Paint opens. */
   paintState: greenProcedure.query(({ ctx }) => ({ strokes: paintDepth(ctx.session.id, ctx.cc.id) })),
+
+  // #region Draw lot (SPEC 24)
+  /** The name ("Alley, Lawrence to Collingwood" or "Lot") and crew the Save sheet starts with. */
+  drawLotStart: greenProcedure.input(z.object({ polygon: drawnPolygon })).query(({ ctx, input }) => suggestDrawn(greenActor(ctx), input.polygon)),
+  drawLot: greenProcedure
+    .input(z.object({ polygon: drawnPolygon, name: z.string().max(120), status: z.enum(LOT_STATUSES), crewId: z.number().int().nullable() }))
+    .mutation(({ ctx, input }) => createDrawnLot(greenActor(ctx), input)),
+  editLotShape: greenProcedure
+    .input(z.object({ lotId: z.number().int(), polygon: drawnPolygon }))
+    .mutation(({ ctx, input }) => editDrawnShape(greenActor(ctx), input.lotId, input.polygon)),
+  deleteLot: greenProcedure.input(z.object({ lotId: z.number().int() })).mutation(({ ctx, input }) => deleteDrawnLot(greenActor(ctx), input.lotId)),
+  // #endregion
 
   /** Draw area, then Assign: the crews take the rectangle and the Todo lots inside it. */
   assignArea: greenProcedure

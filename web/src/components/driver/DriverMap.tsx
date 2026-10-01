@@ -6,7 +6,6 @@ import { ccBody, escapeHtml, lotIcon, lotShape, routeLine, type LotStatus } from
 import { attachLabelDeclutter } from "../../lib/map/declutter.ts";
 import { usePrefersDark } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
-import { AlleyLayer } from "../alleys/AlleyLayer.tsx";
 import { ahead, metresPerPixel, turn, type LatLng } from "../../pages/plan/survey/geo.ts";
 import { useDayOfLayer, type DayOfArea } from "../green/dayOfLayer.ts";
 
@@ -325,7 +324,6 @@ export const DriverMap = ({
         className="absolute transition-transform duration-500 ease-linear motion-reduce:transition-none"
         style={{ width: d || "100%", height: d || "100%", left: (size.w - d) / 2, top: (size.h - d) / 2 }}
       />
-      <AlleyLayer map={leaflet} />
     </div>
   );
 };

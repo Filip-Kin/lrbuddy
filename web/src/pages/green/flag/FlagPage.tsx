@@ -114,6 +114,7 @@ export const FlagPage = () => {
       lat: l.lat,
       lng: l.lng,
       geometry: l.geometry,
+      drawn: l.source === "drawn",
       lotId: l.id,
       parcelId: l.parcelId,
       address: l.address,

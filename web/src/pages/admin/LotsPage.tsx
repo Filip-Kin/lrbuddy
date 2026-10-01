@@ -22,7 +22,9 @@ import { useParcelLayer } from "../../lib/map/parcelLayer.ts";
 import type { PaintTarget } from "../../lib/map/paintHit.ts";
 import { PaintBar, PaintFrame, PaintIcon, usePaint } from "../../components/PaintBar.tsx";
 import { FilterSelect } from "../../components/green/ui.tsx";
-import { AlleyLayer } from "../../components/alleys/AlleyLayer.tsx";
+import { DrawLotBar, DrawLotIcon, DrawLotSheet, useDrawLot } from "../../components/DrawLot.tsx";
+import { ToggleChip } from "../../components/Segmented.tsx";
+import { useOsmAlleys } from "../../lib/map/alleyLayer.ts";
 import { insideRect, rectBBox, rectRing, rectSize, STEP_LABEL, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
 import { STATUS_LABEL, STATUS_ORDER } from "../../lib/lotStatus.ts";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
@@ -219,7 +221,20 @@ const RectSheet = ({
 // #endregion
 
 // #region lot sheet
-const LotSheet = ({ lot, ccs, onClose, notify }: { lot: Lot | null; ccs: readonly Cc[]; onClose: () => void; notify: (n: NoticeValue) => void }) => {
+const LotSheet = ({
+  lot,
+  ccs,
+  onClose,
+  notify,
+  onEditShape,
+}: {
+  lot: Lot | null;
+  ccs: readonly Cc[];
+  onClose: () => void;
+  notify: (n: NoticeValue) => void;
+  /** Edit shape on a drawn lot (SPEC 24). */
+  onEditShape: (lot: Lot) => void;
+}) => {
   const utils = trpc.useUtils();
   const [ccId, setCcId] = useState<number | "none">("none");
   const [address, setAddress] = useState("");
@@ -292,6 +307,11 @@ const LotSheet = ({ lot, ccs, onClose, notify }: { lot: Lot | null; ccs: readonl
       }
     >
       <ParcelFacts parcelId={lot.parcelId} grade={lot.grade} />
+      {lot.source === "drawn" && lot.geometry && (
+        <Button variant="secondary" block data-edit-shape onClick={() => onEditShape(lot)}>
+          Edit shape
+        </Button>
+      )}
       <Select label="Command center" value={ccId} onChange={(e) => setCcId(e.target.value === "none" ? "none" : Number(e.target.value))}>
         <option value="none">No CC</option>
         <CcOptions ccs={ccs} />
@@ -442,6 +462,20 @@ export const LotsPage = () => {
   useEffect(() => setPaintOn(paint.on), [paint.on]);
   useParcelLayer(map, bare.data, paint.on, noTap, paint.pending, true);
   // #endregion
+
+  // #region Draw lot (SPEC 24), at the same CC as Paint
+  const draw = useDrawLot(map, { kind: "admin", ccId: paintCc }, (text) => setNotice({ tone: "ok", text }));
+  const paintDay = ccs.find((c) => c.id === paintCc)?.dayId ?? null;
+  const dayCrews = trpc.admin.crews.list.useQuery({ dayId: paintDay ?? 0 }, { enabled: draw.closed && paintDay !== null, retry: false });
+  const ccCrews = useMemo(() => (dayCrews.data ?? []).filter((c) => c.ccId === paintCc).map((c) => ({ id: c.id, name: c.name })), [dayCrews.data, paintCc]);
+  const [showOsmAlleys, setShowOsmAlleys] = useState(false);
+  useOsmAlleys(map, showOsmAlleys);
+  const ccPicker = (
+    <FilterSelect label="Command center" value={paintCc ?? ""} onChange={(e) => setPaintCc(Number(e.target.value))} className="w-full">
+      <CcOptions ccs={ccs} />
+    </FilterSelect>
+  );
+  // #endregion
   const noEvent = lotsQ.error?.data?.code === "PRECONDITION_FAILED";
 
   const add = trpc.admin.lots.add.useMutation({
@@ -459,6 +493,7 @@ export const LotsPage = () => {
   };
   const startRect = (action: RectAction): void => {
     paint.close();
+    draw.stop();
     setSheetRect(null);
     setMode({ kind: "rect", action });
   };
@@ -481,7 +516,7 @@ export const LotsPage = () => {
     () => lots.filter((l) => filter === "all" || (filter === "none" ? l.ccId === null : l.ccId === filter)),
     [lots, filter],
   );
-  const idle = mode.kind === "idle" && !paint.on;
+  const idle = mode.kind === "idle" && !paint.on && draw.mode === null;
   const lotMarkers = useMemo<MapMarker[]>(
     () =>
       shown.map((l) => ({
@@ -534,6 +569,7 @@ export const LotsPage = () => {
             return;
           }
           stopMode();
+          draw.stop();
           setLotId(null);
           paint.open();
         }}
@@ -543,9 +579,26 @@ export const LotsPage = () => {
       </Button>
       <Button
         size="sm"
+        variant={draw.mode ? "primary" : "secondary"}
+        data-draw-lot
+        disabled={ccs.length === 0}
+        onClick={() => {
+          paint.close();
+          stopMode();
+          setLotId(null);
+          if (draw.mode) draw.stop();
+          else draw.start();
+        }}
+      >
+        <DrawLotIcon />
+        Draw lot
+      </Button>
+      <Button
+        size="sm"
         variant={mode.kind === "add" ? "primary" : "secondary"}
         onClick={() => {
           paint.close();
+          draw.stop();
           if (mode.kind === "add") stopMode();
           else setMode({ kind: "add" });
         }}
@@ -561,6 +614,9 @@ export const LotsPage = () => {
         <TrashIcon />
         Remove area
       </Button>
+      <ToggleChip on={showOsmAlleys} onChange={setShowOsmAlleys}>
+        OSM alleys
+      </ToggleChip>
     </div>
   );
 
@@ -586,16 +642,9 @@ export const LotsPage = () => {
             ) : (
               <MapView markers={markers} onMapClick={mode.kind === "add" ? onMapClick : undefined} fitKey="lots" label="Lots map" className="absolute inset-0" onReady={setMap} />
             )}
-            <AlleyLayer map={map} />
             <PaintFrame paint={paint} />
-            <PaintBar
-              paint={paint}
-              extra={
-                <FilterSelect label="Command center" value={paintCc ?? ""} onChange={(e) => setPaintCc(Number(e.target.value))} className="w-full">
-                  <CcOptions ccs={ccs} />
-                </FilterSelect>
-              }
-            />
+            <PaintBar paint={paint} extra={ccPicker} />
+            <DrawLotBar draw={draw} />
             {mode.kind === "add" && <MapMode label="Add lot" detail={add.isPending ? "Adding…" : undefined} onCancel={stopMode} cancelLabel="Done" />}
             {mode.kind === "rect" && (
               <MapMode label={RECT_LABEL[mode.action]} detail={rectTool.step ? STEP_LABEL[rectTool.step] : undefined} onCancel={stopMode} />
@@ -674,7 +723,18 @@ export const LotsPage = () => {
         onRedraw={() => setSheetRect(null)}
         notify={setNotice}
       />
-      <LotSheet lot={selected} ccs={ccs} onClose={() => setLotId(null)} notify={setNotice} />
+      <LotSheet
+        lot={selected}
+        ccs={ccs}
+        onClose={() => setLotId(null)}
+        notify={setNotice}
+        onEditShape={(l) => {
+          setLotId(null);
+          if (l.ccId !== null) setPaintCc(l.ccId);
+          if (l.geometry) draw.edit(l.id, l.geometry);
+        }}
+      />
+      <DrawLotSheet draw={draw} scope={{ kind: "admin", ccId: paintCc }} crews={ccCrews} ccPicker={ccPicker} onSaved={(text) => setNotice({ tone: "ok", text })} />
       <CsvSheet open={csvOpen} onClose={() => setCsvOpen(false)} notify={setNotice} ccs={ccs} />
     </Page>
   );

@@ -16,7 +16,6 @@ import { dateTime, lotTitle } from "../../../lib/format.ts";
 import { rectBBox, rectSize, STEP_LABEL, useOrientedRect, type OrientedRect } from "../../../lib/map/orientedRect.ts";
 import { trpc, type RouterOutputs } from "../../../lib/trpc.ts";
 import { useOnewayLayer } from "../../../lib/map/onewayLayer.ts";
-import { AlleyLayer } from "../../../components/alleys/AlleyLayer.tsx";
 import { noEvent } from "../common.ts";
 import { GradeSheet, type SheetParcel } from "./GradeSheet.tsx";
 import { GRADE_LABEL, GRADES, type Grade } from "./style.ts";
@@ -236,7 +235,6 @@ export const SurveyPage = () => {
               focus={focus}
               fitKey={`day-${dayId ?? "all"}`}
             />
-            <AlleyLayer map={map} />
             {drawing && sheetRect === null && <MapMode label="Load parcels" detail={rectTool.step ? STEP_LABEL[rectTool.step] : undefined} onCancel={stopDrawing} />}
           </div>
           <Panel title="Key">

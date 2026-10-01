@@ -51,6 +51,7 @@ import { copySetupFromPreviousDay, createCc, createCrew, createEvent, createTruc
 import { adminProcedure, liveFor, loadCcScope, readAdmin, router } from "../trpc.ts";
 import { paint, paintDepth, paintInput, undoPaint } from "../paint.ts";
 import { bareParcelsFor, type Actor } from "../parcel-status.ts";
+import { createDrawnLot, drawnPolygon, editDrawnShape, suggestDrawn } from "../drawn.ts";
 
 // #region helpers
 /** A drawn rectangle as a GeoJSON ring of [lng, lat] pairs. */
@@ -846,6 +847,20 @@ const lotsRouter = router({
     .mutation(({ ctx, input }) => paint(adminActor(input.ccId), ctx.session.id, input, ctx.session.displayName)),
   paintUndo: adminProcedure.input(z.object({ ccId: id })).mutation(({ ctx, input }) => undoPaint(adminActor(input.ccId), ctx.session.id)),
   paintState: adminProcedure.input(z.object({ ccId: id })).query(({ ctx, input }) => ({ strokes: paintDepth(ctx.session.id, input.ccId) })),
+  // #endregion
+  // #region Draw lot (SPEC 24), at one CC picked on the Lots map
+  drawLotStart: adminProcedure
+    .input(z.object({ ccId: id, polygon: drawnPolygon }))
+    .query(({ input }) => suggestDrawn(adminActor(input.ccId), input.polygon)),
+  drawLot: adminProcedure
+    .input(z.object({ ccId: id, polygon: drawnPolygon, name: z.string().max(120), status: z.enum(LOT_STATUSES), crewId: id.nullable() }))
+    .mutation(({ input }) => createDrawnLot(adminActor(input.ccId), input)),
+  /** A drawn lot's new outline; the lot keeps its CC. */
+  editLotShape: adminProcedure.input(z.object({ lotId: id, polygon: drawnPolygon })).mutation(({ input }) => {
+    const lot = db.select().from(lots).where(eq(lots.id, input.lotId)).get();
+    if (!lot || lot.ccId === null) throw notFound("Lot");
+    return editDrawnShape(adminActor(lot.ccId), input.lotId, input.polygon);
+  }),
   // #endregion
   delete: adminProcedure.input(z.object({ ids: z.array(id).min(1).max(5000) })).mutation(({ input }) => {
     const r = db.delete(lots).where(inArray(lots.id, input.ids)).returning({ id: lots.id }).all();

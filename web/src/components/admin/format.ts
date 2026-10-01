@@ -29,5 +29,5 @@ export const phoneText = (p: string): string => {
 };
 
 export const PRIORITY_LABEL: Record<number, string> = { 1: "Low", 2: "Normal", 3: "Urgent" };
-export const SOURCE_LABEL: Record<string, string> = { dlba: "Land Bank", parcel: "Vacant parcels", csv: "CSV", manual: "Added by hand", survey: "Survey" };
+export const SOURCE_LABEL: Record<string, string> = { dlba: "Land Bank", parcel: "Vacant parcels", csv: "CSV", manual: "Added by hand", survey: "Survey", drawn: "Drawn" };
 export const UNIT_LABEL: Record<string, string> = { case: "Case", box: "Box", can: "Can", each: "Each", roll: "Roll" };

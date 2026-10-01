@@ -14,7 +14,12 @@ export interface LatLng {
 export interface Candidate extends LatLng {
   key: string;
   geometry: LotGeometry | null;
+  /** A drawn lot (SPEC 24): it wins over a parcel when the point is inside both. */
+  drawn?: boolean;
 }
+
+/** The drawn one of several hits, else the first. */
+const preferDrawn = <T extends Candidate>(hits: readonly T[]): T | null => hits.find((c) => c.drawn) ?? hits[0] ?? null;
 
 export const RAY_FROM_M = 4;
 export const RAY_TO_M = 30;
@@ -65,15 +70,15 @@ export const pickByRay = <T extends Candidate>(at: LatLng, heading: number, item
   for (let d = RAY_FROM_M; d <= RAY_TO_M; d += RAY_STEP_M) {
     const x = dx * d;
     const y = dy * d;
-    const hit = shapes.find((s) => insideXY(s.polys, x, y));
-    if (hit) return hit.c;
+    const hit = preferDrawn(shapes.filter((s) => insideXY(s.polys, x, y)).map((s) => s.c));
+    if (hit) return hit;
   }
   return null;
 };
 
 /** The candidate under the fix, else the nearest centre within 25 m. */
 export const pickNearest = <T extends Candidate>(at: LatLng, items: readonly T[]): T | null => {
-  const under = items.find((c) => c.geometry && metres(at, c) <= 80 && insideXY(polygonsXY(at, c.geometry), 0, 0));
+  const under = preferDrawn(items.filter((c) => c.geometry && metres(at, c) <= 80 && insideXY(polygonsXY(at, c.geometry), 0, 0)));
   if (under) return under;
   let best: { c: T; d: number } | null = null;
   for (const c of items) {

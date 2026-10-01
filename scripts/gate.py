@@ -910,7 +910,127 @@ def paint_checks() -> None:
 
 # endregion
 
-CHECKS = [static_checks, dynamic_checks, stock_expected_checks, parcel_status_checks, flag_checks, paint_checks]
+# region Draw lot (SPEC 24)
+# As DURFB1 at zoom 17 on a phone and a laptop: Draw lot, four taps round a thin strip across
+# neighbouring parcels, Close, Save; the lot appears red, is on the driver's lot list (TRUCKB1),
+# and a tap on it opens its sheet with Delete lot. Overflow 0. The lot is deleted afterwards.
+DRAW_DRIVER = {"code": "TRUCKB1", "displayName": "Gate"}
+
+LOT_BOX_JS = """(id) => { const el = document.querySelector(`[data-lot-id="${id}"]`); if (!el) return null;
+  const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2,
+  cls: el.getAttribute('class') || '', fill: getComputedStyle(el).fill }; }"""
+
+
+def draw_lot_checks() -> None:
+    only = {r for r in os.environ.get("GATE_ROLES", "").split(",") if r}
+    if only and "green" not in only:
+        return
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
+        for size, (w, h) in SIZES.items():
+            tag = f"green draw lot {size}"
+            phone = size == "phone"
+            ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=1, color_scheme="light", is_mobile=phone, has_touch=phone)
+            r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(PAINT_GREEN), headers={"content-type": "application/json"})
+            if r.status >= 400:
+                fail(f"{tag}: DURFB1 login returned {r.status}")
+                ctx.close()
+                continue
+            page = ctx.new_page()
+            made = None
+            try:
+                page.goto(BASE + "/", wait_until="networkidle", timeout=45000)
+                page.wait_for_timeout(800)
+                for _ in range(8):
+                    if page.evaluate(ZOOM_JS) >= 16:
+                        break
+                    page.locator(".leaflet-control-zoom-in").click()
+                    page.wait_for_timeout(450)
+                first = page.evaluate(PARCEL_PICK_JS)
+                if not first:
+                    fail(f"{tag}: no bare parcel to zoom on")
+                    continue
+                zoom_to(page, f'[data-parcel="{first}"]', 17)
+                page.wait_for_timeout(500)
+                tri = page.evaluate(PAINT_TRIPLE_JS)
+                if not tri:
+                    fail(f"{tag}: no three neighbouring parcels for the strip")
+                    continue
+                a, _, b = tri
+                dx, dy = b["x"] - a["x"], b["y"] - a["y"]
+                ln = max((dx * dx + dy * dy) ** 0.5, 1)
+                # 28 px wide: the fourth tap must clear the first point's 44 px hit box, or it closes the shape.
+                nx, ny = -dy / ln * 14, dx / ln * 14
+                corners = [(a["x"] + nx, a["y"] + ny), (b["x"] + nx, b["y"] + ny), (b["x"] - nx, b["y"] - ny), (a["x"] - nx, a["y"] - ny)]
+                before = {l["id"] for l in trpc_get(ctx, "green.lots")["lots"]}
+                page.locator("[data-draw-lot]").click()
+                page.wait_for_timeout(300)
+                if page.locator("[data-draw-lot-bar]").count() == 0:
+                    fail(f"{tag}: Draw lot shows no bar")
+                    continue
+                for x, y in corners:
+                    page.mouse.click(x, y)
+                    page.wait_for_timeout(350)
+                if page.locator("[data-draw-vertex]").count() != 4:
+                    fail(f"{tag}: four taps left {page.locator('[data-draw-vertex]').count()} points")
+                page.locator("[data-draw-close]").click()
+                save = page.locator("[data-draw-lot-save]")
+                save.wait_for(state="visible", timeout=5000)
+                page.wait_for_function("() => { const b = document.querySelector('[data-draw-lot-save]'); return b && !b.disabled; }", timeout=8000)
+                over = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+                if over != 0:
+                    fail(f"{tag}: horizontal overflow {over}px with the Save sheet open")
+                page.screenshot(path=str(OUT / f"green_draw_lot_sheet-{size}-light.png"))
+                name = page.locator('[role=dialog] input').first.input_value()
+                save.click()
+                for _ in range(20):
+                    page.wait_for_timeout(300)
+                    new = [l for l in trpc_get(ctx, "green.lots")["lots"] if l["id"] not in before]
+                    if new:
+                        made = new[0]
+                        break
+                if not made:
+                    fail(f"{tag}: Save made no lot")
+                    continue
+                if made["source"] != "drawn" or made["parcelId"] is not None or made["status"] != "open":
+                    fail(f"{tag}: new lot is {made['source']} {made['parcelId']} {made['status']}, expected a drawn Todo lot")
+                red = None
+                for _ in range(20):
+                    page.wait_for_timeout(300)
+                    red = page.evaluate(LOT_BOX_JS, made["id"])
+                    if red and "lrb-lot-shape-open" in red["cls"] and red["fill"] == RED:
+                        break
+                if not red or red["fill"] != RED:
+                    fail(f"{tag}: drawn lot not drawn red ({red})")
+                dctx = browser.new_context()
+                dr = dctx.request.post(f"{BASE}/auth/login", data=json.dumps(DRAW_DRIVER), headers={"content-type": "application/json"})
+                if dr.status >= 400 or not any(l["id"] == made["id"] for l in trpc_get(dctx, "driver.lots")["lots"]):
+                    fail(f"{tag}: drawn lot {made['id']} not on TRUCKB1's lot list")
+                dctx.close()
+                if red:
+                    page.mouse.click(red["x"], red["y"])
+                    page.wait_for_timeout(600)
+                    title = page.locator("[role=dialog] h2").first.text_content() if page.locator("[role=dialog] h2").count() else ""
+                    if (title or "").strip() != name.strip() or page.locator("[data-delete-lot]").count() == 0:
+                        fail(f"{tag}: tapping the drawn lot opened '{title}', expected '{name}' with Delete lot")
+                over = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+                if over != 0:
+                    fail(f"{tag}: horizontal overflow {over}px")
+                page.screenshot(path=str(OUT / f"green_draw_lot-{size}-light.png"))
+            except Exception as e:  # noqa: BLE001
+                fail(f"{tag}: {type(e).__name__} {str(e)[:160]}")
+            finally:
+                if made:
+                    res = ctx.request.post(f"{BASE}/trpc/green.deleteLot", data=json.dumps({"json": {"lotId": made["id"]}}), headers={"content-type": "application/json"})
+                    if res.status >= 400:
+                        warn(f"{tag}: could not delete drawn lot {made['id']} ({res.status})")
+                ctx.close()
+        browser.close()
+
+
+# endregion
+
+CHECKS = [static_checks, dynamic_checks, stock_expected_checks, parcel_status_checks, flag_checks, paint_checks, draw_lot_checks]
 # GATE_ONLY=paint_checks,flag_checks runs just those groups while working on one screen; the release gate runs all.
 _only = {c for c in os.environ.get("GATE_ONLY", "").split(",") if c}
 for check in CHECKS:

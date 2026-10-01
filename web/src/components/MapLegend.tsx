@@ -19,8 +19,8 @@ const Swatch = ({ status }: { status: LotStatus }) => {
   );
 };
 
-/** The five parcel statuses in their order (SPEC 21: one set of words everywhere), then one-way streets and alleys. */
-export const MapLegend = ({ className = "" }: { className?: string }) => (
+/** The five parcel statuses in their order (SPEC 21: one set of words everywhere), then one-way streets, and OSM alleys while shown. */
+export const MapLegend = ({ className = "", osmAlleys = false }: { className?: string; osmAlleys?: boolean }) => (
   <ul aria-label="Legend" data-legend className={`pointer-events-none space-y-0.5 rounded-xl bg-surface/90 px-2 py-1.5 text-[11px] leading-tight font-semibold text-ink shadow ring-1 ring-line ${className}`}>
     {STATUS_ORDER.map((s) => (
       <li key={s} className="flex items-center gap-1.5">
@@ -32,11 +32,13 @@ export const MapLegend = ({ className = "" }: { className?: string }) => (
       <span aria-hidden="true" className="grid w-[18px] shrink-0 place-items-center [&>svg]:h-3.5 [&>svg]:w-3.5" dangerouslySetInnerHTML={{ __html: onewayLegendSvg }} />
       One way
     </li>
-    <li className="flex items-center gap-1.5">
-      <svg viewBox="0 0 18 12" width="18" height="12" aria-hidden="true" className="shrink-0">
-        <rect x="1" y="3" width="16" height="6" fill="var(--crew)" fillOpacity="0.15" stroke="var(--ink)" strokeWidth="1.5" strokeDasharray="3 2" />
-      </svg>
-      Alley
-    </li>
+    {osmAlleys && (
+      <li className="flex items-center gap-1.5">
+        <svg viewBox="0 0 18 12" width="18" height="12" aria-hidden="true" className="shrink-0">
+          <path d="M1 6h16" stroke="var(--ink)" strokeWidth="1.5" strokeDasharray="3 2" />
+        </svg>
+        OSM alley
+      </li>
+    )}
   </ul>
 );

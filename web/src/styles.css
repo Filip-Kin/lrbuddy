@@ -564,31 +564,26 @@
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M16.5 9 8 15V11H1.5V7H8V3Z' fill='%23fff' stroke='%230e3038' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
-/* Alleys (SPEC 19): ink dashed outline, the status colour at 15 %. */
-.lrb-alley {
+/* OpenStreetMap alleys (SPEC 24): a thin dashed ink centreline, a hint for Draw lot. */
+.lrb-osm-alley {
   stroke: var(--ink);
-  stroke-width: 1.5px;
+  stroke-opacity: 0.7;
   stroke-dasharray: 5 4;
-  fill-opacity: 0.15;
-}
-.lrb-alley-open {
-  fill: var(--crew);
-}
-.lrb-alley-in_progress {
-  fill: var(--brand);
-}
-.lrb-alley-done {
-  fill: var(--brand-green);
-}
-.lrb-alley-do_not_touch {
-  fill: var(--warn);
-}
-.swatch-alley {
-  border: 1.5px dashed var(--ink);
-  background: color-mix(in srgb, var(--crew) 15%, transparent);
+  fill: none;
 }
 
 /* Street tiles are light; in dark mode invert them to match the dark canvas. */
 .tiles-dark-street {
   filter: invert(1) hue-rotate(180deg) brightness(0.82) contrast(0.92) saturate(0.6);
+}
+
+/* Draw lot (SPEC 24): the outline being drawn, ink with a light yellow fill; the first point closes it. */
+.lrb-draw-shape {
+  stroke: var(--ink);
+  fill: var(--brand);
+  fill-opacity: 0.2;
+}
+.lrb-draw-first span {
+  background: var(--brand);
+  border-radius: 999px;
 }

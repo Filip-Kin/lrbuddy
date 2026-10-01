@@ -378,7 +378,8 @@ export const setLot = (actor: Actor, input: SetLotInput, by: string | null = nul
   const lot = t.lot;
   const status = input.status ?? lot.status;
   checkStatus(actor, lot.status, status);
-  if (status === "not_todo" && lot.status !== "not_todo" && untouched(lot) && note === undefined) {
+  // A drawn lot (SPEC 24) is never deleted this way: its outline exists nowhere else.
+  if (status === "not_todo" && lot.status !== "not_todo" && lot.source !== "drawn" && untouched(lot) && note === undefined) {
     db.delete(lots).where(eq(lots.id, lot.id)).run();
     const clearedTagId = clearSurvey(actor, lot, by);
     emit(lot);

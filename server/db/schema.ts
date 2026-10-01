@@ -669,6 +669,23 @@ export const assignments = sqliteTable(
 );
 // #endregion
 
+// #region client errors
+/** A crash or unhandled rejection reported by a browser (`POST /client-error`). Read on `/admin/client-errors`. */
+export const clientErrors = sqliteTable(
+  "client_errors",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    at: integer("at").notNull(),
+    message: text("message").notNull(),
+    stack: text("stack"),
+    url: text("url"),
+    userAgent: text("user_agent"),
+    role: text("role"),
+  },
+  (t) => [index("client_errors_at_idx").on(t.at)],
+);
+// #endregion
+
 // #region row types
 export type Event = typeof events.$inferSelect;
 export type Day = typeof days.$inferSelect;
@@ -698,4 +715,5 @@ export type Assignment = typeof assignments.$inferSelect;
 export type CrewArea = typeof crewAreas.$inferSelect;
 export type OnewayWay = typeof onewayWays.$inferSelect;
 export type OsmAlley = typeof osmAlleys.$inferSelect;
+export type ClientError = typeof clientErrors.$inferSelect;
 // #endregion

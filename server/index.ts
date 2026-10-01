@@ -17,6 +17,8 @@ import {
   sessionIdFrom,
   setSessionName,
 } from "./auth.ts";
+import { handleClientError } from "./client-errors.ts";
+import { withEtag } from "./etag.ts";
 import { firebaseEnabled, verifyIdToken } from "./firebase.ts";
 import { config } from "./config.ts";
 import { sqlite } from "./db/index.ts";
@@ -128,6 +130,10 @@ const server = Bun.serve({
       return json({ ok: dbState === "ok", version: config.version, db: dbState }, { status: dbState === "ok" ? 200 : 503 });
     }
 
+    if (path === "/client-error" && req.method === "POST") {
+      return handleClientError(req, clientIp(req, srv), getSession(sessionIdFrom(req))?.role ?? null);
+    }
+
     if (path === "/auth/login" && req.method === "POST") {
       if (!allowLogin(clientIp(req, srv))) return json({ ok: false, error: "Too many tries" }, { status: 429 });
       const body = await readBody(req);
@@ -227,7 +233,7 @@ const server = Bun.serve({
 
     if (path === "/trpc" || path.startsWith("/trpc/")) {
       const ip = clientIp(req, srv);
-      return fetchRequestHandler({
+      const res = await fetchRequestHandler({
         endpoint: "/trpc",
         req,
         router: appRouter,
@@ -237,6 +243,7 @@ const server = Bun.serve({
           if (error.code === "INTERNAL_SERVER_ERROR") console.error(`[trpc] ${p ?? "?"}:`, error.message, error.cause ?? "");
         },
       });
+      return withEtag(req, res);
     }
 
     return serveStatic(path);

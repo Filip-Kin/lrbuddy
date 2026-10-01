@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import Papa from "papaparse";
 import { z } from "zod";
 import { newCrewToken, uniqueCode } from "../auth.ts";
+import { recentClientErrors } from "../client-errors.ts";
 import { bus, type BusMessage } from "../bus.ts";
 import { config } from "../config.ts";
 import { crewName, isRuleName, nextCrewName, renameCompanyCrews } from "../crew-name.ts";
@@ -1127,6 +1128,8 @@ export const adminRouter = router({
       : 0;
     return { event: ev, days: dayRows, lotCount, unplacedLots: unplaced };
   }),
+  /** The last 200 browser crash reports (`POST /client-error`), newest first. */
+  clientErrors: adminProcedure.query(() => recentClientErrors(200)),
   /** Every bus message, for admin screens to refetch on. Admin sees all CCs and days. */
   onEvent: adminProcedure.subscription(async function* ({ ctx, signal }) {
     const sessionId = ctx.session.id;

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { bus } from "../bus.ts";
 import { db } from "../db/index.ts";
 import { crews, LOT_STATUSES, lots, requests, trucks, type CommandCenter, type Crew, type Lot } from "../db/schema.ts";
-import { cancelRequest, createRequest, getRequest, getType, latestPosition } from "../dispatch.ts";
+import { cancelRequest, createRequest, crewLabel, getRequest, getType, latestPosition } from "../dispatch.ts";
 import { bboxAround, haversine, type LatLng } from "../geo.ts";
 import { emitLot } from "../lots-import.ts";
 import { photoSummary } from "../photos.ts";
@@ -176,7 +176,7 @@ export const crewRouter = router({
       cc: ctx.cc,
       trucks: myTrucks.map((t) => ({ id: t.id, name: t.name, status: t.status, position: truckPos.get(t.id) ?? null })),
       lots: lotsForCrew(crew, ctx.cc, ctx.event.id),
-      companyCrews: mates.map((m) => ({ id: m.id, number: m.number, position: matePos.get(m.id) ?? null })),
+      companyCrews: mates.map((m) => ({ id: m.id, number: m.number, name: crewLabel(m), position: matePos.get(m.id) ?? null })),
     };
   }),
 

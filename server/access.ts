@@ -168,9 +168,9 @@ export const membershipViews = (rows: readonly Membership[]): MembershipView[] =
   });
 };
 
-/** "Jordan Reed, Red shirt, Crew 7 Ford", the push line for a new request. */
+/** "Jordan Reed, Red shirt, GM 7", the push line for a new request. The crew name carries the company. */
 export const requestLine = (v: MembershipView): string =>
-  [v.user.name ?? v.user.phone ?? v.user.email ?? "No name", v.roleLabel, v.crewName ? [v.crewName, v.companyName].filter(Boolean).join(" ") : v.truckName]
+  [v.user.name ?? v.user.phone ?? v.user.email ?? "No name", v.roleLabel, v.crewName ?? v.truckName]
     .filter(Boolean)
     .join(", ");
 // #endregion

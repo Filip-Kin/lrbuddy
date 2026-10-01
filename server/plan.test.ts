@@ -230,7 +230,7 @@ describe("assignments and publish", () => {
     const sheets = await admin.print.sheets({ dayId });
     expect(sheets.crewPages).toHaveLength(1);
     const page = sheets.crewPages[0]!;
-    expect(page).toMatchObject({ teamName: "Ford 1", ccName: "East", code: crew.token, url: `${config.publicUrl}/j/${crew.token}`, loginUrl: `${config.publicUrl}/login` });
+    expect(page).toMatchObject({ name: "Ford 1", ccName: "East", code: crew.token, url: `${config.publicUrl}/j/${crew.token}`, loginUrl: `${config.publicUrl}/login` });
     expect(page.qrSvg).toStartWith("<svg");
     expect(page.lots.every((l) => l.parcelId !== null)).toBe(true);
     expect(page.area).not.toBeNull();
@@ -319,7 +319,7 @@ describe("assignments and publish", () => {
     expect(e).toBeGreaterThan(Math.max(...areaLng));
     // Crew sheets name the shared rectangle the same way.
     const shared = sheets.crewPages.find((p) => p.crewId === crews[2]!.id)!;
-    expect(shared).toMatchObject({ teamName: "GM 3", areaName: "GM 2 & GM 3", ccLetter: "B" });
+    expect(shared).toMatchObject({ name: "GM 3", areaName: "GM 2 & GM 3", ccLetter: "B" });
     expect(shared.otherAreas.map((a) => a.name)).toEqual(["GM 1"]);
   });
 });

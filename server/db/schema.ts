@@ -197,8 +197,10 @@ export const crews = sqliteTable(
       .notNull()
       .references(() => commandCenters.id, { onDelete: "cascade" }),
     companyId: integer("company_id").references(() => companies.id, { onDelete: "set null" }),
-    /** Crew number within the day, shown as "Crew 7". */
+    /** Crew number within the day: orders crews and names a crew without a company. */
     number: integer("number").notNull(),
+    /** The crew's name everywhere it is shown, "GM 2" or "Crew 7" (SPEC 19, `server/crew-name.ts`). */
+    name: text("name").notNull(),
     leadName: text("lead_name"),
     leadPhone: text("lead_phone"),
     token: text("token").notNull().unique(),

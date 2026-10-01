@@ -10,7 +10,7 @@ import { createCrew } from "../../setup.ts";
 import { adminProcedure, router } from "../../trpc.ts";
 import { areaForCrews, dayAreas, pruneAreas, splitSides, type SplitSide } from "./areas.ts";
 import { blockSideRows } from "./blocks.ts";
-import { areaInput, badRequest, ccOfDay, crewOfDay, dayOfEvent, eventInput, eventOrActive, id, notFound, teamNames } from "./common.ts";
+import { areaInput, badRequest, ccOfDay, crewOfDay, dayOfEvent, eventInput, eventOrActive, id, notFound } from "./common.ts";
 
 /** Volunteers per crew when a company's headcount becomes crews. */
 export const CREW_SIZE = 10;
@@ -157,8 +157,7 @@ const companiesOfDay = (eventId: number, dayId: number, ccId: number | null) => 
   const all = db.select().from(companies).where(eq(companies.eventId, eventId)).orderBy(sql`lower(${companies.name})`).all();
   const attending = db.select().from(companyDays).where(eq(companyDays.dayId, dayId)).all();
   const crewRows = db.select().from(crews).where(eq(crews.dayId, dayId)).orderBy(crews.number).all();
-  const names = teamNames(dayId);
-  const areas = new Map(dayAreas(dayId, names).map((a) => [a.id, a]));
+  const areas = new Map(dayAreas(dayId).map((a) => [a.id, a]));
   const sides = new Map<string, BlockSide>(blockSideRows(eventId).map((b) => [b.key, b]));
   const asg = db.select().from(assignments).where(and(eq(assignments.eventId, eventId), eq(assignments.dayId, dayId))).all();
   return all
@@ -191,7 +190,7 @@ const companiesOfDay = (eventId: number, dayId: number, ccId: number | null) => 
           return {
             id: r.id,
             number: r.number,
-            name: names.get(r.id) ?? `Crew ${r.number}`,
+            name: r.name,
             ccId: r.ccId,
             headcount: r.headcount,
             leadName: r.leadName,
@@ -323,8 +322,7 @@ export const assignmentsRouter = router({
         }),
       );
       if (!promised) db.insert(companyDays).values({ companyId: input.companyId, dayId: input.dayId, ccId: input.ccId, headcount }).run();
-      const names = teamNames(input.dayId);
-      return created.map((c) => ({ id: c.id, number: c.number, name: names.get(c.id) ?? `Crew ${c.number}`, headcount: c.headcount }));
+      return created.map((c) => ({ id: c.id, number: c.number, name: c.name, headcount: c.headcount }));
     }),
   /** The day as the field left it at one CC (SPEC 19 Marks): lot counts per block side and rectangle, Do not touch flags. */
   dayOf: adminProcedure.input(z.object({ dayId: id, ccId: id, ...eventInput })).query(({ input }) => {
@@ -350,8 +348,7 @@ export const crewsRouter = router({
   /** A day's crews with portal names and areas. */
   list: adminProcedure.input(z.object({ dayId: id, ...eventInput })).query(({ input }) => {
     dayOfEvent(input.dayId, eventOrActive(input.eventId));
-    const names = teamNames(input.dayId);
-    const areas = new Map(dayAreas(input.dayId, names).map((a) => [a.id, a]));
+    const areas = new Map(dayAreas(input.dayId).map((a) => [a.id, a]));
     return db
       .select({ crew: crews, company: companies })
       .from(crews)
@@ -362,7 +359,7 @@ export const crewsRouter = router({
       .map(({ crew, company }) => ({
         id: crew.id,
         number: crew.number,
-        name: names.get(crew.id) ?? `Crew ${crew.number}`,
+        name: crew.name,
         ccId: crew.ccId,
         companyId: crew.companyId,
         companyName: company?.name ?? null,

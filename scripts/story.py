@@ -7,7 +7,7 @@ request, one green stop and a DLBA import. Every step prints PASS or FAIL;
 exit 1 on any FAIL. Screenshots of each step land in
 /home/filip/preview-shots/lrbuddy/story/.
 
-1. Crew 1 (demo-crew-01) sends Water x2.
+1. FORD 1 (demo-crew-01) sends Water x2.
 2. Green EAST01 sees it on the board and a request ring on the map.
 3. The truck's queue shows it, and the driver map draws a route.
 4. Driver taps En route; the crew sees En route without a reload.
@@ -140,15 +140,15 @@ with sync_playwright() as pw:
     if truck_name and truck_name != "Truck 1":
         # Dispatch picked the other truck; the green moves it to Truck 1, which is the phone in this story.
         go(green, "/requests")
-        card = green.locator("article", has_text="Crew 1").filter(has_text="Water").first
+        card = green.locator("article", has_text="FORD 1").filter(has_text="Water").first
         card.get_by_role("button", name="Assign").click()
         green.get_by_role("dialog").get_by_role("button", name="Truck 1").click()
         moved = wait_for(lambda: next((r for r in api(crew_ctx, "crew.myRequests") if r["id"] == req["id"] and r["truckName"] == "Truck 1"), None), 10)
         check(moved is not None, "green reassigned it to Truck 1")
     go(green, "/requests")
     board = green.locator("main")
-    seen = wait_for(lambda: "Crew 1" in board.inner_text() and "Water" in board.inner_text(), 10)
-    check(bool(seen), "green board shows Crew 1 Water")
+    seen = wait_for(lambda: "FORD 1" in board.inner_text() and "Water" in board.inner_text(), 10)
+    check(bool(seen), "green board shows FORD 1 Water")
     shot(green, "2-green-board")
     go(green, "/")
     rings = wait_for(lambda: green.locator(".lrb-req").count(), 10)
@@ -162,8 +162,8 @@ with sync_playwright() as pw:
     check(bool(route), "driver map draws the route")
     shot(drv, "3-driver-map")
     drv.locator("[data-queue-button]").click()
-    in_queue = wait_for(lambda: "Crew 1" in drv.get_by_role("dialog").inner_text(), 15)
-    check(bool(in_queue), "Truck 1 queue shows Crew 1")
+    in_queue = wait_for(lambda: "FORD 1" in drv.get_by_role("dialog").inner_text(), 15)
+    check(bool(in_queue), "Truck 1 queue shows FORD 1")
     shot(drv, "3-driver-queue")
     drv.keyboard.press("Escape")
     # #endregion
@@ -173,7 +173,7 @@ with sync_playwright() as pw:
     go(drv, "/")
     drv.locator('section[aria-label="Next stop"]').wait_for()
     time.sleep(1)  # a freshly shown stop card ignores taps for 800 ms
-    stop_for(drv, "Crew 1").get_by_role("button", name="En route").click()
+    stop_for(drv, "FORD 1").get_by_role("button", name="En route").click()
     ok = wait_for(lambda: next((r for r in api(crew_ctx, "crew.myRequests") if r["id"] == req["id"] and r["status"] == "en_route"), None), 10)
     check(ok is not None, "driver marked the stop en route")
     crew_card = crew.locator("article", has_text="Water").first
@@ -185,7 +185,7 @@ with sync_playwright() as pw:
     # #region 5. delivered
     drv.keyboard.press("Escape")
     time.sleep(1)
-    stop_for(drv, "Crew 1").get_by_role("button", name="Delivered").click()
+    stop_for(drv, "FORD 1").get_by_role("button", name="Delivered").click()
     done = wait_for(lambda: next((r for r in api(crew_ctx, "crew.myRequests") if r["id"] == req["id"] and r["status"] == "delivered"), None), 10)
     check(done is not None, "driver delivered the stop")
     live = wait_for(lambda: "Delivered" in crew.locator("main").inner_text(), 10)

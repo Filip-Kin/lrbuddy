@@ -5,6 +5,7 @@ import { z } from "zod";
 import { newCrewToken, uniqueCode } from "../auth.ts";
 import { bus, type BusMessage } from "../bus.ts";
 import { config } from "../config.ts";
+import { crewName, isRuleName, nextCrewName, renameCompanyCrews } from "../crew-name.ts";
 import { db } from "../db/index.ts";
 import {
   commandCenters,
@@ -26,6 +27,7 @@ import {
   LOT_STATUSES,
   UNITS,
   type CommandCenter,
+  type Company,
   type Event,
 } from "../db/schema.ts";
 import { crewLabel, emitStock, scheduleRoute, stockFor, sweepOpen } from "../dispatch.ts";
@@ -67,6 +69,9 @@ const requireActive = (): Event => {
 const eventOrActive = (eventId: number | null | undefined): number => eventId ?? requireActive().id;
 
 const notFound = (what: string): TRPCError => new TRPCError({ code: "NOT_FOUND", message: `${what} not found` });
+
+const companyOf = (companyId: number | null): Company | null =>
+  companyId === null ? null : (db.select().from(companies).where(eq(companies.id, companyId)).get() ?? null);
 
 const getCcOrThrow = (ccId: number): CommandCenter => {
   const cc = db.select().from(commandCenters).where(eq(commandCenters.id, ccId)).get();
@@ -447,12 +452,25 @@ const companiesRouter = router({
     .input(z.object({ id, name: z.string().trim().min(1).max(100), short: z.string().trim().max(16).nullish() }))
     .mutation(({ input }) => {
       const set = input.short === undefined ? { name: input.name } : { name: input.name, short: input.short || null };
-      const r = db.update(companies).set(set).where(eq(companies.id, input.id)).returning().get();
-      if (!r) throw notFound("Company");
-      return r;
+      const before = db.select().from(companies).where(eq(companies.id, input.id)).get();
+      if (!before) throw notFound("Company");
+      return db.transaction(() => {
+        const r = db.update(companies).set(set).where(eq(companies.id, input.id)).returning().get();
+        renameCompanyCrews(r.id, before, r);
+        return r;
+      });
     }),
+  /** Its crews stay, without a company; those named by the rule become "Crew <number>". */
   delete: adminProcedure.input(z.object({ id })).mutation(({ input }) => {
-    db.delete(companies).where(eq(companies.id, input.id)).run();
+    db.transaction(() => {
+      const company = db.select().from(companies).where(eq(companies.id, input.id)).get();
+      if (company) {
+        for (const c of db.select().from(crews).where(eq(crews.companyId, company.id)).all()) {
+          if (isRuleName(c.name, company, c.number)) db.update(crews).set({ name: crewName(null, 0, c.number) }).where(eq(crews.id, c.id)).run();
+        }
+      }
+      db.delete(companies).where(eq(companies.id, input.id)).run();
+    });
     return { ok: true };
   }),
 });
@@ -464,6 +482,8 @@ const crewInput = z.object({
   leadPhone: phone,
   headcount: z.number().int().min(0).max(500).nullish(),
   notes: z.string().max(1000).nullish(),
+  /** Blank takes the rule's name ("GM 3", `crew-name.ts`). */
+  name: z.string().trim().max(40).nullish(),
 });
 
 /**
@@ -488,7 +508,6 @@ const crewsRouter = router({
       .all()
       .map(({ crew, company, cc }) => ({
         ...crew,
-        name: crewLabel(crew),
         companyName: company?.name ?? null,
         ccName: cc.name,
         joinUrl: `${config.publicUrl}/j/${crew.token}`,
@@ -503,11 +522,24 @@ const crewsRouter = router({
     const { id: cid, ...set } = input;
     const current = db.select().from(crews).where(eq(crews.id, cid)).get();
     if (!current) throw notFound("Crew");
-    const patch: Partial<typeof crews.$inferInsert> = { ...set };
+    const { name: typed, ...rest } = set;
+    const patch: Partial<typeof crews.$inferInsert> = { ...rest };
     if (set.leadName !== undefined) patch.leadName = set.leadName || null;
     if (set.leadPhone !== undefined) patch.leadPhone = set.leadPhone || null;
     const moving = set.ccId !== undefined && set.ccId !== current.ccId;
     if (moving && set.ccId !== undefined) patch.dayId = getCcOrThrow(set.ccId).dayId;
+    // A name the admin typed wins. A crew still named by the rule is renamed when its company or
+    // day changes ("GM 3" moved to Rocket becomes the next ROCKET n); a custom name stays unless
+    // the field is cleared, which goes back to the rule.
+    const custom = typed ? typed.trim() : "";
+    const companyId = set.companyId !== undefined ? set.companyId : current.companyId;
+    const dayId = patch.dayId ?? current.dayId;
+    const moved = companyId !== current.companyId || dayId !== current.dayId;
+    const ruleNow = isRuleName(current.name, companyOf(current.companyId), current.number);
+    if (custom !== "" && custom !== current.name) patch.name = custom;
+    else if (moved ? typed === "" || ruleNow : typed === "" && !ruleNow)
+      patch.name = nextCrewName({ dayId, companyId, number: current.number, exceptCrewId: current.id });
+    if (Object.keys(patch).length === 0) return current;
     const row = db.update(crews).set(patch).where(eq(crews.id, cid)).returning().get();
     if (moving) afterCrewMoved(cid, row.ccId);
     return row;
@@ -593,7 +625,9 @@ const crewsRouter = router({
             (fields.leadName !== null && (c.leadName ?? "").toLowerCase() === fields.leadName.toLowerCase()),
         );
       if (existing) {
+        const rename = existing.ccId !== fields.ccId && getCcOrThrow(fields.ccId).dayId !== existing.dayId;
         db.update(crews).set(fields).where(eq(crews.id, existing.id)).run();
+        if (rename) db.update(crews).set({ name: nextCrewName({ dayId: day.id, companyId, number: existing.number, exceptCrewId: existing.id }) }).where(eq(crews.id, existing.id)).run();
         if (existing.ccId !== fields.ccId) afterCrewMoved(existing.id, fields.ccId);
         updated++;
       } else {
@@ -671,12 +705,12 @@ const lotsRouter = router({
   /** Every lot of the event with its crew's number. */
   list: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) =>
     db
-      .select({ lot: lots, crewNumber: crews.number })
+      .select({ lot: lots, crewName: crews.name })
       .from(lots)
       .leftJoin(crews, eq(crews.id, lots.crewId))
       .where(eq(lots.eventId, eventOrActive(input?.eventId)))
       .all()
-      .map(({ lot, crewNumber }) => ({ ...lot, crewNumber })),
+      .map(({ lot, crewName }) => ({ ...lot, crewName })),
   ),
   counts: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
     const eventId = eventOrActive(input?.eventId);
@@ -862,7 +896,7 @@ const exportRouter = router({
     const eventId = eventOrActive(input?.eventId);
     const names = eventNames(eventId);
     const rows = db
-      .select({ lot: lots, crewNumber: crews.number, crewCompany: companies.name })
+      .select({ lot: lots, crewName: crews.name, crewCompany: companies.name })
       .from(lots)
       .leftJoin(crews, eq(crews.id, lots.crewId))
       .leftJoin(companies, eq(companies.id, crews.companyId))
@@ -877,7 +911,7 @@ const exportRouter = router({
     const fields = ["id", "parcel_id", "address", "lat", "lng", "source", "day", "cc", "crew", "company", "status", "status_at", "note"] as const;
     return toCsv(
       fields,
-      rows.map(({ lot: l, crewNumber, crewCompany }) => ({
+      rows.map(({ lot: l, crewName, crewCompany }) => ({
         id: l.id,
         parcel_id: l.parcelId,
         address: l.address,
@@ -886,7 +920,7 @@ const exportRouter = router({
         source: l.source,
         day: l.ccId !== null ? (names.day.get(ccDay.get(l.ccId) ?? -1) ?? "") : "",
         cc: l.ccId !== null ? (names.cc.get(l.ccId) ?? "") : "",
-        crew: crewNumber !== null ? crewLabel({ number: crewNumber }) : "",
+        crew: crewName ?? "",
         company: crewCompany,
         status: l.status,
         status_at: iso(l.statusAt),
@@ -970,12 +1004,12 @@ const exportRouter = router({
       "taken_at", "lat", "lng", "width", "height", "bytes",
     ] as const;
     const crewIds = [...new Set(rows.map((p) => p.crewId).filter((x): x is number => x !== null))];
-    const crewNum = new Map(crewIds.length ? db.select().from(crews).where(inArray(crews.id, crewIds)).all().map((c) => [c.id, c.number]) : []);
+    const crewNames = new Map(crewIds.length ? db.select().from(crews).where(inArray(crews.id, crewIds)).all().map((c) => [c.id, crewLabel(c)]) : []);
     return toCsv(
       fields,
       rows.map((p) => {
         const pair = pairs.get(p.lotId);
-        const takerCrew = p.crewId !== null ? crewNum.get(p.crewId) : undefined;
+        const takerCrew = p.crewId !== null ? crewNames.get(p.crewId) : undefined;
         return {
           id: p.id,
           file: files.get(p.id) ?? "",
@@ -987,7 +1021,7 @@ const exportRouter = router({
           kind: p.kind,
           taken_by: p.takenBy,
           role: p.role,
-          crew: takerCrew !== undefined ? crewLabel({ number: takerCrew }) : (pair?.crewName ?? ""),
+          crew: takerCrew ?? pair?.crewName ?? "",
           company: pair?.companyName ?? "",
           taken_at: iso(p.at),
           lat: p.lat,

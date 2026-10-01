@@ -76,7 +76,7 @@ export const MapPage = () => {
       out.push({ id: `lot-${l.id}`, kind: "lot", lat: l.lat, lng: l.lng, status: l.status, mine: l.mine, geometry: l.geometry, title: lotTitle(l), onClick: () => setLotId(l.id) });
     }
     for (const c of d.companyCrews) {
-      if (c.position) out.push({ id: `crew-${c.id}`, kind: "crew", lat: c.position.lat, lng: c.position.lng, label: `Crew ${c.number}`, muted: true, noFit: true, title: `Crew ${c.number}` });
+      if (c.position) out.push({ id: `crew-${c.id}`, kind: "crew", lat: c.position.lat, lng: c.position.lng, label: c.name, muted: true, noFit: true, title: c.name });
     }
     out.push({ id: "cc", kind: "cc", lat: d.cc.lat, lng: d.cc.lng, name: `CC ${d.cc.name}`, letter: d.cc.letter });
     for (const t of d.trucks) {

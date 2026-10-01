@@ -68,6 +68,7 @@ const CrewSheet = ({
   const dayCcs = ccs.filter((c) => c.dayId === dayId);
   const [ccId, setCcId] = useState<number>(0);
   const [companyId, setCompanyId] = useState<number | null>(null);
+  const [name, setName] = useState("");
   const [lead, setLead] = useState("");
   const [phone, setPhone] = useState("");
   const [headcount, setHeadcount] = useState("");
@@ -77,6 +78,7 @@ const CrewSheet = ({
     if (!open) return;
     setCcId(crew?.ccId ?? dayCcs[0]?.id ?? 0);
     setCompanyId(crew?.companyId ?? null);
+    setName(crew?.name ?? "");
     setLead(crew?.leadName ?? "");
     setPhone(crew?.leadPhone ?? "");
     setHeadcount(crew?.headcount != null ? String(crew.headcount) : "");
@@ -94,14 +96,14 @@ const CrewSheet = ({
   const create = trpc.admin.crews.create.useMutation({
     onSuccess: (c) => {
       refresh();
-      notify({ tone: "ok", text: `Crew ${c.number} added` });
+      notify({ tone: "ok", text: `${c.name} added` });
       onClose();
     },
   });
   const update = trpc.admin.crews.update.useMutation({
     onSuccess: (c) => {
       refresh();
-      notify({ tone: "ok", text: `Crew ${c.number} saved` });
+      notify({ tone: "ok", text: `${c.name} saved` });
       onClose();
     },
   });
@@ -124,7 +126,7 @@ const CrewSheet = ({
   const valid = ccId > 0 && headOk;
   const submit = (): void => {
     if (!valid) return;
-    const body = { ccId, companyId, leadName: lead.trim() || null, leadPhone: phone.trim() || null, headcount: head, notes: notes.trim() || null };
+    const body = { ccId, companyId, name: name.trim(), leadName: lead.trim() || null, leadPhone: phone.trim() || null, headcount: head, notes: notes.trim() || null };
     if (crew) update.mutate({ id: crew.id, ...body });
     else create.mutate(body);
   };
@@ -175,6 +177,7 @@ const CrewSheet = ({
               </option>
             ))}
           </Select>
+          <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} autoComplete="off" />
           <Field label="Red shirt" value={lead} onChange={(e) => setLead(e.target.value)} maxLength={80} autoComplete="off" />
           <Field label="Red shirt phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} autoComplete="off" />
           <Field

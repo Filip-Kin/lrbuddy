@@ -14,7 +14,7 @@ export const SettingsPage = () => {
   const [busy, setBusy] = useState(false);
   const data = me.data && me.data.role === "crew" ? me.data : null;
   const crew = data?.crew ?? null;
-  const crewName = crew ? [`Crew ${crew.number}`, crew.company?.name].filter(Boolean).join(", ") : "Crew";
+  const crewName = crew ? [crew.name, crew.company?.name].filter(Boolean).join(", ") : "Crew";
 
   const saveName = async (name: string): Promise<boolean> => {
     const ok = await setDisplayName(name);

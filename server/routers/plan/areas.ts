@@ -2,7 +2,6 @@ import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { crewAreas, crews, type AreaPolygon, type CrewArea } from "../../db/schema.ts";
 import type { LatLng } from "../../geo.ts";
-import { teamNames } from "./common.ts";
 
 // #region labels
 /** "GM 2", "GM 9 & GM 10", "GM 9, GM 10 & GM 11": the way the printed sheet names a shared area. */
@@ -27,9 +26,9 @@ export interface AreaView {
 }
 
 /** Every area of a day that has at least one crew, with its label. */
-export const dayAreas = (dayId: number, names: Map<number, string> = teamNames(dayId)): AreaView[] => {
+export const dayAreas = (dayId: number): AreaView[] => {
   const members = db
-    .select({ id: crews.id, areaId: crews.areaId, ccId: crews.ccId, companyId: crews.companyId })
+    .select({ id: crews.id, name: crews.name, areaId: crews.areaId, ccId: crews.ccId, companyId: crews.companyId })
     .from(crews)
     .where(and(eq(crews.dayId, dayId), sql`${crews.areaId} is not null`))
     .orderBy(crews.number)
@@ -42,7 +41,7 @@ export const dayAreas = (dayId: number, names: Map<number, string> = teamNames(d
       id: a.id,
       dayId: a.dayId,
       polygon: a.polygon,
-      label: a.label?.trim() || joinNames(mine.map((m) => names.get(m.id) ?? "")),
+      label: a.label?.trim() || joinNames(mine.map((m) => m.name)),
       crewIds: mine.map((m) => m.id),
       ccId: mine[0]?.ccId ?? null,
       companyId: mine[0]?.companyId ?? null,
@@ -52,7 +51,7 @@ export const dayAreas = (dayId: number, names: Map<number, string> = teamNames(d
 };
 
 /** Area labels by area id for a day. */
-export const areaLabels = (dayId: number, names?: Map<number, string>): Map<number, string> => new Map(dayAreas(dayId, names).map((a) => [a.id, a.label]));
+export const areaLabels = (dayId: number): Map<number, string> => new Map(dayAreas(dayId).map((a) => [a.id, a.label]));
 // #endregion
 
 // #region writes

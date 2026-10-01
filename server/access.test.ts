@@ -228,7 +228,7 @@ describe("approval rules", () => {
     a.requestAccess(two.user.id, { role: "green", dayId: w.d1.id, ccId: w.west.id });
     expect(a.pendingRequests(w.east.id).map((v) => v.user.name)).toEqual(["Jordan Reed"]);
     expect(a.pendingRequests(null)).toHaveLength(2);
-    expect(a.requestLine(a.pendingRequests(w.east.id)[0]!)).toBe("Jordan Reed, Red shirt, Crew 1 Ford");
+    expect(a.requestLine(a.pendingRequests(w.east.id)[0]!)).toBe("Jordan Reed, Red shirt, Ford 1");
   });
 });
 
@@ -328,7 +328,7 @@ describe("routers", () => {
 
   test("the sign-in page names a waiting link", async () => {
     const api = accessRouter.createCaller({ session: null, ip: "test", ccOverride: null, joinLink: "crew:access-crew-01" });
-    expect(await api.link()).toEqual({ label: "Crew 1, Ford, CC East" });
+    expect(await api.link()).toEqual({ label: "Ford 1, Ford, CC East" });
     const none = accessRouter.createCaller({ session: null, ip: "test", ccOverride: null, joinLink: "crew:nope-nope" });
     expect(await none.link()).toBeNull();
   });

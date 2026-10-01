@@ -1,5 +1,6 @@
 import { and, eq, max } from "drizzle-orm";
 import { newCrewToken, uniqueCode } from "./auth.ts";
+import { nextCrewName } from "./crew-name.ts";
 import { db } from "./db/index.ts";
 import {
   commandCenters,
@@ -146,15 +147,19 @@ export const createCrew = (input: {
   headcount?: number | null;
   notes?: string | null;
   number?: number;
+  /** A custom name; blank or absent takes the rule's name (`crew-name.ts`). */
+  name?: string | null;
   token?: string;
-}): Crew =>
-  db
+}): Crew => {
+  const number = input.number ?? nextCrewNumber(input.dayId);
+  return db
     .insert(crews)
     .values({
       dayId: input.dayId,
       ccId: input.ccId,
       companyId: input.companyId,
-      number: input.number ?? nextCrewNumber(input.dayId),
+      number,
+      name: input.name?.trim() || nextCrewName({ dayId: input.dayId, companyId: input.companyId, number }),
       leadName: input.leadName ?? null,
       leadPhone: input.leadPhone ?? null,
       headcount: input.headcount ?? null,
@@ -163,6 +168,7 @@ export const createCrew = (input: {
     })
     .returning()
     .get();
+};
 
 /** Copies CCs (with green shirts), and trucks (with capacities) from the previous day. New codes. */
 export const copySetupFromPreviousDay = (dayId: number): { ccs: number; trucks: number } => {

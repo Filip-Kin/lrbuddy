@@ -4,6 +4,7 @@ import { z } from "zod";
 import { config } from "../../config.ts";
 import { db } from "../../db/index.ts";
 import { commandCenters, companies, crews, events, greenCodes, greenShirts, lots, trucks, type AreaPolygon, type Lot } from "../../db/schema.ts";
+import { shortOf } from "../../crew-name.ts";
 import { crewLabel } from "../../dispatch.ts";
 import { bboxOf, padBBox, type BBox } from "../../geo.ts";
 import { newestTags, outlinePoints } from "../../parcels.ts";
@@ -11,7 +12,7 @@ import { siteCcIds } from "../../queries.ts";
 import { adminProcedure, router } from "../../trpc.ts";
 import { dayAreas } from "./areas.ts";
 import { convexHull, type Ring } from "./blocks.ts";
-import { dayOfEvent, eventInput, eventOrActive, id, shortOf, teamNames } from "./common.ts";
+import { dayOfEvent, eventInput, eventOrActive, id } from "./common.ts";
 
 const areaPoints = (a: AreaPolygon): Array<{ lat: number; lng: number }> => outlinePoints(a);
 
@@ -73,7 +74,6 @@ export const printRouter = router({
       .where(eq(crews.dayId, day.id))
       .orderBy(crews.number)
       .all();
-    const names = teamNames(day.id);
     const crewIds = new Set(crewRows.map((r) => r.crew.id));
 
     // Lots of every CC site on this day, with their newest survey grade.
@@ -85,7 +85,7 @@ export const printRouter = router({
     const gradeOf = (l: Lot) => (l.parcelId ? (grades.get(l.parcelId)?.grade ?? null) : null);
 
     // One entry per area, shared or not, labelled the way the sheets print it.
-    const areas = dayAreas(day.id, names)
+    const areas = dayAreas(day.id)
       .filter((a): a is typeof a & { polygon: AreaPolygon } => a.polygon !== null && a.ccId !== null)
       .map((a) => ({ areaId: a.id, ccId: a.ccId ?? 0, companyId: a.companyId, crewIds: a.crewIds, name: a.label, area: a.polygon, doNotTouch: a.doNotTouch }));
     const areaOfCrew = new Map(areas.flatMap((a) => a.crewIds.map((c) => [c, a] as const)));
@@ -135,7 +135,6 @@ export const printRouter = router({
           .map(({ crew, company }) => ({
             crewId: crew.id,
             name: crewLabel(crew),
-            teamName: names.get(crew.id) ?? crewLabel(crew),
             companyName: company?.name ?? null,
             leadName: crew.leadName,
             leadPhone: crew.leadPhone,
@@ -155,7 +154,6 @@ export const printRouter = router({
         return {
           crewId: crew.id,
           name: crewLabel(crew),
-          teamName: names.get(crew.id) ?? crewLabel(crew),
           companyName: company?.name ?? null,
           leadName: crew.leadName,
           leadPhone: crew.leadPhone,
@@ -198,7 +196,7 @@ export const printRouter = router({
             companyName: company.name,
             short: shortOf(company),
             headcount,
-            crews: list.map(({ crew }) => ({ crewId: crew.id, name: names.get(crew.id) ?? crewLabel(crew), headcount: crew.headcount })),
+            crews: list.map(({ crew }) => ({ crewId: crew.id, name: crewLabel(crew), headcount: crew.headcount })),
             areaIds: [...new Set(list.map(({ crew }) => areaOfCrew.get(crew.id)?.areaId).filter((x): x is number => x !== undefined))],
           };
         });

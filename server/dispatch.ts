@@ -5,7 +5,6 @@ import { config } from "./config.ts";
 import { db } from "./db/index.ts";
 import {
   commandCenters,
-  companies,
   crews,
   positions,
   requests,
@@ -79,7 +78,8 @@ export const latestPosition = (kind: PositionKind, refId: number): Position | un
 export const isOpen = (r: Pick<Request, "status">): boolean =>
   r.status === "open" || r.status === "assigned" || r.status === "en_route";
 
-export const crewLabel = (c: { number: number }): string => `Crew ${c.number}`;
+/** A crew's name on every surface: the stored `crews.name` ("GM 2", "Crew 7"; `crew-name.ts`). */
+export const crewLabel = (c: { name: string }): string => c.name;
 export const itemText = (typeLabel: string, qty: number): string => `${typeLabel} x${qty}`;
 // #endregion
 
@@ -249,14 +249,8 @@ const emitRequest = (r: Request): void => {
 
 const stopName = (r: Request): string => {
   if (r.crewId === null) return r.label ?? "Pinned stop";
-  const row = db
-    .select({ number: crews.number, company: companies.name })
-    .from(crews)
-    .leftJoin(companies, eq(companies.id, crews.companyId))
-    .where(eq(crews.id, r.crewId))
-    .get();
-  if (!row) return "Crew";
-  return row.company ? `${crewLabel(row)} ${row.company}` : crewLabel(row);
+  const row = db.select({ name: crews.name }).from(crews).where(eq(crews.id, r.crewId)).get();
+  return row ? crewLabel(row) : "Crew";
 };
 
 const notifyNewStop = (r: Request, truckId: number): void => {

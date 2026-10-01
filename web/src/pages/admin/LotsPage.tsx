@@ -262,7 +262,7 @@ const LotSheet = ({ lot, ccs, onClose, notify }: { lot: Lot | null; ccs: readonl
           </div>
           <div className="rounded-xl bg-surface-2 px-3 py-2">
             <dt className="text-muted">Crew</dt>
-            <dd className="font-semibold">{lot.crewNumber != null ? `Crew ${lot.crewNumber}${cc ? `, ${cc.dayLabel}` : ""}` : "None"}</dd>
+            <dd className="font-semibold">{lot.crewName != null ? `${lot.crewName}${cc ? `, ${cc.dayLabel}` : ""}` : "None"}</dd>
           </div>
           {lot.parcelId && (
             <div className="col-span-2 rounded-xl bg-surface-2 px-3 py-2">

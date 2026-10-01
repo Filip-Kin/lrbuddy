@@ -834,3 +834,19 @@ Marks (from the photos of the same sheet during the day; legend confirmed by Fil
   states the count) and **Do not touch** (marks the area's open lots skipped with that note and
   flags the area); tap a block side for **Done** or **Do not touch** on that side only. Both emit lot.changed and show
   on the admin Assignments page. The crews involved get a push ("Reassigned: W Boston Blvd to DTE").
+
+## 20. Field feedback, 2026-10-01 (Filip driving Truck B1 at CC B)
+
+- **No fake people in a live day.** The seed must not create crew positions, truck positions or
+  requests for Day 4 CC B (the real day). Crews, trucks, areas, lots and tags only. Day 1 keeps its
+  demo activity. Crew dots appear only when a real phone posts a position.
+- **Labels declutter with zoom.** Rectangle name pills and crew name labels show at zoom 16 and
+  above; from 14 to 15 only the pills of the largest areas (top 6 by area), under 14 none. Crew dots
+  stay but lose their text. Applies to the driver, green, admin and plan maps.
+- **One-way streets.** Drivers need them. Pull `highway=*` ways with `oneway=yes` (and `-1`) from
+  Overpass for each CC's day area bbox padded 300 m (form-encoded POST, `out geom;`, contactable
+  User-Agent, see the reuse index), cache per bbox in `oneway_ways` (id, bbox key, geometry,
+  direction, name, fetched_at), and draw them on every map from zoom 15 up as small white arrows with
+  an ink outline every 60 m along the way pointing in the travel direction. Legend entry "One way".
+  Fetched when a CC is placed or its area changes, and by `bun run oneway <ccId>`; falls back to
+  nothing when Overpass fails.

@@ -81,7 +81,7 @@ def main() -> None:
         browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
         opts = dict(viewport=PHONE, device_scale_factor=2, is_mobile=True, has_touch=True)
 
-        # region 1. Phone sign-in, request Crew 2 as a red shirt, EAST01 approves, the crew map opens.
+        # region 1. Phone sign-in, request ROCKET 1 as a red shirt, EAST01 approves, the crew map opens.
         red = browser.new_context(**opts)
         page = red.new_page()
         errors: list[str] = []
@@ -100,7 +100,7 @@ def main() -> None:
         page.get_by_role("radio", name="Red shirt").click()
         page.get_by_role("radio", name="CC East").click()
         page.get_by_role("radio", name="Rocket", exact=True).click()
-        page.get_by_role("radio", name="Crew 2", exact=True).click()
+        page.get_by_role("radio", name="ROCKET 1", exact=True).click()
         shot(page, "red-4-request-filled")
         page.get_by_role("button", name="Request", exact=True).click()
         expect(page.get_by_text("Pending", exact=True)).to_be_visible(timeout=10000)
@@ -132,7 +132,7 @@ def main() -> None:
         expect(page.locator(".leaflet-container")).to_be_visible(timeout=20000)
         page.wait_for_timeout(1500)
         scope = page.locator("header").inner_text()
-        check("Crew 2" in scope, f"red shirt lands on the crew map for Crew 2 ({scope.splitlines()!r})")
+        check("ROCKET 1" in scope, f"red shirt lands on the crew map for ROCKET 1 ({scope.splitlines()!r})")
         shot(page, "red-6-crew-map")
         check(not errors, f"no page errors on the red shirt's phone ({errors[:2]})")
 
@@ -150,25 +150,25 @@ def main() -> None:
         page.locator("[role=dialog]").get_by_role("button", name="Leave crew").click()
         expect(page.get_by_text("Sign in as")).to_be_visible(timeout=10000)
         shot(page, "red-7-chooser")
-        page.get_by_role("button", name="Crew 2").click()
+        page.get_by_role("button", name="ROCKET 1").click()
         expect(page.locator(".leaflet-container")).to_be_visible(timeout=15000)
         check(True, "chooser re-enters the crew")
         red.close()
         green.close()
         # endregion
 
-        # region 2. QR path: scan Crew 3's code before sign-in, sign in, land in Crew 3.
+        # region 2. QR path: scan DTE 1's code before sign-in, sign in, land in DTE 1.
         qr = browser.new_context(**opts)
         qpage = qr.new_page()
         qpage.goto(BASE + "/j/demo-crew-03", wait_until="networkidle")
         check(qpage.url.endswith("/login"), f"crew QR before sign-in goes to /login ({qpage.url})")
-        expect(qpage.get_by_text("Crew 3, DTE, CC East")).to_be_visible(timeout=5000)
+        expect(qpage.get_by_text("DTE 1, DTE, CC East")).to_be_visible(timeout=5000)
         shot(qpage, "qr-1-login-with-link")
         phone_sign_in(qpage, "Sam Ortiz", "313 555 0143", "+13135550143", "qr")
         qpage.wait_for_url(BASE + "/", timeout=15000)
         expect(qpage.locator(".leaflet-container")).to_be_visible(timeout=20000)
         scope = qpage.locator("header").inner_text()
-        check("Crew 3" in scope, f"QR join lands on Crew 3 ({scope.splitlines()!r})")
+        check("DTE 1" in scope, f"QR join lands on DTE 1 ({scope.splitlines()!r})")
         shot(qpage, "qr-2-crew-map")
         # Scanning again after sign-in joins at once and keeps one membership.
         qpage.goto(BASE + "/j/demo-crew-03", wait_until="networkidle")

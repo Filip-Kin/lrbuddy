@@ -66,7 +66,7 @@ export const DriverLotSheet = ({ lot, crew, onClose }: { lot: DriverLot | null; 
         lot && (
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
             <StatusPill status={lotPill(lot.status)} />
-            <span>{crew ? [crew.team, crew.companyName].filter(Boolean).join(", ") : "No crew"}</span>
+            <span>{crew ? [crew.name, crew.companyName].filter(Boolean).join(", ") : "No crew"}</span>
           </div>
         )
       }
@@ -93,11 +93,10 @@ export const AreaCard = ({ area, crews, onClose }: { area: DayOfArea | null; cre
             {members.map((m) => (
               <li key={m.id} className="space-y-2">
                 <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="font-bold">{m.team}</span>
-                  {m.team !== m.name && <span className="text-sm text-muted">{m.name}</span>}
+                  <span className="font-bold">{m.name}</span>
                   {m.leadName && <span className="text-sm text-muted">{m.leadName}</span>}
                 </div>
-                <ContactButtons phone={m.leadPhone} who={m.leadName ?? m.team} />
+                <ContactButtons phone={m.leadPhone} who={m.leadName ?? m.name} />
               </li>
             ))}
           </ul>

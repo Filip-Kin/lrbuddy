@@ -57,6 +57,13 @@
       "when": 1790862406189,
       "tag": "0007_worthless_wallflower",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790868446428,
+      "tag": "0008_bright_thor_girl",
+      "breakpoints": true
     }
   ]
 }

@@ -85,9 +85,9 @@ describe("crew CSV import", () => {
     expect(r.errors).toEqual(['Row 5: day "Day 9" not found', 'Row 6: CC "Nowhere" not found on Day 1']);
     const crews = await admin.crews.list({ dayId: w.day1 });
     expect(crews.map((c) => [c.name, c.ccName, c.companyName, c.headcount])).toEqual([
-      ["Crew 1", "East", "Ford", 10],
-      ["Crew 2", "West", "Rocket", 8],
-      ["Crew 3", "East", "Ford", null],
+      ["Ford 1", "East", "Ford", 10],
+      ["Rocket 1", "West", "Rocket", 8],
+      ["Ford 2", "East", "Ford", null],
     ]);
     expect(crews[0]!.joinUrl).toBe(`${config.publicUrl}/j/${crews[0]!.token}`);
     const companies = await admin.companies.list();
@@ -110,8 +110,8 @@ describe("crew CSV import", () => {
     expect(await admin.crews.importCsv({ csv: fixed })).toEqual({ added: 0, updated: 2, errors: [] });
     const crews = await admin.crews.list({ dayId: w.day1 });
     expect(crews.map((c) => [c.name, c.leadName, c.headcount])).toEqual([
-      ["Crew 1", "Rita R.", 12],
-      ["Crew 2", "ron red", 9],
+      ["Ford 1", "Rita R.", 12],
+      ["GM 1", "ron red", 9],
     ]);
   });
 });
@@ -180,7 +180,7 @@ describe("lots", () => {
     expect(done.statusAt).toBeGreaterThan(0);
 
     const list = await admin.lots.list();
-    expect(list[0]!.crewNumber).toBeNull();
+    expect(list[0]!.crewName).toBeNull();
   });
 
   test("lot CSV rows name what is wrong with lat and lng", async () => {

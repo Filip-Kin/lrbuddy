@@ -19,7 +19,6 @@ import { pushToCrew } from "./push.ts";
 import { crewIdsOnDay, siteCcIds } from "./queries.ts";
 import { dayAreas, joinNames, pruneAreas, splitSides, type AreaView } from "./routers/plan/areas.ts";
 import { sideShapes, type Ring } from "./routers/plan/blocks.ts";
-import { teamNames } from "./routers/plan/common.ts";
 
 export const DO_NOT_TOUCH = "Do not touch";
 const UNFINISHED: readonly LotStatus[] = ["open", "in_progress"];
@@ -66,8 +65,8 @@ interface Snapshot {
 const ADDRESS = /^\s*\d+[A-Z]?\s+(.+?)\s*$/i;
 
 const snapshot = ({ cc, day }: Scope): Snapshot => {
-  const names = teamNames(day.id);
-  const areas = dayAreas(day.id, names).filter((a) => a.ccId === cc.id);
+  const names = new Map(db.select({ id: crews.id, name: crews.name }).from(crews).where(eq(crews.dayId, day.id)).all().map((c) => [c.id, c.name]));
+  const areas = dayAreas(day.id).filter((a) => a.ccId === cc.id);
   const crewArea = new Map<number, number>();
   for (const a of areas) for (const c of a.crewIds) crewArea.set(c, a.id);
   const rows = db
@@ -204,7 +203,7 @@ export const dayOfMap = (scope: Scope) => {
     .map((c) => ({
       id: c.id,
       name: c.name,
-      crews: crewRows.filter((r) => r.companyId === c.id).map((r) => ({ id: r.id, name: s.names.get(r.id) ?? `Crew ${r.number}`, areaId: r.areaId })),
+      crews: crewRows.filter((r) => r.companyId === c.id).map((r) => ({ id: r.id, name: r.name, areaId: r.areaId })),
     }));
   return { areas, sides, companies: here };
 };

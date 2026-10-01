@@ -162,7 +162,7 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
     const layers: PrintLayer[] = [
       ...page.otherAreas.map((a): PrintLayer => ({ kind: "area", key: `a${a.areaId}`, ring: ring(a.area), tone: "other", label: a.name, hatch: a.doNotTouch })),
       ...workLayers(cc),
-      { kind: "area", key: "mine", ring: ring(page.area), tone: "mine", label: page.areaName ?? page.teamName, hatch: page.areaDoNotTouch },
+      { kind: "area", key: "mine", ring: ring(page.area), tone: "mine", label: page.areaName ?? page.name, hatch: page.areaDoNotTouch },
     ];
     return { fit: ccFit(cc), layers, cc: { lat: cc.lat, lng: cc.lng, name: cc.name, letter: cc.letter } };
   }, [page, cc]);
@@ -195,8 +195,7 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
       <Header event={event} day={day} />
       <div className="mt-3 flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="text-4xl leading-none font-black tracking-tight">{page.teamName}</h2>
-          {page.teamName !== page.name && <p className="mt-1 text-base font-semibold">{page.name}</p>}
+          <h2 className="text-4xl leading-none font-black tracking-tight">{page.name}</h2>
           <dl className="mt-2 grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1 text-sm">
             <dt>
               <Caps>CC</Caps>
@@ -220,7 +219,7 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
           </dl>
         </div>
         <figure className="flex w-[1.3in] shrink-0 flex-col items-center gap-0.5">
-          <Qr svg={page.qrSvg} label={`QR code for ${page.teamName}`} className="aspect-square w-full" />
+          <Qr svg={page.qrSvg} label={`QR code for ${page.name}`} className="aspect-square w-full" />
           <figcaption className="text-xs font-bold">Join</figcaption>
         </figure>
       </div>
@@ -235,12 +234,12 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
             cc={overview.cc}
             padding={14}
             className="h-[2.1in] w-full"
-            label={`Overview map for ${page.teamName}`}
+            label={`Overview map for ${page.name}`}
           />
         </MapBlock>
       )}
       {detail && (
-        <MapBlock caption={`Area, ${page.teamName}`}>
+        <MapBlock caption={`Area, ${page.name}`}>
           <PrintMap
             readyKey={`crew-${page.crewId}-detail`}
             onReady={onReady}
@@ -249,7 +248,7 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
             cc={detail.cc}
             padding={22}
             className="h-[3.1in] w-full"
-            label={`Area map for ${page.teamName}`}
+            label={`Area map for ${page.name}`}
           />
         </MapBlock>
       )}
@@ -260,7 +259,7 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
             ["high", "High"],
             ["low", "Low"],
             ["work", "Other work"],
-            ["mine", page.areaName ?? page.teamName],
+            ["mine", page.areaName ?? page.name],
             ["other", "Other crews"],
             ["cc", "CC"],
           ]}
@@ -396,7 +395,6 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
         <thead>
           <tr className="text-[10px] tracking-wider uppercase">
             <th className="py-0.5 pr-2">Crew</th>
-            <th className="py-0.5 pr-2">Number</th>
             <th className="py-0.5 pr-2">Red shirt</th>
             <th className="py-0.5 pr-2">Phone</th>
             <th className="py-0.5 pr-2 text-right">People</th>
@@ -406,15 +404,14 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
         <tbody>
           {page.crews.length === 0 ? (
             <tr className="border-t border-[#d1d3d4]">
-              <td className="py-1" colSpan={6}>
+              <td className="py-1" colSpan={5}>
                 None
               </td>
             </tr>
           ) : (
             page.crews.map((c) => (
               <tr key={c.crewId} className="border-t border-[#d1d3d4]">
-                <td className="py-1 pr-2 font-semibold">{c.teamName}</td>
-                <td className="py-1 pr-2">{c.name}</td>
+                <td className="py-1 pr-2 font-semibold">{c.name}</td>
                 <td className="py-1 pr-2">{c.leadName ?? ""}</td>
                 <td className="py-1 pr-2 font-mono whitespace-nowrap">{c.leadPhone ? phoneText(c.leadPhone) : ""}</td>
                 <td className="py-1 pr-2 text-right tabular-nums">{c.headcount ?? ""}</td>

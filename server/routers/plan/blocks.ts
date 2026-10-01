@@ -1,12 +1,11 @@
 import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../db/index.ts";
-import { assignments, commandCenters, companies, days, parcels, type Assignment } from "../../db/schema.ts";
+import { assignments, commandCenters, companies, crews, days, parcels, type Assignment } from "../../db/schema.ts";
 import { blockSides, crewsNeeded, outlinePoints, SURVEY_RULES, type BlockSide } from "../../parcels.ts";
 import { adminProcedure, router } from "../../trpc.ts";
 import { eventInput, eventOrActive } from "./common.ts";
 import { areaLabels } from "./areas.ts";
-import { teamNames } from "./common.ts";
 
 export interface AssignmentInfo {
   id: number;
@@ -36,9 +35,8 @@ export const assignmentInfo = (eventId: number): Map<string, AssignmentInfo> => 
   const names = new Map<number, string>();
   const labels = new Map<number, string>();
   for (const d of dayRows) {
-    const dayNames = teamNames(d.id);
-    for (const [k, v] of dayNames) names.set(k, v);
-    for (const [k, v] of areaLabels(d.id, dayNames)) labels.set(k, v);
+    for (const c of db.select({ id: crews.id, name: crews.name }).from(crews).where(eq(crews.dayId, d.id)).all()) names.set(c.id, c.name);
+    for (const [k, v] of areaLabels(d.id)) labels.set(k, v);
   }
   for (const r of rows) {
     out.set(r.blockSideKey, {

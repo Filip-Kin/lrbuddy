@@ -333,7 +333,7 @@ const main = async (): Promise<void> => {
     ["driver", "Truck B2 (Webb)", `TRUCKB2  ${base}/t/TRUCKB2`],
     ...crewRows.map((cr): [string, string, string] => [
       "crew",
-      `Crew ${cr.number} (${companyNames[(cr.number - 1) % companyNames.length]?.[0] ?? ""}, ${cr.ccId === east.id ? "East" : "West"})`,
+      `${cr.name} (${cr.ccId === east.id ? "East" : "West"})`,
       `${base}/j/${cr.token}`,
     ]),
   ];

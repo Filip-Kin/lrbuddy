@@ -24,7 +24,6 @@ import { bboxAround, directionsUrl, haversine, type LatLng } from "../geo.ts";
 import { dayOfAreas } from "../dayof.ts";
 import { emitLot } from "../lots-import.ts";
 import { latestPositions, lotsAt, requestViews, siteCcIds } from "../queries.ts";
-import { teamNames } from "./plan/common.ts";
 import { driverProcedure, liveFor, readCcScope, router, sameCc } from "../trpc.ts";
 
 // #region constants
@@ -281,13 +280,11 @@ export const driverRouter = router({
       .orderBy(crews.number)
       .all();
     const pos = latestPositions("crew", rows.map((r) => r.crew.id));
-    const team = teamNames(ctx.day.id);
     return rows.map(({ crew, company }) => {
       const p = pos.get(crew.id);
       return {
         id: crew.id,
         name: crewLabel(crew),
-        team: team.get(crew.id) ?? crewLabel(crew),
         companyName: company?.name ?? null,
         leadName: crew.leadName,
         leadPhone: crew.leadPhone,

@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../db/index.ts";
-import { commandCenters, companies, crews, days, type CommandCenter, type Crew, type Day } from "../../db/schema.ts";
+import { commandCenters, crews, days, type CommandCenter, type Crew, type Day } from "../../db/schema.ts";
 import { activeEvent } from "../../queries.ts";
 
 // #region inputs
@@ -41,37 +41,7 @@ export const ccOfDay = (ccId: number, dayId: number): CommandCenter => {
 };
 // #endregion
 
-// #region crew names
-/** The abbreviation crews are named with: the company's short, else the first word of its name (SPEC 19). */
-export const shortOf = (c: { name: string; short: string | null }): string => c.short?.trim() || c.name.trim().split(/\s+/)[0] || c.name;
-
-/**
- * Portal names for a day's crews: the company's short plus the crew's place
- * among that company's crews by number, "GM 1", "GM 2". Crews without a
- * company keep "Crew 7".
- */
-export const teamNames = (dayId: number): Map<number, string> => {
-  const rows = db
-    .select({ id: crews.id, number: crews.number, companyId: companies.id, company: companies.name, short: companies.short })
-    .from(crews)
-    .leftJoin(companies, eq(companies.id, crews.companyId))
-    .where(eq(crews.dayId, dayId))
-    .orderBy(crews.number)
-    .all();
-  const seen = new Map<number, number>();
-  const out = new Map<number, string>();
-  for (const r of rows) {
-    if (r.companyId === null || r.company === null) {
-      out.set(r.id, `Crew ${r.number}`);
-      continue;
-    }
-    const n = (seen.get(r.companyId) ?? 0) + 1;
-    seen.set(r.companyId, n);
-    out.set(r.id, `${shortOf({ name: r.company, short: r.short })} ${n}`);
-  }
-  return out;
-};
-
+// #region crews
 export const crewsByIds = (ids: readonly number[]): Map<number, Crew> =>
   new Map(ids.length === 0 ? [] : db.select().from(crews).where(inArray(crews.id, [...new Set(ids)])).all().map((c) => [c.id, c]));
 

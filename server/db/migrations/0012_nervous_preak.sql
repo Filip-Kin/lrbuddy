@@ -1,0 +1,1 @@
+ALTER TABLE `assignments` ADD `do_not_touch` integer;

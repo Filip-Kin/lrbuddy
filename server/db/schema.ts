@@ -679,6 +679,8 @@ export const assignments = sqliteTable(
     areaId: integer("area_id").references(() => crewAreas.id, { onDelete: "set null" }),
     blockSideKey: text("block_side_key").notNull(),
     order: integer("order").notNull().default(0),
+    /** A green marked the whole block side Do not touch on the map (SPEC 19 Marks): drawn as the orange band. */
+    doNotTouch: integer("do_not_touch", { mode: "boolean" }),
   },
   (t) => [uniqueIndex("assignments_event_key").on(t.eventId, t.blockSideKey), index("assignments_day_cc_idx").on(t.dayId, t.ccId)],
 );

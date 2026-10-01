@@ -1,5 +1,7 @@
 import { Redirect, Route, Switch } from "wouter";
 import type { NavLink } from "../../components/Nav.tsx";
+import { trpc } from "../../lib/trpc.ts";
+import { GreenAccessPage } from "../access/AccessQueue.tsx";
 import { BroadcastPage } from "./BroadcastPage.tsx";
 import { CrewsPage } from "./CrewsPage.tsx";
 import { LotsPage } from "./LotsPage.tsx";
@@ -24,7 +26,14 @@ export const greenLinks = (base = "", search = ""): NavLink[] =>
     { href: "/trucks", label: "Trucks" },
     { href: "/broadcast", label: "Broadcast" },
     { href: "/stats", label: "Stats" },
+    { href: "/access", label: "Access" },
   ].map((l) => ({ label: l.label, href: `${base}${l.href === "/" && base ? "" : l.href}${search}` }));
+
+/** Green links with the pending access count on Access. */
+export const useGreenLinks = (base = "", search = ""): NavLink[] => {
+  const count = trpc.access.pendingCount.useQuery(undefined, { refetchInterval: 60_000 });
+  return greenLinks(base, search).map((l) => (l.label === "Access" ? { ...l, badge: count.data ?? 0 } : l));
+};
 
 
 export const GreenRoutes = () => (
@@ -37,6 +46,7 @@ export const GreenRoutes = () => (
     <Route path="/trucks" component={TrucksPage} />
     <Route path="/broadcast" component={BroadcastPage} />
     <Route path="/stats" component={StatsPage} />
+    <Route path="/access" component={GreenAccessPage} />
     <Route>
       <Redirect to="/" />
     </Route>

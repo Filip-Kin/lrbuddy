@@ -6,12 +6,13 @@ import { Nav, type NavLink } from "./components/Nav.tsx";
 import { Sheet } from "./components/Sheet.tsx";
 import { useLiveInvalidation } from "./lib/live.ts";
 import { usePositionReporter } from "./lib/position.ts";
-import { isSignedIn, logout, setDisplayName, useMe, type SignedIn } from "./lib/session.ts";
+import { isSignedIn, logout, setDisplayName, useMe, type NoRole, type SignedIn } from "./lib/session.ts";
 import { getCcOverride, setCcOverride, trpc } from "./lib/trpc.ts";
-import { AdminRoutes, adminLinks } from "./pages/admin/index.tsx";
+import { AccessHome } from "./pages/access/AccessHome.tsx";
+import { AdminRoutes, useAdminLinks } from "./pages/admin/index.tsx";
 import { CrewRoutes, crewLinks } from "./pages/crew/index.tsx";
 import { DriverRoutes, driverLinks } from "./pages/driver/index.tsx";
-import { GreenRoutes, greenLinks } from "./pages/green/index.tsx";
+import { GreenRoutes, useGreenLinks } from "./pages/green/index.tsx";
 import { LoginPage } from "./pages/join/LoginPage.tsx";
 import { PlanLayout } from "./components/plan/PlanLayout.tsx";
 import { PlanRoutes } from "./pages/plan/index.tsx";
@@ -105,9 +106,10 @@ const AdminGreen = ({ me }: { me: SignedIn }) => {
   useEffect(() => {
     void utils.invalidate();
   }, [cc, utils]);
+  const links = useGreenLinks("/green", `?cc=${cc ?? ""}`);
   if (cc === null) return <Redirect to="/admin/green" />;
   return (
-    <Shell scope={me.scope} scopeShort={me.scopeShort} links={[...greenLinks("/green", `?cc=${cc}`), { href: "/admin", label: "Admin" }]} onSignOut={() => void logout()}>
+    <Shell scope={me.scope} scopeShort={me.scopeShort} links={[...links, { href: "/admin", label: "Admin" }]} onSignOut={() => void logout()}>
       <Route path="/green" nest>
         <GreenRoutes />
       </Route>
@@ -119,6 +121,31 @@ const AdminGreen = ({ me }: { me: SignedIn }) => {
 const planNext = (): string | null => {
   const next = new URLSearchParams(window.location.search).get("next");
   return next && /^\/plan(\/[a-z/]*)?$/.test(next) ? next : null;
+};
+
+const GreenShell = ({ me }: { me: SignedIn }) => (
+  <Shell scope={me.scope} scopeShort={me.scopeShort} links={useGreenLinks()} onSignOut={() => void logout()}>
+    <GreenRoutes />
+  </Shell>
+);
+
+const AdminShell = ({ me }: { me: SignedIn }) => (
+  <Shell scope={me.scope} scopeShort={me.scopeShort} links={useAdminLinks()} onSignOut={() => void logout()}>
+    <AdminRoutes />
+  </Shell>
+);
+
+const ACCESS_LINKS: readonly NavLink[] = [{ href: "/", label: "Access" }];
+
+/** Signed in through Firebase, no role yet (SPEC 18): every path is the access screen. */
+const NoRoleApp = ({ me }: { me: NoRole }) => {
+  const [loc] = useLocation();
+  if (loc !== "/") return <Redirect to="/" />;
+  return (
+    <Shell links={ACCESS_LINKS} onSignOut={() => void logout()}>
+      <AccessHome name={me.displayName} />
+    </Shell>
+  );
 };
 
 const SignedInApp = ({ me }: { me: SignedIn }) => {
@@ -148,11 +175,7 @@ const SignedInApp = ({ me }: { me: SignedIn }) => {
         </Shell>
       );
     case "green":
-      return (
-        <Shell scope={me.scope} scopeShort={me.scopeShort} links={greenLinks()} onSignOut={() => void logout()}>
-          <GreenRoutes />
-        </Shell>
-      );
+      return <GreenShell me={me} />;
     case "admin":
       if (adminInGreen) return <AdminGreen me={me} />;
       if (inPlan) {
@@ -163,11 +186,7 @@ const SignedInApp = ({ me }: { me: SignedIn }) => {
         );
       }
       if (!loc.startsWith("/admin")) return <Redirect to="/admin" />;
-      return (
-        <Shell scope={me.scope} scopeShort={me.scopeShort} links={adminLinks} onSignOut={() => void logout()}>
-          <AdminRoutes />
-        </Shell>
-      );
+      return <AdminShell me={me} />;
     default:
       return <Redirect to="/login" />;
   }
@@ -176,6 +195,7 @@ const SignedInApp = ({ me }: { me: SignedIn }) => {
 export const App = () => {
   const me = useMe();
   if (me.isLoading) return <Splash />;
+  if (me.data?.role === "none") return <NoRoleApp me={me.data} />;
   if (!isSignedIn(me.data)) {
     return (
       <Switch>

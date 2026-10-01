@@ -62,6 +62,11 @@ export const printRouter = router({
     const loginUrl = `${config.publicUrl}/login`;
     const loginQrSvg = await QRCode.toString(loginUrl, { type: "svg", margin: 1 });
 
+    const qr = (url: string): Promise<string> => QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" });
+    // SPEC 18: drivers and greens scan in too. `/t/<truck code>` and `/g/<green code>` on the CC sheet.
+    const truckQrs = new Map(await Promise.all(truckRows.map(async (t) => [t.id, await qr(`${config.publicUrl}/t/${t.code}`)] as const)));
+    const greenQrs = new Map(await Promise.all(codes.map(async (g) => [g.ccId, await qr(`${config.publicUrl}/g/${g.code}`)] as const)));
+
     const ccPages = ccs.map((cc) => {
       const site = new Set(siteOf.get(cc.id) ?? [cc.id]);
       const work = lotRows.filter((l) => l.ccId !== null && site.has(l.ccId) && (l.status === "open" || l.status === "in_progress"));
@@ -76,9 +81,12 @@ export const printRouter = router({
         lng: cc.lng,
         bounds,
         greenCode: codes.find((g) => g.ccId === cc.id)?.code ?? null,
+        greenQrSvg: greenQrs.get(cc.id) ?? null,
         loginUrl,
         loginQrSvg,
-        trucks: truckRows.filter((t) => t.ccId === cc.id).map((t) => ({ name: t.name, driverName: t.driverName, code: t.code })),
+        trucks: truckRows
+          .filter((t) => t.ccId === cc.id)
+          .map((t) => ({ name: t.name, driverName: t.driverName, code: t.code, qrSvg: truckQrs.get(t.id) ?? null })),
         greenShirts: shirts.filter((g) => g.ccId === cc.id).map((g) => ({ name: g.name, phone: g.phone, roleLabel: g.roleLabel })),
         crews: crewRows
           .filter((r) => r.crew.ccId === cc.id)

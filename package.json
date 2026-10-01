@@ -22,6 +22,8 @@
     "@trpc/server": "^11",
     "drizzle-orm": "^0.45.3",
     "fflate": "^0.8.3",
+    "firebase": "^12.19.0",
+    "firebase-admin": "^14.5.0",
     "jpeg-js": "^0.4.4",
     "leaflet": "^1.9.4",
     "papaparse": "^5.7.0",

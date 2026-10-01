@@ -3,10 +3,10 @@ import { useSettled } from "../../lib/live.ts";
 import { trpc } from "../../lib/trpc.ts";
 
 type Utils = ReturnType<typeof trpc.useUtils>;
-type Kind = "requests" | "positions" | "lots" | "stock";
+type Kind = "requests" | "positions" | "lots" | "stock" | "access";
 
 /** Positions arrive every few seconds per truck and crew; admin screens only need a slow trickle. */
-const COALESCE_MS: Record<Kind, number> = { requests: 1500, positions: 10_000, lots: 1500, stock: 3000 };
+const COALESCE_MS: Record<Kind, number> = { requests: 1500, positions: 10_000, lots: 1500, stock: 3000, access: 1000 };
 
 const KIND: Record<string, Kind> = {
   "request.changed": "requests",
@@ -14,6 +14,7 @@ const KIND: Record<string, Kind> = {
   "crew.position": "positions",
   "lot.changed": "lots",
   "stock.changed": "stock",
+  "membership.changed": "access",
 };
 
 const invalidate = (utils: Utils, kind: Kind): void => {
@@ -36,6 +37,10 @@ const invalidate = (utils: Utils, kind: Kind): void => {
       break;
     case "stock":
       void utils.admin.days.get.invalidate();
+      break;
+    case "access":
+      void utils.access.adminPending.invalidate();
+      void utils.access.adminPendingCount.invalidate();
       break;
   }
 };

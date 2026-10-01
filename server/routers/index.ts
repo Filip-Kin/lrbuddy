@@ -1,4 +1,5 @@
 import { router } from "../trpc.ts";
+import { accessRouter } from "./access.ts";
 import { adminRouter } from "./admin.ts";
 import { crewRouter } from "./crew.ts";
 import { driverRouter } from "./driver.ts";
@@ -13,6 +14,7 @@ export const appRouter = router({
   green: greenRouter,
   admin: adminRouter,
   plan: planRouter,
+  access: accessRouter,
 });
 
 export type AppRouter = typeof appRouter;

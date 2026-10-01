@@ -6,7 +6,7 @@ import { Panel } from "../../components/Panel.tsx";
 import { LocationRow, NameForm, NotificationsRow, SettingsRow } from "../../components/Settings.tsx";
 import { Switch } from "../../components/Switch.tsx";
 import { setWakePreference, wakePreference } from "../../components/driver/hooks.ts";
-import { logout, useMe } from "../../lib/session.ts";
+import { leave, useMe } from "../../lib/session.ts";
 import { trpc } from "../../lib/trpc.ts";
 
 const ScreenRow = () => {
@@ -79,7 +79,7 @@ export const SettingsPage = () => {
         busy={busy}
         onConfirm={() => {
           setBusy(true);
-          void logout();
+          void leave();
         }}
         onClose={() => setLeaving(false)}
       />

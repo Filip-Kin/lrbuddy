@@ -1,5 +1,5 @@
 import { EventEmitter, on } from "node:events";
-import type { Broadcast, Lot, Request, Route, TruckStock } from "./db/schema.ts";
+import type { Broadcast, Lot, MembershipStatus, Request, Route, TruckStock } from "./db/schema.ts";
 
 /** Payloads for every event in SPEC section 6. */
 export interface BusPayloads {
@@ -10,6 +10,8 @@ export interface BusPayloads {
   "lot.changed": { lot: Lot };
   "stock.changed": { truckId: number; stock: TruckStock[] };
   broadcast: { broadcast: Broadcast };
+  /** An access request was made, decided or withdrawn, or a QR scan created a membership (SPEC 18). */
+  "membership.changed": { membershipId: number; userId: number; status: MembershipStatus };
 }
 
 export type BusEventType = keyof BusPayloads;

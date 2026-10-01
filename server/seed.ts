@@ -311,11 +311,11 @@ const main = async (): Promise<void> => {
   const base = config.publicUrl;
   const rows: Array<[string, string, string]> = [
     ["admin", "Admin", "(ADMIN_PASSWORD)"],
-    ["green", "CC East", "EAST01"],
-    ["green", "CC West", "WEST01"],
-    ["driver", "Truck 1 (East)", "TRUCK1"],
-    ["driver", "Truck 2 (East)", "TRUCK2"],
-    ["driver", "Truck 3 (West)", "TRUCK3"],
+    ["green", "CC East", `EAST01  ${base}/g/EAST01`],
+    ["green", "CC West", `WEST01  ${base}/g/WEST01`],
+    ["driver", "Truck 1 (East)", `TRUCK1  ${base}/t/TRUCK1`],
+    ["driver", "Truck 2 (East)", `TRUCK2  ${base}/t/TRUCK2`],
+    ["driver", "Truck 3 (West)", `TRUCK3  ${base}/t/TRUCK3`],
     ...crewRows.map((cr): [string, string, string] => [
       "crew",
       `Crew ${cr.number} (${companyNames[(cr.number - 1) % companyNames.length]}, ${cr.ccId === east.id ? "East" : "West"})`,

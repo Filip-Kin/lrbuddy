@@ -3,9 +3,12 @@ import { eq } from "drizzle-orm";
 import { bus } from "./bus.ts";
 import { config } from "./config.ts";
 import { db } from "./db/index.ts";
-import { crews, greenCodes, sessions, trucks, type Role, type Session } from "./db/schema.ts";
+import { crews, greenCodes, sessions, trucks, type Session, type SessionRole } from "./db/schema.ts";
 
 export const COOKIE = "lrb_session";
+/** A scanned QR link (`crew:<token>`, `truck:<code>`, `cc:<code>`) kept across the sign-in round trip. */
+export const JOIN_COOKIE = "lrb_join";
+const JOIN_MAX_AGE_S = 3600;
 const MAX_AGE_S = 30 * 24 * 3600;
 const TOUCH_EVERY_MS = 60_000;
 
@@ -34,6 +37,13 @@ export const clearCookie = (): string =>
   [`${COOKIE}=`, "Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=0", config.secureCookie ? "Secure" : ""]
     .filter(Boolean)
     .join("; ");
+export const joinCookie = (value: string): string =>
+  [`${JOIN_COOKIE}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${JOIN_MAX_AGE_S}`, config.secureCookie ? "Secure" : ""]
+    .filter(Boolean)
+    .join("; ");
+
+export const clearJoinCookie = (): string =>
+  [`${JOIN_COOKIE}=`, "Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=0", config.secureCookie ? "Secure" : ""].filter(Boolean).join("; ");
 // #endregion
 
 // #region sessions
@@ -50,7 +60,8 @@ export const getSession = (id: string | null): Session | null => {
 };
 
 interface NewSession {
-  role: Role;
+  role: SessionRole;
+  userId?: number | null;
   crewId?: number | null;
   truckId?: number | null;
   ccId?: number | null;
@@ -65,6 +76,7 @@ export const createSession = (s: NewSession): Session => {
     .values({
       id: crypto.randomUUID(),
       role: s.role,
+      userId: s.userId ?? null,
       crewId: s.crewId ?? null,
       truckId: s.truckId ?? null,
       ccId: s.ccId ?? null,

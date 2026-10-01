@@ -4,7 +4,7 @@ import { ConfirmSheet } from "../../components/ConfirmSheet.tsx";
 import { Page } from "../../components/Page.tsx";
 import { Panel } from "../../components/Panel.tsx";
 import { LocationRow, NameForm, NotificationsRow, SettingsRow } from "../../components/Settings.tsx";
-import { logout, setDisplayName, useMe } from "../../lib/session.ts";
+import { leave, setDisplayName, useMe } from "../../lib/session.ts";
 import { trpc } from "../../lib/trpc.ts";
 
 export const SettingsPage = () => {
@@ -58,7 +58,7 @@ export const SettingsPage = () => {
         busy={busy}
         onConfirm={() => {
           setBusy(true);
-          void logout();
+          void leave();
         }}
         onClose={() => setLeaving(false)}
       />

@@ -17,12 +17,59 @@ API and the web build from one origin.
 
 ## Roles and how they sign in
 
-| Role | Sign in | Screens |
+Everyone signs in once with a name and mobile number (a texted six-digit code)
+or with Google, then gets a role in one of two ways: a printed QR grants it on
+the spot, or a request on the Access screen waits for a green shirt (or admin)
+to approve it.
+
+| Role | QR on the print sheets | Screens |
 |---|---|---|
-| Crew (red shirt) | Scan the crew QR, which opens `/j/<token>` | Map, Request, Requests, Lots, Command center, Settings |
-| Driver | `/login` with the truck code | Queue, Map, Stock, Settings |
-| Green shirt | `/login` with the CC code | Map, Requests, Lots, Crews, Trucks, Broadcast, Stats |
-| Admin | `/login` with `ADMIN_PASSWORD` | Event, Day, Companies, Crews, Lots, Photos, Catalog, Export, Green view, and the planning portal (Plan) |
+| Crew (red shirt) | Crew sheet, `/j/<token>` | Map, Request, Requests, Lots, Command center, Settings |
+| Driver | CC sheet, one per truck, `/t/<truck code>` | Queue, Map, Stock, Settings |
+| Green shirt | CC sheet, `/g/<green code>` | Map, Requests, Lots, Photos, Crews, Trucks, Broadcast, Stats, Access |
+| Admin | none; the Staff password link on `/login` (`ADMIN_PASSWORD`) | Event, Day, Companies, Crews, Lots, Photos, Catalog, Export, Green view, Access, and the planning portal (Plan) |
+
+Green shirts approve requests for their CC at `/access` (a count shows in the
+nav); admin sees every CC at `/admin/access`. The truck and green codes still
+work in the Staff password field, and `POST /auth/login` still takes every code,
+which is how the gate and the scripts sign in.
+
+## Sign-in setup (Firebase)
+
+Phone and Google sign-in run on Firebase Authentication; the server verifies
+each ID token with the Admin SDK and keeps its own `users` and `memberships`.
+
+Local, with no real project and no SMS:
+
+```sh
+docker compose up -d                                   # Auth emulator on :9099 (FIREBASE_AUTH_PORT moves it)
+# in .env:
+#   FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
+#   VITE_FIREBASE_EMULATOR=http://127.0.0.1:9099
+bun run build && bun run seed && bun run start
+```
+
+The emulator accepts any number and never texts it; the code it "sent" is at
+`http://127.0.0.1:9099/emulator/v1/projects/demo-lrbuddy/verificationCodes`.
+`scripts/access.py` drives the whole flow against it (phone sign-in, a red shirt
+request, the green approval, the QR joins).
+
+Production needs, once:
+
+1. A Firebase project on the **Blaze** plan. Phone sign-in on the free plan is
+   capped at a few SMS a day.
+2. Authentication, Sign-in method: enable **Phone** and **Google**.
+3. Authentication, Settings, Authorized domains: add `lrbuddy.filipkin.com`.
+4. Project settings, General: register a web app and paste its config into
+   `PROD_CONFIG` in `web/src/lib/firebaseConfig.ts` (the API key is a client
+   identifier, not a secret). Until then the build reads `VITE_FIREBASE_CONFIG`
+   (build arg in the Dockerfile).
+5. Project settings, Service accounts: generate a key and set its JSON, on one
+   line, as `FIREBASE_SERVICE_ACCOUNT` on Coolify.
+
+Without `FIREBASE_SERVICE_ACCOUNT` (or the emulator) the server runs as before
+this feature: `/login` shows the staff password field and a crew QR signs the
+phone straight into the crew.
 
 ## Planning portal
 
@@ -72,7 +119,8 @@ bun run start                 # API and web/dist on $PORT
 ```
 
 `bun run seed` wipes and recreates the event "Demo 2026": two CCs (codes `EAST01`,
-`WEST01`), three trucks (`TRUCK1`, `TRUCK2`, `TRUCK3`), twelve crews
+`WEST01`, QR links `/g/EAST01`, `/g/WEST01`), three trucks (`TRUCK1`, `TRUCK2`,
+`TRUCK3`, QR links `/t/TRUCK1` and so on), twelve crews
 (`/j/demo-crew-01` to `/j/demo-crew-12`), 300 Land Bank lots with parcel outlines
 (150 generated lots when the Land Bank does not answer), eight requests and one
 broadcast. For the portal it caches the assessor parcels for the seed area (about
@@ -93,6 +141,11 @@ the twelve crews block sides and areas, without publishing.
 | `OSRM_URL` | `https://router.project-osrm.org` | Routing. `off` uses straight lines at 25 km/h. |
 | `TRUST_PROXY_HOPS` | `0` | Proxies in front that append to `X-Forwarded-For`. Set `1` behind Coolify so the login limit counts per client, not per proxy. |
 | `WEB_DIST` | `web/dist` | Serve the web build from another folder. |
+| `FIREBASE_SERVICE_ACCOUNT` | empty | Firebase service-account JSON on one line. Turns on phone and Google sign-in. |
+| `FIREBASE_AUTH_EMULATOR_HOST` | empty | `127.0.0.1:9099` for the local emulator instead of a real project. |
+| `FIREBASE_PROJECT_ID` | `demo-lrbuddy` | Project id when running against the emulator. |
+| `VITE_FIREBASE_CONFIG` | empty | Build time. Firebase web config as JSON, for hosts other than production. |
+| `VITE_FIREBASE_EMULATOR` | empty | Build time. Emulator URL for the browser, `http://127.0.0.1:9099`. |
 
 ## Checks
 
@@ -101,6 +154,7 @@ bun run typecheck && bun test && bun run build
 PY=/home/filip/pit-podcast-automation/.venv/bin/python
 $PY scripts/gate.py http://127.0.0.1:3000 <admin password>     # release gate, must exit 0
 $PY scripts/story.py http://127.0.0.1:3000 <admin password>    # full flow across all four roles, on a fresh seed
+$PY scripts/access.py http://127.0.0.1:3000 http://127.0.0.1:9099 <admin password>   # sign-in and approvals, emulator only
 bun run shots http://127.0.0.1:3000 crew /,/requests --token demo-crew-01
 ```
 

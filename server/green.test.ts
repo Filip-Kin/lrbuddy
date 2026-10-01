@@ -36,6 +36,8 @@ const north = (km: number) => ({ lat: CC_EAST.lat + km / 111.2, lng: CC_EAST.lng
 const session = (role: Session["role"], ccId: number | null): Session => ({
   id: crypto.randomUUID(),
   role,
+  userId: null,
+  membershipId: null,
   crewId: null,
   truckId: null,
   ccId,

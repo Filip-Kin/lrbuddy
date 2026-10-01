@@ -12,6 +12,9 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY . .
+# Firebase web config (SPEC 18) as one line of JSON, read by vite at build time.
+# Empty until the production config is committed to web/src/lib/firebaseConfig.ts.
+ARG VITE_FIREBASE_CONFIG=""
 RUN bun run build
 # Runtime needs production dependencies only.
 RUN rm -rf node_modules && bun install --frozen-lockfile --production

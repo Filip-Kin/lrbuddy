@@ -26,6 +26,8 @@ bun run typecheck && bun test && bun run build
 bun run shots                # screenshots into /home/filip/preview-shots/lrbuddy
 /home/filip/pit-podcast-automation/.venv/bin/python scripts/gate.py http://127.0.0.1:3000 <admin pw>   # release gate, must exit 0
 /home/filip/pit-podcast-automation/.venv/bin/python scripts/story.py http://127.0.0.1:3000 <admin pw>  # end-to-end flow, all roles; reseed after
+docker compose up -d         # Firebase Auth emulator for phone and Google sign-in (SPEC 18, README "Sign-in setup")
+/home/filip/pit-podcast-automation/.venv/bin/python scripts/access.py http://127.0.0.1:3000 http://127.0.0.1:9099 <admin pw>  # sign-in, request, approval, QR joins
 ```
 
 On the NAS, port 3000 belongs to zwavejs2mqtt: run test servers with `PORT=3020`.

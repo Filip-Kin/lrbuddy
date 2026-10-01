@@ -223,9 +223,9 @@ all its requests and decrements stock by each qty (floor at 0).
 | `/admin/days/:id` Day | Command centers on a map (tap to place, drag to move), name, address, green shirts with phones, green code, trucks with codes and stock capacity, **Copy setup from previous day**. |
 | `/admin/companies` | List, add, rename. |
 | `/admin/crews` | Table by day. CSV import (`day, cc, company, lead_name, lead_phone, headcount`). Add one by hand. Regenerate a token. |
-| `/admin/lots` | Map with the event's lots. **Import DLBA** (draw a rectangle, pulls the Land Bank lots inside it), **Import CSV** (`address, lat, lng[, parcel_id]`), tap to add, assign lots to a CC by rectangle. Counts by source and status. |
+| `/admin/lots` | Map with the event's lots. **Import DLBA** (draw a rectangle, pulls the Land Bank lots inside it; the rectangle is the oriented one from section 16), **Import CSV** (`address, lat, lng[, parcel_id]`), tap to add, assign lots to a CC by rectangle. Counts by source and status. |
 | `/admin/catalog` | Request types: label, unit, priority, tracks stock, order, active. |
-| `/admin/print` | Print sheet: one page per crew with a QR to `/j/<token>`, crew, company, CC, day, the CC's green shirts and phones, plus one page per CC with the green code and each truck code. `@media print` styles. |
+| `/admin/print` | Redirects to `/plan/print` (section 16). |
 | `/admin/export` | CSV downloads: requests, lots, positions, stock moves for the active event. |
 
 Admin can open any green view by picking a CC at `/admin/green`, which links to `/green?cc=<id>`
@@ -564,9 +564,10 @@ crews         + area (nullable GeoJSON Polygon): the rectangle printed on the cr
 Survey (phone and laptop)
 - `/plan/survey` on a laptop: the map of the event area with every surveyed parcel coloured by grade,
   block sides outlined, counts, a Day filter, and a table (address, grade, by, when). Tap a parcel to
-  change its grade or add a note. **Load parcels** button: draw a rectangle, pulls that bbox from the
-  assessor layer into `parcels` (envelope query, pages of 2000, geometry included) so the drive mode
-  has outlines offline-ish.
+  change its grade or add a note. **Load parcels** button: draw a rectangle (the oriented rectangle
+  below), pulls the bbox around it from the assessor layer into `parcels` (envelope query, pages of
+  1000, the layer's limit, geometry included) so the drive mode has outlines offline-ish. Unsurveyed
+  cached parcels show as thin outlines from zoom 17 so a parcel can be graded from the laptop.
 - `/plan/survey/drive` on a phone: Drive mode. Full-screen map following the GPS dot, rotated to the
   heading (heading from GPS when speed is over 2 m/s, else the bearing of the last two fixes). The
   parcels on the left and right of the road ahead are drawn; the two nearest on each side within 40 m
@@ -574,8 +575,10 @@ Survey (phone and laptop)
   **Right**. One tap tags the nearest highlighted parcel on that side as `low`; a second tap on the
   same parcel within 3 s makes it `high`; a long press opens the grade sheet (High, Low, Clear, note,
   photo via section 15 with kind `before`). A toast shows the address tagged, with **Undo** for 5 s.
-  Tagging works with the screen awake (the existing Keep screen on toggle applies). Tags queue in
-  memory and post in order; a lost connection shows a queued count, not an error.
+  Tagging works with the screen awake (the existing Keep screen on toggle applies; admins find it in
+  the portal's phone drawer). Tags queue in memory and post in order; a lost connection shows a
+  queued count, not an error. A before photo needs a lot, so choosing the first photo of a surveyed
+  parcel creates its lot (`source: 'survey'`, no CC); Publish later updates that row.
 - The B&B lead's rule set lives here as constants with labels: `high` = a crew for the whole half day,
   `low` = light work, 10 or more work parcels on one block side = the dark band.
 
@@ -584,26 +587,32 @@ Blocks (laptop)
   10 and up dark red. A table of block sides sorted by work_count with street, from, to, side (odd or
   even), high, low, total parcels, assigned to. Clicking a row pans the map; clicking the map selects
   the row. Multi-select with shift.
-- Totals bar: work parcels, high, low, block sides over 10, crews needed (work parcels divided by the
-  per-crew capacity, default 10 parcels or 5 high, editable).
+- Totals bar: work parcels, high, low, block sides over 10, crews needed (`ceil(low / 10 + high / 5)`
+  at the default capacity of 10 parcels or 5 high, both editable and kept in the browser).
+- Each block side is drawn as the convex hull of its parcels' outlines (`plan.blocks.shapes`).
 
 Assignments (laptop)
 - `/plan/assignments`: pick a Day and a CC. Left: the companies attending that day with promised
   headcount and the crews that exist for them. Right: the Blocks map. Select block sides, then
   **Assign to** a company (and a crew when crews exist). Capacity math per company: headcount divided
-  by 10 = crews; parcels assigned versus capacity shown as a bar that turns `--warn` when over.
+  by 10 = crews; work assigned in crews (low / 10 + high / 5) versus that capacity, shown as a bar
+  that turns `--warn` with an "Over" tag when over. A side is inside the selection when its centre is.
 - **Build crews** creates crew rows for a company from its headcount (one per 10, names "Ford 1",
   "Ford 2") when none exist. **Publish to field app** writes `lots` for the event from the tagged
   parcels of the assigned block sides (status open, `source: 'survey'`, cc, crew), and sets each
   crew's `area`. Re-publishing updates, never duplicates (keyed on event + parcel). Lots a crew already
-  marked done are left alone.
+  marked done are left alone. Publish covers the whole day (every CC) and offers **Reset crew areas**;
+  without it a crew keeps an area it already has.
 - Drag a crew's area corners on the map to adjust the printed rectangle.
 - **Rotated rectangles.** Detroit's east side streets run diagonal, so an axis-aligned rectangle never
   fits a block. The selection tool is an oriented rectangle: tap or click twice along the street to set
   the long axis, then drag sideways to set the width; afterwards the rectangle has a rotate handle at
   one end and resize handles on each edge. Selection is parcels whose centroid falls inside the
-  polygon. The same tool is shared as `lib/map/orientedRect.ts` and replaces the axis-aligned
-  **Rectangle** on the green Lots page and the admin Lots page. The crew `area` is this polygon.
+  polygon. The same tool is shared as `lib/map/orientedRect.ts` (it takes the Leaflet map from
+  `MapView`'s `onReady`) and replaces the axis-aligned **Rectangle** on the green Lots page (now
+  **Select area**), the admin Lots page and Survey's Load parcels. The crew `area` is this polygon.
+  On admin Lots, Import DLBA and Vacant parcels query the layers with the rectangle as a polygon and
+  keep what has its centre inside; Assign CC and Remove area act on the lots inside by id.
 
 Print (laptop), moved from `/admin/print` to `/plan/print`
 - One sheet per crew, Letter portrait, `@media print` with `break-after: page`. Header: crew name,
@@ -614,10 +623,12 @@ Print (laptop), moved from `/admin/print` to `/plan/print`
 - **Detail map** below it, fit to this crew's rectangle: each of the crew's lots with its address
   label, the parcel outline, and the lot's grade; CC star if it falls inside, else an arrow at the
   map edge with the distance.
-- Under the maps: the lot list (address, grade), the CC's green shirts with phones, and the request
-  codes block (how to scan in).
+- Under the maps: the lot list (address, grade), the CC's green shirts with phones, and the join
+  block: the sign-in address and the crew code (the join token, which `/login` accepts) for a phone
+  that cannot scan.
 - One sheet per CC follows: the overview map, the green code, every truck with its code, and the
-  crews table.
+  crews table. Crew sheets print first, grouped by CC, then the CC sheets. A crew with more lots than
+  fit (about 36) runs onto a second page.
 - Maps are Leaflet on the printed page with the Esri Canvas tiles; the page waits for every tile
   (`load` on each layer) before it enables the **Print** button, and the gate's print check waits for
   `[data-print-ready]`. Markers and outlines are SVG so they print crisp. Colours must survive

@@ -4,7 +4,9 @@ Field app for Life Remodeled's Six Day Project. Crews on vacant lots ask for
 water, gas, tools and trash bags from their phones. Trucks get the requests as
 stops on a computed route. Green shirts at each command center see every crew,
 truck, lot and request on one map and can step in. Admins set up the event,
-import lots from the Detroit Land Bank, import crews and print QR sheets.
+import lots from the Detroit Land Bank and import crews. The planning portal at
+`/plan` is where staff survey the area months ahead, pick the block sides, hand
+them to companies and crews, and print each crew's sheet with its maps.
 
 The contract is [`docs/SPEC.md`](docs/SPEC.md). Calls made while building are in
 [`docs/DECISIONS.md`](docs/DECISIONS.md).
@@ -20,7 +22,38 @@ API and the web build from one origin.
 | Crew (red shirt) | Scan the crew QR, which opens `/j/<token>` | Map, Request, Requests, Lots, Command center, Settings |
 | Driver | `/login` with the truck code | Queue, Map, Stock, Settings |
 | Green shirt | `/login` with the CC code | Map, Requests, Lots, Crews, Trucks, Broadcast, Stats |
-| Admin | `/login` with `ADMIN_PASSWORD` | Event, Day, Companies, Crews, Lots, Catalog, Print, Export, Green view |
+| Admin | `/login` with `ADMIN_PASSWORD` | Event, Day, Companies, Crews, Lots, Photos, Catalog, Export, Green view, and the planning portal (Plan) |
+
+## Planning portal
+
+Admin only, at `/plan`. A left rail on a laptop (the same hamburger as everywhere
+else on a phone) with the event picker, Survey, Blocks, Assignments, Print and a
+link back to the field app.
+
+1. **Survey** (`/plan/survey`). Load parcels: draw a rectangle on the map and the
+   assessor layer's parcels for that area land in a cache shared by every event.
+   Tag parcels High, Low or Clear, either by clicking them on the laptop map or by
+   driving. **Drive mode** (`/plan/survey/drive`) is the phone screen: the map
+   follows the GPS dot heading up, and the Left and Right buttons tag the nearest
+   parcel on that side (one tap Low, a second tap within 3 s High, long press for
+   the grade sheet with a note and a before photo). Taps queue while offline.
+2. **Blocks** (`/plan/blocks`). Parcels group into block sides (street, the two
+   cross streets, odd or even). The map colours each side by its work count
+   (0, 1 to 4, 5 to 9, 10+) and the table sorts them; the totals bar turns work
+   into crews needed with an editable per-crew capacity.
+3. **Assignments** (`/plan/assignments`). Pick a day and a CC, add the companies
+   coming that day with their headcount, **Build crews** (one per 10 people,
+   "Ford 1", "Ford 2"), select block sides with the rectangle and **Assign** them
+   to a company or crew. **Publish to field app** writes the lots and each crew's
+   area; publishing again updates and leaves done lots alone.
+4. **Print** (`/plan/print`). One Letter page per crew (QR, overview map of the
+   CC's area, detail map of the crew's lots with addresses and grades, lot list,
+   green shirts, the sign-in code) and one per CC (codes, trucks, crews). The
+   Print button waits for every map tile.
+
+The rectangle tool is the same everywhere (Survey, Assignments, green Lots, admin
+Lots): two clicks along the street, a third for the width, then corner, edge and
+rotate handles. It exists because the east side's streets run on a diagonal.
 
 ## Run it
 
@@ -42,7 +75,9 @@ bun run start                 # API and web/dist on $PORT
 `WEST01`), three trucks (`TRUCK1`, `TRUCK2`, `TRUCK3`), twelve crews
 (`/j/demo-crew-01` to `/j/demo-crew-12`), 300 Land Bank lots with parcel outlines
 (150 generated lots when the Land Bank does not answer), eight requests and one
-broadcast.
+broadcast. For the portal it caches the assessor parcels for the seed area (about
+19,000; the first seed takes about a minute), tags a survey by "Kelsey" and gives
+the twelve crews block sides and areas, without publishing.
 
 ## Environment
 

@@ -512,6 +512,7 @@ LOT_FILL_JS = """(pid) => { const el = document.querySelector(`[data-lot-parcel=
 
 ZOOM_JS = "() => Number(document.querySelector('.leaflet-container').dataset.zoom || 0)"
 RED = "rgb(229, 72, 77)"
+RED_DARK = "rgb(255, 107, 107)"
 
 
 def parcel_status_checks() -> None:
@@ -1032,6 +1033,147 @@ def paint_checks() -> None:
         browser.close()
 
 
+# Flag screen, Paint on the expanded map (SPEC 22, last paragraph). As DURFB1 on /flag at 390x844,
+# light and dark: the strip has no Paint; Expand shows Paint next to Collapse (44 px); Paint swaps the
+# flag buttons for the brush bar; a drag over three bare parcels at zoom 18 sets them Todo with
+# "3 lots"; Undo returns them; Done brings the flag buttons back; Paint then Collapse ends paint mode
+# and leaves the strip. Overflow 0. Undo leaves the data as found.
+FLAG_PAINT_JS = """() => {
+  const vis = (el) => !!el && el.offsetParent !== null;
+  const box = (el) => { if (!vis(el)) return null; const r = el.getBoundingClientRect(); return { w: r.width, h: r.height }; };
+  const strip = document.querySelector('[data-flag-strip]');
+  return { paint: box(document.querySelector('[data-flag-paint]')),
+           bar: !!document.querySelector('[data-paint-bar]'),
+           shutter: vis(document.querySelector('[data-flag-shutter]')),
+           sides: [...document.querySelectorAll('[data-flag-side]')].filter(vis).length,
+           mode: (strip && strip.querySelector('[data-flag-map]') || {}).dataset?.flagMap || '',
+           zoom: Number((document.querySelector('[data-flag-strip] .leaflet-container') || { dataset: {} }).dataset.zoom || 0),
+           over: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+}"""
+
+
+def flag_paint_checks() -> None:
+    only = {r for r in os.environ.get("GATE_ROLES", "").split(",") if r}
+    if only and "green" not in only:
+        return
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path="/usr/bin/chromium",
+                                     args=["--no-sandbox", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
+        for scheme in ("light", "dark"):
+            tag = f"green /flag paint {scheme}"
+            ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=1, has_touch=True, is_mobile=True, color_scheme=scheme,
+                                      permissions=["camera", "geolocation"], geolocation={"latitude": 42.0, "longitude": -83.0})
+            r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(PAINT_GREEN), headers={"content-type": "application/json"})
+            if r.status >= 400:
+                fail(f"{tag}: DURFB1 login returned {r.status}")
+                ctx.close()
+                continue
+            page = ctx.new_page()
+            painted: list[str] = []
+            try:
+                bare = trpc_get(ctx, "green.parcels")
+                if not bare:
+                    fail(f"{tag}: no bare parcel at the CC")
+                    continue
+                p = bare[len(bare) // 2]
+                ctx.set_geolocation({"latitude": p["lat"], "longitude": p["lng"], "accuracy": 5})
+                page.goto(BASE + "/flag", wait_until="domcontentloaded", timeout=45000)
+                page.wait_for_selector("[data-flag-shutter]", timeout=20000)
+                page.wait_for_timeout(2000)
+                st = page.evaluate(FLAG_PAINT_JS)
+                if st["mode"] != "strip" or st["paint"]:
+                    fail(f"{tag}: the strip shows Paint ({st['mode']!r}, {st['paint']})")
+                page.locator("[data-flag-expand]").click()
+                page.wait_for_timeout(1500)
+                st = page.evaluate(FLAG_PAINT_JS)
+                if not st["paint"] or min(st["paint"]["w"], st["paint"]["h"]) < EXPAND_MIN_PX:
+                    fail(f"{tag}: Paint on the expanded map is {st['paint']} (<{EXPAND_MIN_PX}px)")
+                    continue
+                page.locator("[data-flag-paint]").click()
+                page.wait_for_timeout(1200)
+                st = page.evaluate(FLAG_PAINT_JS)
+                ps = page.evaluate(PAINT_STATE_JS)
+                if not st["bar"]:
+                    fail(f"{tag}: Paint opened no brush bar")
+                    continue
+                if st["shutter"] or st["sides"]:
+                    fail(f"{tag}: flag buttons still showing with the brush bar (shutter={st['shutter']}, sides={st['sides']})")
+                small = [round(c) for c in ps["chips"] if c < CHIP_MIN_PX]
+                if len(ps["chips"]) < 6 or small:
+                    fail(f"{tag}: brush chips {len(ps['chips'])} (want 5 statuses and Crew), under {CHIP_MIN_PX}px: {small}")
+                if abs(st["zoom"] - 18) > 0.01:
+                    fail(f"{tag}: expanded map zoom is {st['zoom']}, not 18")
+                tri = page.evaluate(PAINT_TRIPLE_JS)
+                if not tri:
+                    fail(f"{tag}: no three neighbouring bare parcels in a row at zoom 18")
+                    continue
+                page.locator('[data-brush="open"]').click()
+                a, b, c = tri
+                page.mouse.move(a["x"], a["y"])
+                page.mouse.down()
+                page.mouse.move(b["x"], b["y"], steps=8)
+                page.mouse.move(c["x"], c["y"], steps=8)
+                page.mouse.up()
+                painted = [t["pid"] for t in tri]
+                ok = False
+                for _ in range(20):
+                    page.wait_for_timeout(300)
+                    reds = [page.evaluate(LOT_FILL_JS, pid) for pid in painted]
+                    if all(x and "lrb-lot-shape-open" in x["cls"] and x["fill"] == (RED if scheme == "light" else RED_DARK) for x in reds):
+                        ok = True
+                        break
+                ps = page.evaluate(PAINT_STATE_JS)
+                page.screenshot(path=str(OUT / f"green_flag_paint-phone-{scheme}.png"))
+                if not ok:
+                    fail(f"{tag}: the three painted parcels did not turn red Todo")
+                lots = trpc_get(ctx, "green.overview")["lots"]
+                todo = [x for x in lots if x["parcelId"] in painted and x["status"] == "open"]
+                if len(todo) != 3:
+                    fail(f"{tag}: {len(todo)} of the three painted parcels are Todo lots on the server")
+                if ps["count"].strip() != "3 lots":
+                    fail(f"{tag}: counter reads '{ps['count']}', expected '3 lots'")
+                if ps["over"] != 0:
+                    fail(f"{tag}: horizontal overflow {ps['over']}px")
+                page.locator("[data-paint-undo]").click()
+                back = False
+                for _ in range(20):
+                    page.wait_for_timeout(300)
+                    if all(page.locator(f'[data-parcel="{pid}"]').count() > 0 for pid in painted):
+                        back = True
+                        break
+                if not back:
+                    fail(f"{tag}: Undo did not return the three parcels to Not todo")
+                else:
+                    painted = []
+                page.locator("[data-paint-exit]").click()
+                page.wait_for_timeout(600)
+                st = page.evaluate(FLAG_PAINT_JS)
+                b2 = page.evaluate(FLAG_BOXES_JS)
+                page.screenshot(path=str(OUT / f"green_flag_paint_done-phone-{scheme}.png"))
+                if st["bar"] or not st["shutter"] or st["sides"] != 2 or st["mode"] != "full":
+                    fail(f"{tag}: Done left bar={st['bar']}, shutter={st['shutter']}, sides={st['sides']}, map {st['mode']!r}")
+                if not b2["shutter"] or min(b2["shutter"]["w"], b2["shutter"]["h"]) < SHUTTER_MIN_PX:
+                    fail(f"{tag}: shutter after Done is {b2['shutter']} (<{SHUTTER_MIN_PX}px)")
+                if b2["over"] > 0:
+                    fail(f"{tag}: horizontal overflow after Done {b2['over']}px")
+                # Collapse while painting ends paint mode first, and the strip has no brush bar.
+                page.locator("[data-flag-paint]").click()
+                page.wait_for_timeout(500)
+                page.locator("[data-flag-expand]").click()
+                page.wait_for_timeout(1200)
+                st = page.evaluate(FLAG_PAINT_JS)
+                if st["mode"] != "strip" or st["bar"] or st["paint"] or not st["shutter"]:
+                    fail(f"{tag}: Collapse while painting left map {st['mode']!r}, bar={st['bar']}, paint={st['paint']}, shutter={st['shutter']}")
+            except Exception as e:  # noqa: BLE001
+                fail(f"{tag}: {type(e).__name__} {str(e)[:160]}")
+            finally:
+                for pid in painted:
+                    ctx.request.post(f"{BASE}/trpc/green.setLotStatus", data=json.dumps({"json": {"parcelId": pid, "status": "not_todo"}}),
+                                     headers={"content-type": "application/json"})
+                ctx.close()
+        browser.close()
+
+
 # endregion
 
 # region Draw lot (SPEC 24)
@@ -1154,7 +1296,7 @@ def draw_lot_checks() -> None:
 
 # endregion
 
-CHECKS = [static_checks, dynamic_checks, stock_expected_checks, parcel_status_checks, flag_checks, paint_checks, draw_lot_checks]
+CHECKS = [static_checks, dynamic_checks, stock_expected_checks, parcel_status_checks, flag_checks, paint_checks, flag_paint_checks, draw_lot_checks]
 # GATE_ONLY=paint_checks,flag_checks runs just those groups while working on one screen; the release gate runs all.
 _only = {c for c in os.environ.get("GATE_ONLY", "").split(",") if c}
 for check in CHECKS:

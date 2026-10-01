@@ -1,6 +1,9 @@
+import type { Map as LeafletMap } from "leaflet";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PaintBar, PaintFrame, PaintIcon, usePaint } from "../../../components/PaintBar.tsx";
 import { useWakeLock } from "../../../components/driver/hooks.ts";
 import { lotTitle } from "../../../lib/format.ts";
+import type { PaintTarget } from "../../../lib/map/paintHit.ts";
 import { STATUS_LABEL, type LotGrade, type LotStatus } from "../../../lib/lotStatus.ts";
 import { FlagMap } from "./FlagMap.tsx";
 import { postPhoto, prepareFrame, useInvalidatePhotos } from "../../../lib/photos.ts";
@@ -142,7 +145,7 @@ export const FlagPage = () => {
   const [tapped, setTapped] = useState<string | null>(null);
   const tappedTarget = tapped ? (targets.find((t) => t.key === tapped) ?? null) : null;
   const picked = expanded && tappedTarget ? tappedTarget : aimed;
-  const setExpanded = useCallback((on: boolean): void => {
+  const setExpandedRaw = useCallback((on: boolean): void => {
     setExpandedState(on);
     setTapped(null);
     window.sessionStorage.setItem(MAP_KEY, on ? "full" : "strip");
@@ -284,6 +287,32 @@ export const FlagPage = () => {
     return out;
   }, [flags]);
   const mapLots = useMemo(() => overview.data?.lots ?? [], [overview.data]);
+
+  // Paint on the full-screen map (SPEC 22, Paint on the expanded map): the green map's brush bar,
+  // the same green.paint batch and Undo history. Every lot and bare parcel at the CC is a target.
+  const [leaflet, setLeaflet] = useState<LeafletMap | null>(null);
+  const paintTargets = useMemo<PaintTarget[]>(() => {
+    const out: PaintTarget[] = [];
+    for (const l of mapLots) {
+      out.push({ key: `l:${l.id}`, lotId: l.id, parcelId: l.parcelId, status: pending.get(`l:${l.id}`) ?? l.status, crewId: l.crewId, lat: l.lat, lng: l.lng, geometry: l.geometry });
+    }
+    for (const p of parcels.data ?? []) {
+      out.push({ key: `p:${p.parcelId}`, lotId: null, parcelId: p.parcelId, status: pending.get(`p:${p.parcelId}`) ?? null, crewId: null, lat: p.lat, lng: p.lng, geometry: p.geometry });
+    }
+    return out;
+  }, [mapLots, parcels.data, pending]);
+  const paint = usePaint(leaflet, { kind: "green" }, paintTargets);
+  const painting = paint.on && expanded;
+  const mapPending = useMemo(() => (paint.pending.size === 0 ? pending : new Map([...pending, ...paint.pending])), [pending, paint.pending]);
+  // The strip never paints: Collapse ends paint mode first.
+  const closePaint = paint.close;
+  const setExpanded = useCallback(
+    (on: boolean): void => {
+      if (!on) closePaint();
+      setExpandedRaw(on);
+    },
+    [closePaint, setExpandedRaw],
+  );
   const cc = useMemo(() => {
     const c = overview.data?.cc;
     return c ? { lat: c.lat, lng: c.lng, name: c.name, letter: c.letter } : null;
@@ -357,8 +386,10 @@ export const FlagPage = () => {
           fix={fix}
           heading={heading}
           picked={picked}
-          pending={pending}
+          pending={mapPending}
           expanded={expanded}
+          painting={painting}
+          onMap={setLeaflet}
           onPick={setTapped}
         />
         <button
@@ -371,10 +402,28 @@ export const FlagPage = () => {
         >
           <ExpandIcon up={!expanded} />
         </button>
-        {expanded && lastCard}
+        {expanded && !painting && (
+          <button
+            type="button"
+            onClick={() => paint.open()}
+            disabled={!leaflet || !overview.data}
+            className="absolute top-2 right-15 z-[1000] flex h-11 items-center gap-1.5 rounded-full bg-black/75 pr-4 pl-3 text-sm font-bold text-white shadow-lg ring-2 ring-white/70 disabled:opacity-40"
+            data-flag-paint
+          >
+            <PaintIcon />
+            Paint
+          </button>
+        )}
+        {expanded && !painting && lastCard}
+        {painting && (
+          <div className="text-ink">
+            <PaintFrame paint={paint} />
+            <PaintBar paint={paint} crews={overview.data?.crews ?? []} />
+          </div>
+        )}
       </div>
 
-      <div className="relative z-10 flex shrink-0 items-center justify-between gap-3 bg-black px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className={`relative z-10 shrink-0 items-center justify-between gap-3 bg-black px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] ${painting ? "hidden" : "flex"}`} data-flag-buttons>
         <button
           type="button"
           disabled={!canFlag}

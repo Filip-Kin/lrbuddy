@@ -98,6 +98,26 @@ const server = Bun.serve({
     const url = new URL(req.url);
     const path = url.pathname;
 
+    // Firebase's sign-in handler, served from our own domain so the redirect flow survives
+    // Chrome's storage partitioning (Firebase docs: "authDomain on your own domain, proxy /__/auth").
+    if (path.startsWith("/__/auth/") || path.startsWith("/__/firebase/")) {
+      const upstream = new URL(path + url.search, "https://lrbuddy-filipkin.firebaseapp.com");
+      const headers = new Headers(req.headers);
+      headers.delete("host");
+      headers.delete("cookie");
+      const res = await fetch(upstream, {
+        method: req.method,
+        headers,
+        body: req.method === "GET" || req.method === "HEAD" ? undefined : await req.arrayBuffer(),
+        redirect: "manual",
+      });
+      const out = new Headers(res.headers);
+      out.delete("content-encoding");
+      out.delete("content-length");
+      out.delete("transfer-encoding");
+      return new Response(res.body, { status: res.status, headers: out });
+    }
+
     if (path === "/health") {
       let dbState = "ok";
       try {

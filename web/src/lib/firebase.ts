@@ -3,10 +3,12 @@ import {
   browserLocalPersistence,
   connectAuthEmulator,
   getAuth,
+  getRedirectResult,
   GoogleAuthProvider,
   RecaptchaVerifier,
   signInWithPhoneNumber,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   type Auth,
   type ConfirmationResult,
@@ -35,9 +37,21 @@ const getFirebaseAuth = (): Auth => {
 /** The persisted user's fresh ID token, or null when nobody is signed in to Firebase. */
 export const currentIdToken = async (): Promise<string | null> => {
   const a = getFirebaseAuth();
+  // A Google sign-in started with signInWithRedirect lands back here; this resolves it.
+  await getRedirectResult(a).catch(() => null);
   await a.authStateReady();
   return a.currentUser ? a.currentUser.getIdToken().catch(() => null) : null;
 };
+
+/**
+ * Installed apps and phones cannot run the popup flow: Android opens the popup
+ * as a Custom Tab that never reports back. Those get the redirect flow, which
+ * needs the auth handler on our own domain (server proxies /__/auth/*).
+ */
+const useRedirect = (): boolean =>
+  window.matchMedia("(display-mode: standalone)").matches ||
+  window.matchMedia("(display-mode: fullscreen)").matches ||
+  window.matchMedia("(pointer: coarse)").matches;
 
 let verifier: RecaptchaVerifier | null = null;
 
@@ -60,7 +74,13 @@ export const confirmCode = async (confirmation: ConfirmationResult, code: string
 };
 
 export const googleSignIn = async (): Promise<string> => {
-  const cred = await signInWithPopup(getFirebaseAuth(), new GoogleAuthProvider());
+  const a = getFirebaseAuth();
+  if (useRedirect()) {
+    await signInWithRedirect(a, new GoogleAuthProvider());
+    // The page navigates away; currentIdToken() finishes the sign-in on return.
+    return new Promise<string>(() => undefined);
+  }
+  const cred = await signInWithPopup(a, new GoogleAuthProvider());
   return cred.user.getIdToken();
 };
 

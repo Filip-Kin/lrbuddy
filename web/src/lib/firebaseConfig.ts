@@ -13,7 +13,7 @@ import type { FirebaseOptions } from "firebase/app";
 const PROD_HOST = "lrbuddy.filipkin.com";
 const PROD_CONFIG: FirebaseOptions | null = {
   apiKey: "AIzaSyBvjuv_mzHmZUhcj4Rf71-v77tcvKLr-PA",
-  authDomain: "lrbuddy-filipkin.firebaseapp.com",
+  authDomain: "lrbuddy.filipkin.com",
   projectId: "lrbuddy-filipkin",
   appId: "1:749282608874:web:b5a44249c4d04543087993",
   messagingSenderId: "749282608874",

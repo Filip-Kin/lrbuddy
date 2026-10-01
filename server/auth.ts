@@ -13,6 +13,19 @@ const MAX_AGE_S = 30 * 24 * 3600;
 const TOUCH_EVERY_MS = 60_000;
 
 // #region cookies
+/**
+ * A cookie value with a stray percent sign (another site's cookie, a tracker, a
+ * hand-typed value) must not take the whole request down. decodeURIComponent
+ * throws on it; keep the raw text instead.
+ */
+const safeDecode = (v: string): string => {
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    return v;
+  }
+};
+
 export const parseCookies = (header: string | null): Record<string, string> => {
   const out: Record<string, string> = {};
   if (!header) return out;
@@ -21,7 +34,7 @@ export const parseCookies = (header: string | null): Record<string, string> => {
     if (i < 0) continue;
     const k = part.slice(0, i).trim();
     const v = part.slice(i + 1).trim();
-    if (k) out[k] = decodeURIComponent(v);
+    if (k) out[k] = safeDecode(v);
   }
   return out;
 };

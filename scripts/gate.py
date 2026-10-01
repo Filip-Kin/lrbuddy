@@ -8,6 +8,7 @@ at phone and laptop widths, light and dark. Screenshots land in
 /home/filip/preview-shots/lrbuddy-gate/.
 """
 import json
+import urllib.parse
 import os
 import pathlib
 import re
@@ -139,7 +140,7 @@ ROLES = {
     "anon": {"login": None, "routes": ["/login"]},
     "crew": {"login": {"code": "demo-crew-01", "displayName": "Gate"}, "routes": ["/", "/request", "/requests", "/lots", "/cc", "/settings"]},
     "driver": {"login": {"code": "TRUCK1", "displayName": "Gate"}, "routes": ["/", "/stock", "/settings"]},
-    "green": {"login": {"code": "EAST01", "displayName": "Gate"}, "routes": ["/", "/requests", "/lots", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access"]},
+    "green": {"login": {"code": "EAST01", "displayName": "Gate"}, "routes": ["/", "/flag", "/requests", "/lots", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access"]},
     "admin": {"login": {"code": ADMIN}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export",
                                                   "/admin/access", "/plan/survey", "/plan/blocks", "/plan/assignments", "/plan/print", "/plan/survey/drive"]},
 }
@@ -373,7 +374,9 @@ def dynamic_checks() -> None:
                             fail(f"{tag}: em dash rendered on page")
                         if re.search(r"\b(undefined|null|NaN|\[object Object\])\b", text):
                             fail(f"{tag}: raw undefined/null/NaN in page text")
-                        if re.search(r"\b(lorem|placeholder|TODO)\b", text, re.I):
+                        # "Todo" is a parcel status (SPEC 21); a leftover marker is written TODO in the source text.
+                        # textContent, not innerText: a table header set in capitals by CSS reads "TODO" in innerText.
+                        if re.search(r"\b(lorem|placeholder)\b", text, re.I) or re.search(r"\bTODO\b", page.evaluate("document.body.textContent") or ""):
                             fail(f"{tag}: placeholder text on page")
                         lum = page.evaluate(LUM_JS)
                         if scheme == "dark" and lum > 0.35:
@@ -480,6 +483,224 @@ def dynamic_checks() -> None:
 
 # endregion
 
+# region One parcel status (SPEC 21)
+# As a green shirt at zoom 17: tap a parcel with no lot, the sheet opens, Todo, the outline turns
+# red, and a reload still shows it red. The parcel is put back to Not todo afterwards, which
+# deletes the lot again (nobody worked on it), so the check leaves the data as it found it.
+
+PARCEL_PICK_JS = """() => {
+  const map = document.querySelector('.leaflet-container').getBoundingClientRect();
+  const cx = map.left + map.width / 2, cy = map.top + map.height / 2;
+  let best = null;
+  for (const el of document.querySelectorAll('[data-parcel]')) {
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    if (x < map.left + 60 || x > map.right - 160 || y < map.top + 130 || y > map.bottom - 110) continue;
+    // Only a parcel that is what a tap there would hit (not under the CC marker or a pill).
+    if (document.elementFromPoint(x, y) !== el) continue;
+    const d = Math.hypot(x - cx, y - cy);
+    if (!best || d < best.d) best = { d, pid: el.getAttribute('data-parcel') };
+  }
+  return best && best.pid;
+}"""
+
+PARCEL_AT_JS = """(sel) => { const el = document.querySelector(sel); if (!el) return null;
+  const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height }; }"""
+
+LOT_FILL_JS = """(pid) => { const el = document.querySelector(`[data-lot-parcel="${pid}"]`); if (!el) return null;
+  return { cls: el.getAttribute('class') || '', fill: getComputedStyle(el).fill }; }"""
+
+ZOOM_JS = "() => Number(document.querySelector('.leaflet-container').dataset.zoom || 0)"
+RED = "rgb(229, 72, 77)"
+
+
+def parcel_status_checks() -> None:
+    only = {r for r in os.environ.get("GATE_ROLES", "").split(",") if r}
+    if only and "green" not in only:
+        return
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
+        ctx = browser.new_context(viewport={"width": 1440, "height": 900}, device_scale_factor=1, color_scheme="light")
+        r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(ROLES["green"]["login"]), headers={"content-type": "application/json"})
+        if r.status >= 400:
+            fail(f"green parcel status: login returned {r.status}")
+            ctx.close()
+            browser.close()
+            return
+        page = ctx.new_page()
+        pid = None
+        try:
+            page.goto(BASE + "/", wait_until="networkidle", timeout=45000)
+            page.wait_for_timeout(800)
+            for _ in range(8):
+                if page.evaluate(ZOOM_JS) >= 16:
+                    break
+                page.locator(".leaflet-control-zoom-in").click()
+                page.wait_for_timeout(450)
+            pid = page.evaluate(PARCEL_PICK_JS)
+            if not pid:
+                fail("green /: no bare parcel ([data-parcel]) drawn at zoom 16")
+            else:
+                sel = f'[data-parcel="{pid}"]'
+                for _ in range(10):
+                    if page.evaluate(ZOOM_JS) >= 17:
+                        break
+                    at = page.evaluate(PARCEL_AT_JS, sel)
+                    page.mouse.move(at["x"], at["y"])
+                    page.mouse.wheel(0, -120)
+                    page.wait_for_timeout(500)
+                if page.evaluate(ZOOM_JS) < 17:
+                    fail(f"green /: map did not reach zoom 17 (at {page.evaluate(ZOOM_JS)})")
+                at = page.evaluate(PARCEL_AT_JS, sel)
+                page.mouse.click(at["x"], at["y"])
+                page.wait_for_timeout(500)
+                todo = page.locator('[role=dialog] [data-status="open"]')
+                if todo.count() == 0:
+                    fail(f"green /: tapping bare parcel {pid} opened no sheet with Todo")
+                else:
+                    todo.first.click()
+                    ok = False
+                    for _ in range(20):
+                        page.wait_for_timeout(300)
+                        lot = page.evaluate(LOT_FILL_JS, pid)
+                        if lot and "lrb-lot-shape-open" in lot["cls"] and lot["fill"] == RED:
+                            ok = True
+                            break
+                    page.screenshot(path=str(OUT / "green_parcel_todo-laptop-light.png"))
+                    if not ok:
+                        fail(f"green /: parcel {pid} did not turn red after Todo")
+                    page.reload(wait_until="networkidle", timeout=45000)
+                    page.wait_for_timeout(800)
+                    lot = page.evaluate(LOT_FILL_JS, pid)
+                    if not lot or "lrb-lot-shape-open" not in lot["cls"] or lot["fill"] != RED:
+                        fail(f"green /: parcel {pid} is not red after a reload ({lot})")
+        except Exception as e:  # noqa: BLE001
+            fail(f"green parcel status: {type(e).__name__} {str(e)[:120]}")
+        finally:
+            if pid:
+                res = ctx.request.post(f"{BASE}/trpc/green.setLotStatus", data=json.dumps({"json": {"parcelId": pid, "status": "not_todo"}}),
+                                       headers={"content-type": "application/json"})
+                if res.status >= 400:
+                    warn(f"green parcel status: could not put parcel {pid} back to Not todo ({res.status})")
+        ctx.close()
+        browser.close()
+
+
+# endregion
+
+# region Flag screen (SPEC 22)
+# At 390x844 the Todo shutter is at least 84 px and the side buttons 56 px, with no overflow.
+# With a fake camera and the phone placed on a bare parcel: Todo makes the lot Todo with a Before
+# photo. Undo then takes the parcel back to bare, so the data is left as it was.
+SHUTTER_MIN_PX = 84
+SIDE_MIN_PX = 56
+
+FLAG_BOXES_JS = """() => {
+  const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { w: r.width, h: r.height }; };
+  return { shutter: box(document.querySelector('[data-flag-shutter]')),
+           sides: [...document.querySelectorAll('[data-flag-side]')].map(box),
+           target: (document.querySelector('[data-flag-target] p') || {}).textContent || '',
+           over: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+}"""
+
+
+def trpc_get(ctx, path: str, inp=None):
+    url = f"{BASE}/trpc/{path}"
+    if inp is not None:
+        url += "?input=" + urllib.parse.quote(json.dumps({"json": inp}))
+    body = ctx.request.get(url).json()
+    if "error" in body:
+        raise RuntimeError(f"{path}: {str(body['error'])[:120]}")
+    return body["result"]["data"]["json"]
+
+
+def flag_checks() -> None:
+    only = {r for r in os.environ.get("GATE_ROLES", "").split(",") if r}
+    if only and "green" not in only:
+        return
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path="/usr/bin/chromium",
+                                     args=["--no-sandbox", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
+        ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=1, has_touch=True, is_mobile=True,
+                                  permissions=["camera", "geolocation"], geolocation={"latitude": 42.0, "longitude": -83.0})
+        r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(ROLES["green"]["login"]), headers={"content-type": "application/json"})
+        if r.status >= 400:
+            fail(f"green /flag: login returned {r.status}")
+            ctx.close()
+            browser.close()
+            return
+        page = ctx.new_page()
+        pid = None
+        try:
+            bare = trpc_get(ctx, "green.parcels")
+            if not bare:
+                fail("green /flag: no bare parcel in the CC's day area to flag")
+            else:
+                p = bare[len(bare) // 2]
+                pid = p["parcelId"]
+                ctx.set_geolocation({"latitude": p["lat"], "longitude": p["lng"], "accuracy": 5})
+                page.goto(BASE + "/flag", wait_until="domcontentloaded", timeout=45000)
+                page.wait_for_selector("[data-flag-shutter]", timeout=20000)
+                page.wait_for_timeout(2500)
+                b = page.evaluate(FLAG_BOXES_JS)
+                page.screenshot(path=str(OUT / "green_flag-phone-light.png"))
+                if not b["shutter"] or min(b["shutter"]["w"], b["shutter"]["h"]) < SHUTTER_MIN_PX:
+                    fail(f"green /flag: shutter is {b['shutter']} (<{SHUTTER_MIN_PX}px)")
+                for sd in b["sides"]:
+                    if not sd or sd["h"] < SIDE_MIN_PX:
+                        fail(f"green /flag: side button is {sd} (<{SIDE_MIN_PX}px tall)")
+                if b["over"] > 0:
+                    fail(f"green /flag: horizontal overflow {b['over']}px")
+                if b["target"] == "No parcel":
+                    fail(f"green /flag: no parcel picked at parcel {pid}'s centre")
+                page.locator("[data-flag-shutter]").click()
+                lot = None
+                for _ in range(40):
+                    page.wait_for_timeout(500)
+                    lots = trpc_get(ctx, "green.overview")["lots"]
+                    lot = next((x for x in lots if x["parcelId"] == pid), None)
+                    if lot:
+                        photos = trpc_get(ctx, "shared.lotPhotos", {"lotId": lot["id"]})
+                        listed = photos if isinstance(photos, list) else photos.get("photos", [])
+                        if any(ph.get("kind") == "before" for ph in listed):
+                            break
+                else:
+                    lot = lot or None
+                if not lot or lot["status"] != "open":
+                    fail(f"green /flag: parcel {pid} is not a Todo lot after the shutter ({lot and lot['status']})")
+                else:
+                    photos = trpc_get(ctx, "shared.lotPhotos", {"lotId": lot["id"]})
+                    listed = photos if isinstance(photos, list) else photos.get("photos", [])
+                    if not any(ph.get("kind") == "before" for ph in listed):
+                        fail(f"green /flag: lot {lot['id']} has no Before photo after the shutter")
+                page.screenshot(path=str(OUT / "green_flag_done-phone-light.png"))
+                undo = page.locator("[data-flag-undo]")
+                if undo.count() == 0:
+                    fail("green /flag: no Undo on the last-flag card")
+                else:
+                    undo.click()
+                    back = False
+                    for _ in range(20):
+                        page.wait_for_timeout(500)
+                        if any(x["parcelId"] == pid for x in trpc_get(ctx, "green.parcels")):
+                            back = True
+                            break
+                    if back:
+                        pid = None
+                    else:
+                        fail(f"green /flag: Undo did not take parcel {pid} back to Not todo")
+        except Exception as e:  # noqa: BLE001
+            fail(f"green /flag: {type(e).__name__} {str(e)[:120]}")
+        finally:
+            if pid:
+                ctx.request.post(f"{BASE}/trpc/green.setLotStatus", data=json.dumps({"json": {"parcelId": pid, "status": "not_todo"}}),
+                                 headers={"content-type": "application/json"})
+        ctx.close()
+        browser.close()
+
+
+# endregion
+
 # region Driver Stock: Expected control (SPEC 20)
 # Each stock row's "of 30 cases" opens the Expected sheet. A driver taps it at the truck,
 # so it is a primary control: at least 44 px tall. Opens one sheet, never saves.
@@ -528,6 +749,8 @@ def stock_expected_checks() -> None:
 static_checks()
 dynamic_checks()
 stock_expected_checks()
+parcel_status_checks()
+flag_checks()
 print()
 print(f"{len(failures)} failures, {len(warnings)} warnings, screenshots in {OUT}")
 sys.exit(1 if failures else 0)

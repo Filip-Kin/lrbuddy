@@ -71,6 +71,13 @@
       "when": 1790870407787,
       "tag": "0009_dapper_thunderbolt_ross",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1790870489913,
+      "tag": "0010_strong_senator_kelly",
+      "breakpoints": true
     }
   ]
 }

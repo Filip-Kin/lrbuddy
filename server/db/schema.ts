@@ -556,6 +556,30 @@ export const parcels = sqliteTable(
   (t) => [index("parcels_lat_lng_idx").on(t.lat, t.lng), index("parcels_block_side_idx").on(t.blockSideKey)],
 );
 
+/**
+ * One-way streets from OpenStreetMap (SPEC 20), cached per fetched bbox. One row per way and
+ * bbox; the same way can sit under two keys. `direction` 1 runs in the order of `geometry`,
+ * -1 against it (OSM `oneway=-1`). The bounds columns let a map ask for its view.
+ */
+export const onewayWays = sqliteTable(
+  "oneway_ways",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    bboxKey: text("bbox_key").notNull(),
+    osmId: integer("osm_id").notNull(),
+    /** [[lat, lng], ...] in the way's node order. */
+    geometry: text("geometry", { mode: "json" }).$type<Array<[number, number]>>().notNull(),
+    direction: integer("direction").notNull(),
+    name: text("name"),
+    minLat: real("min_lat").notNull(),
+    minLng: real("min_lng").notNull(),
+    maxLat: real("max_lat").notNull(),
+    maxLng: real("max_lng").notNull(),
+    fetchedAt: integer("fetched_at").notNull(),
+  },
+  (t) => [index("oneway_ways_bbox_key_idx").on(t.bboxKey), index("oneway_ways_bounds_idx").on(t.minLat, t.maxLat)],
+);
+
 /** One tag per pass by a surveyor. The newest tag per parcel wins; `clear` takes it off the work list. */
 export const surveyTags = sqliteTable(
   "survey_tags",
@@ -650,4 +674,5 @@ export type SurveyTag = typeof surveyTags.$inferSelect;
 export type CompanyDay = typeof companyDays.$inferSelect;
 export type Assignment = typeof assignments.$inferSelect;
 export type CrewArea = typeof crewAreas.$inferSelect;
+export type OnewayWay = typeof onewayWays.$inferSelect;
 // #endregion

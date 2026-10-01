@@ -34,6 +34,10 @@ interface Props {
   /** Statuses of flags still on their way to the server, keyed `l:<lot id>` or `p:<parcel id>`. */
   pending: ReadonlyMap<string, LotStatus>;
   expanded: boolean;
+  /** Paint mode on the full-screen map: taps pick nothing, the map stops following, bare parcels draw at any zoom. */
+  painting: boolean;
+  /** The Leaflet map once it exists, for Paint's stroke handling. */
+  onMap: (map: L.Map | null) => void;
   /** A tap on a parcel in the full-screen map: `l:<lot id>` or `p:<parcel id>`. */
   onPick: (key: string) => void;
 }
@@ -52,11 +56,20 @@ const cone = (at: LatLng, heading: number): L.LatLngTuple[] => {
  * takes no gestures; full screen it pans and zooms, follows until touched, and
  * a tap on a parcel picks it.
  */
-export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending, expanded, onPick }: Props) => {
-  const [map, setMap] = useState<L.Map | null>(null);
+export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending, expanded, painting, onMap, onPick }: Props) => {
+  const [map, setMapState] = useState<L.Map | null>(null);
+  const mapRef = useRef(onMap);
+  mapRef.current = onMap;
+  const setMap = useCallback((m: L.Map | null): void => {
+    setMapState(m);
+    mapRef.current(m);
+  }, []);
   const holder = useRef<HTMLDivElement>(null);
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
+  const tapPicks = expanded && !painting;
+  const tapPicksRef = useRef(tapPicks);
+  tapPicksRef.current = tapPicks;
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
   const touched = useRef(false);
@@ -74,17 +87,17 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
       mine: true,
       noFit: true,
       title: l.address ?? undefined,
-      onClick: expanded ? () => pickRef.current(`l:${l.id}`) : undefined,
+      onClick: tapPicks ? () => pickRef.current(`l:${l.id}`) : undefined,
     }));
     if (cc) out.push({ id: "cc", kind: "cc", lat: cc.lat, lng: cc.lng, name: `CC ${cc.name}`, letter: cc.letter, noFit: true });
     if (fix) out.push({ id: "me", kind: "me", lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, noFit: true });
     return out;
-  }, [lots, cc, fix, pending, expanded]);
+  }, [lots, cc, fix, pending, tapPicks]);
 
   const onBare = useCallback((parcelId: string) => {
-    if (expandedRef.current) pickRef.current(`p:${parcelId}`);
+    if (tapPicksRef.current) pickRef.current(`p:${parcelId}`);
   }, []);
-  useParcelLayer(map, parcels, true, onBare, pending);
+  useParcelLayer(map, parcels, true, onBare, pending, painting);
   const noArea = useCallback(() => undefined, []);
   useDayOfLayer(map, plan, true, noArea);
 
@@ -145,13 +158,14 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
   }, []);
 
   // Centred on the phone (or the CC before the first fix), following it until the full-screen map is touched.
+  // Paint holds the view still, so a stroke never lands on a map that moved under the finger.
   const at = fix ?? cc;
   const atLat = at?.lat;
   const atLng = at?.lng;
   useEffect(() => {
-    if (!map || atLat === undefined || atLng === undefined || touched.current) return;
+    if (!map || atLat === undefined || atLng === undefined || touched.current || painting) return;
     map.setView([atLat, atLng], FLAG_MAP_ZOOM, { animate: false });
-  }, [map, atLat, atLng, expanded]);
+  }, [map, atLat, atLng, expanded, painting]);
   // #endregion
 
   return (

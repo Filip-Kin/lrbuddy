@@ -140,7 +140,7 @@ ROLES = {
     "anon": {"login": None, "routes": ["/login"]},
     "crew": {"login": {"code": "demo-crew-01", "displayName": "Gate"}, "routes": ["/", "/request", "/requests", "/lots", "/cc", "/settings"]},
     "driver": {"login": {"code": "TRUCK1", "displayName": "Gate"}, "routes": ["/", "/stock", "/settings"]},
-    "green": {"login": {"code": "EAST01", "displayName": "Gate"}, "routes": ["/", "/flag", "/requests", "/lots", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access"]},
+    "green": {"login": {"code": "EAST01", "displayName": "Gate"}, "routes": ["/", "/flag", "/requests", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access"]},
     "admin": {"login": {"code": ADMIN}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export",
                                                   "/admin/access", "/plan/survey", "/plan/blocks", "/plan/assignments", "/plan/print", "/plan/survey/drive"]},
 }

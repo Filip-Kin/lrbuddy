@@ -48,4 +48,4 @@ export const firebaseOptions: FirebaseOptions | null =
  * Google sign-in needs an OAuth client that only the Cloud console can create for
  * this project. Flip to true once the Google provider is enabled in Firebase Auth.
  */
-export const googleEnabled = false;
+export const googleEnabled = true;

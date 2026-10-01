@@ -1,21 +1,36 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { Redirect, Route, Switch, useLocation, useSearch } from "wouter";
 import { Button } from "./components/Button.tsx";
+import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { Field } from "./components/Field.tsx";
 import { Nav, type NavLink } from "./components/Nav.tsx";
+import { ScreenLoading } from "./components/ScreenLoading.tsx";
 import { Sheet } from "./components/Sheet.tsx";
+import { setReportRole } from "./lib/clientErrors.ts";
 import { useLiveInvalidation } from "./lib/live.ts";
 import { usePositionReporter } from "./lib/position.ts";
+import { usePrefetchRole } from "./lib/prefetch.ts";
 import { isSignedIn, logout, setDisplayName, useMe, type NoRole, type SignedIn } from "./lib/session.ts";
 import { getCcOverride, setCcOverride, trpc } from "./lib/trpc.ts";
-import { AccessHome } from "./pages/access/AccessHome.tsx";
-import { AdminRoutes, useAdminLinks } from "./pages/admin/index.tsx";
-import { CrewRoutes, crewLinks } from "./pages/crew/index.tsx";
-import { DriverRoutes, driverLinks } from "./pages/driver/index.tsx";
-import { GreenRoutes, useGreenLinks } from "./pages/green/index.tsx";
+import { useAdminLinks } from "./pages/admin/links.ts";
+import { crewLinks } from "./pages/crew/links.ts";
+import { driverLinks } from "./pages/driver/links.ts";
+import { useGreenLinks } from "./pages/green/links.ts";
 import { LoginPage } from "./pages/join/LoginPage.tsx";
 import { PlanLayout } from "./components/plan/PlanLayout.tsx";
-import { PlanRoutes } from "./pages/plan/index.tsx";
+import { AccessHome, AdminRoutes, CrewRoutes, DriverRoutes, GreenRoutes, PlanRoutes } from "./routeChunks.ts";
+
+// #region route chunks
+/** A screen's chunk, with the error panel if it or its download fails. Reset on every route change. */
+const Screen = ({ children }: { children: ReactNode }) => {
+  const [loc] = useLocation();
+  return (
+    <ErrorBoundary resetKey={loc}>
+      <Suspense fallback={<ScreenLoading />}>{children}</Suspense>
+    </ErrorBoundary>
+  );
+};
+// #endregion
 
 const Shell = ({
   scope,
@@ -34,7 +49,9 @@ const Shell = ({
 }) => (
   <div className="flex h-dvh flex-col">
     <Nav scope={scope} scopeShort={scopeShort} scopeTone={scopeTone} links={links} onSignOut={onSignOut} />
-    <main className="relative min-h-0 flex-1 overflow-y-auto">{children}</main>
+    <main className="relative min-h-0 flex-1 overflow-y-auto">
+      <Screen>{children}</Screen>
+    </main>
   </div>
 );
 
@@ -181,7 +198,9 @@ const SignedInApp = ({ me }: { me: SignedIn }) => {
       if (inPlan) {
         return (
           <PlanLayout me={me}>
-            <PlanRoutes />
+            <Screen>
+              <PlanRoutes />
+            </Screen>
           </PlanLayout>
         );
       }
@@ -194,6 +213,9 @@ const SignedInApp = ({ me }: { me: SignedIn }) => {
 
 export const App = () => {
   const me = useMe();
+  const role = me.data?.role ?? null;
+  useEffect(() => setReportRole(role), [role]);
+  usePrefetchRole(me.data);
   if (me.isLoading) return <Splash />;
   if (me.data?.role === "none") return <NoRoleApp me={me.data} />;
   if (!isSignedIn(me.data)) {

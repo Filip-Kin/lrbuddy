@@ -11,12 +11,14 @@ export default defineConfig({
   // VITE_* variables (Firebase config, emulator URL) live in the repo-root .env with the server's.
   envDir: fileURLToPath(new URL("..", import.meta.url)),
   plugins: [react(), tailwindcss()],
+  // The phone's query cache (web/src/lib/prefetch.ts) starts over with every build.
+  define: { __LRB_BUILD__: JSON.stringify(String(Date.now())) },
   build: {
     // WEB_DIST lets parallel agents build into separate directories.
     outDir: process.env.WEB_DIST ?? fileURLToPath(new URL("./dist", import.meta.url)),
     emptyOutDir: true,
     sourcemap: false,
-    chunkSizeWarningLimit: 900,
+    chunkSizeWarningLimit: 500,
   },
   server: {
     port: 5173,
@@ -27,6 +29,7 @@ export default defineConfig({
       "/t/": api,
       "/g/": api,
       "/health": api,
+      "/client-error": api,
       "/admin/photos.zip": api,
       // Photo files and uploads; GET /photos itself is the green gallery page.
       "/photos": {

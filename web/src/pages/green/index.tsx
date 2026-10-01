@@ -1,45 +1,31 @@
+import { lazy, Suspense } from "react";
 import { Redirect, Route, Switch } from "wouter";
-import type { NavLink } from "../../components/Nav.tsx";
-import { trpc } from "../../lib/trpc.ts";
+import { ErrorBoundary } from "../../components/ErrorBoundary.tsx";
+import { ScreenLoading } from "../../components/ScreenLoading.tsx";
 import { GreenAccessPage } from "../access/AccessQueue.tsx";
 import { BroadcastPage } from "./BroadcastPage.tsx";
 import { CrewsPage } from "./CrewsPage.tsx";
-import { FlagPage } from "./flag/FlagPage.tsx";
 import { MapPage } from "./MapPage.tsx";
 import { PhotosPage } from "./PhotosPage.tsx";
 import { RequestsPage } from "./RequestsPage.tsx";
 import { StatsPage } from "./StatsPage.tsx";
 import { TrucksPage } from "./TrucksPage.tsx";
 
-/**
- * Green routes are relative. A green shirt sees them at `/`; an admin sees
- * them nested under `/green` with `?cc=<id>`, so `base` and `search` are
- * prefixed and appended here.
- */
-export const greenLinks = (base = "", search = ""): NavLink[] =>
-  [
-    { href: "/", label: "Map" },
-    { href: "/flag", label: "Flag" },
-    { href: "/requests", label: "Requests" },
-    { href: "/photos", label: "Photos" },
-    { href: "/crews", label: "Crews" },
-    { href: "/trucks", label: "Trucks" },
-    { href: "/broadcast", label: "Broadcast" },
-    { href: "/stats", label: "Stats" },
-    { href: "/access", label: "Access" },
-  ].map((l) => ({ label: l.label, href: `${base}${l.href === "/" && base ? "" : l.href}${search}` }));
+/** The camera screen is its own chunk: the green map does not wait for it, and a crash there stays there. */
+const FlagPage = lazy(() => import("./flag/FlagPage.tsx").then((m) => ({ default: m.FlagPage })));
 
-/** Green links with the pending access count on Access. */
-export const useGreenLinks = (base = "", search = ""): NavLink[] => {
-  const count = trpc.access.pendingCount.useQuery(undefined, { refetchInterval: 60_000 });
-  return greenLinks(base, search).map((l) => (l.label === "Access" ? { ...l, badge: count.data ?? 0 } : l));
-};
-
+const Flag = () => (
+  <ErrorBoundary>
+    <Suspense fallback={<ScreenLoading dark />}>
+      <FlagPage />
+    </Suspense>
+  </ErrorBoundary>
+);
 
 export const GreenRoutes = () => (
   <Switch>
     <Route path="/" component={MapPage} />
-    <Route path="/flag" component={FlagPage} />
+    <Route path="/flag" component={Flag} />
     <Route path="/requests" component={RequestsPage} />
     <Route path="/photos" component={PhotosPage} />
     <Route path="/crews" component={CrewsPage} />

@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { idbStore } from "./idbStore.ts";
+import { cacheScope } from "./prefetch.ts";
+import { invalidateCached } from "./queryCache.ts";
 import { trpc } from "./trpc.ts";
 import type { Role } from "./session.ts";
 
@@ -134,11 +137,15 @@ export const useLiveInvalidation = (role: Role, enabled: boolean): void => {
     onData: (msg) => {
       // The truck or crew moved to another CC: the scope line and every list change.
       if (msg.type === "scope.changed") {
+        void invalidateCached(idbStore, cacheScope(), "all").catch(() => undefined);
         void utils.invalidate();
         return;
       }
       const kind = KIND[msg.type];
-      if (!kind || timers.current.has(kind)) return;
+      if (!kind) return;
+      // The phone's copy goes at once, so a reload before the refetch lands does not draw it.
+      void invalidateCached(idbStore, cacheScope(), kind).catch(() => undefined);
+      if (timers.current.has(kind)) return;
       timers.current.set(
         kind,
         setTimeout(() => {

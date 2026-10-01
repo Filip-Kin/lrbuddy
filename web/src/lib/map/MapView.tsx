@@ -1,4 +1,5 @@
 import L from "leaflet";
+import { ErrorBoundary } from "../../components/ErrorBoundary.tsx";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import {
   DEFAULT_CENTER,
@@ -17,6 +18,7 @@ import {
 import type { LotGeometry } from "../../../../server/db/schema.ts";
 import { attachLabelDeclutter } from "./declutter.ts";
 import { ccIcon, crewIcon, lotIcon, lotShape, meIcon, requestIcon, routeLine, selectLine, stopIcon, truckIcon, type LotStatus } from "./markers.ts";
+import { media } from "../safe.ts";
 
 // #region types
 interface Base {
@@ -64,16 +66,8 @@ export interface MapViewProps {
 // #endregion
 
 // #region colour scheme
-const darkQuery = typeof window !== "undefined" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
-export const usePrefersDark = (): boolean =>
-  useSyncExternalStore(
-    (cb) => {
-      darkQuery?.addEventListener("change", cb);
-      return () => darkQuery?.removeEventListener("change", cb);
-    },
-    () => darkQuery?.matches ?? false,
-    () => false,
-  );
+const darkQuery = media("(prefers-color-scheme: dark)");
+export const usePrefersDark = (): boolean => useSyncExternalStore(darkQuery.subscribe, darkQuery.matches, () => false);
 // #endregion
 
 const layerFor = (m: MapMarker): L.Layer => {
@@ -154,7 +148,7 @@ const applyFit = (m: L.Map, pts: L.LatLngExpression[]): void => {
  * system. Markers and lines are redrawn when their arrays change; the view is
  * fitted to every marker on first data and whenever `fitKey` changes.
  */
-export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, label = "Map", onReady }: MapViewProps) => {
+const MapViewInner = ({ markers, lines = [], fitKey, onMapClick, className, label = "Map", onReady }: MapViewProps) => {
   const holder = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const tiles = useRef<L.Layer[]>([]);
@@ -276,3 +270,10 @@ export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, la
 
   return <div ref={holder} role="region" aria-label={label} className={className ?? "h-full w-full"} />;
 };
+
+/** The map with its own error boundary: a Leaflet crash shows the error panel in the map's box, not a blank screen. */
+export const MapView = (props: MapViewProps) => (
+  <ErrorBoundary label="Map failed" inset>
+    <MapViewInner {...props} />
+  </ErrorBoundary>
+);

@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import {
   createTRPCClient,
   httpBatchLink,
+  httpLink,
   httpSubscriptionLink,
   splitLink,
   type TRPCLink,
@@ -10,6 +11,7 @@ import { createTRPCReact, type inferReactQueryProcedureOptions } from "@trpc/rea
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import superjson from "superjson";
 import type { AppRouter } from "../../../server/routers/index.ts";
+import { storageGet, storageSet } from "./safe.ts";
 
 export type { AppRouter };
 export type RouterInputs = inferRouterInputs<AppRouter>;
@@ -19,8 +21,7 @@ export type ReactQueryOptions = inferReactQueryProcedureOptions<AppRouter>;
 // #region admin CC override
 const CC_KEY = "lrb.cc";
 let ccOverride: number | null = (() => {
-  if (typeof window === "undefined") return null;
-  const v = Number(window.sessionStorage.getItem(CC_KEY));
+  const v = Number(storageGet("session", CC_KEY));
   return Number.isInteger(v) && v > 0 ? v : null;
 })();
 
@@ -28,10 +29,21 @@ let ccOverride: number | null = (() => {
 export const getCcOverride = (): number | null => ccOverride;
 export const setCcOverride = (cc: number | null): void => {
   ccOverride = cc;
-  if (cc === null) window.sessionStorage.removeItem(CC_KEY);
-  else window.sessionStorage.setItem(CC_KEY, String(cc));
+  storageSet("session", CC_KEY, cc === null ? null : String(cc));
 };
 // #endregion
+
+/**
+ * The big, slow-changing answers travel alone, so their URL is the same every time and the
+ * server's ETag turns an unchanged refetch into a 304 (`server/etag.ts`). A batch URL changes
+ * with whatever else is in the batch, so the browser could never revalidate it.
+ */
+export const UNBATCHED = new Set(["green.parcels", "admin.lots.parcels"]);
+
+const ccHeaders = (): Record<string, string> => {
+  const cc = getCcOverride();
+  return cc === null ? {} : { "x-lrb-cc": String(cc) };
+};
 
 const links = (): TRPCLink<AppRouter>[] => [
   splitLink({
@@ -44,13 +56,10 @@ const links = (): TRPCLink<AppRouter>[] => [
         return cc === null ? {} : { cc: String(cc) };
       },
     }),
-    false: httpBatchLink({
-      url: "/trpc",
-      transformer: superjson,
-      headers: () => {
-        const cc = getCcOverride();
-        return cc === null ? {} : { "x-lrb-cc": String(cc) };
-      },
+    false: splitLink({
+      condition: (op) => op.type === "query" && UNBATCHED.has(op.path),
+      true: httpLink({ url: "/trpc", transformer: superjson, headers: ccHeaders }),
+      false: httpBatchLink({ url: "/trpc", transformer: superjson, headers: ccHeaders }),
     }),
   }),
 ];

@@ -1,5 +1,7 @@
 import { firebaseOptions } from "./firebaseConfig.ts";
+import { clearIdbStore } from "./idbStore.ts";
 import { trpc, type RouterOutputs } from "./trpc.ts";
+import { storageClear, storageSet } from "./safe.ts";
 
 export type Me = RouterOutputs["shared"]["me"];
 export type Role = Me["role"];
@@ -53,6 +55,13 @@ const signOutOfFirebase = async (): Promise<void> => {
   await firebaseSignOut();
 };
 
+/** Leaving: the tab's state, the last role and the phone's copy of the map queries go. */
+const forgetDevice = async (): Promise<void> => {
+  storageClear("session");
+  storageSet("local", "lrb.lastRole", null);
+  await clearIdbStore().catch(() => undefined);
+};
+
 /**
  * Leaves the crew or truck. A signed-in user keeps the sign-in and lands on
  * the access screen; a code session ends and goes to the login page.
@@ -61,7 +70,7 @@ export const leave = async (): Promise<void> => {
   const res = await fetch("/auth/leave", { method: "POST", credentials: "same-origin" }).catch(() => null);
   const body: unknown = await res?.json().catch(() => null);
   const signedOut = !(typeof body === "object" && body !== null && (body as { signedOut?: unknown }).signedOut === false);
-  window.sessionStorage.clear();
+  await forgetDevice();
   window.location.assign(signedOut ? "/login" : "/");
 };
 
@@ -69,7 +78,7 @@ export const leave = async (): Promise<void> => {
 export const logout = async (): Promise<void> => {
   await fetch("/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
   await signOutOfFirebase().catch(() => undefined);
-  window.sessionStorage.clear();
+  await forgetDevice();
   window.location.assign("/login");
 };
 

@@ -7,6 +7,9 @@ import {
   ESRI_DARK_BASE,
   ESRI_DARK_LABELS,
   ESRI_LABELS,
+  ESRI_STREETS,
+  STREETS_MAX_NATIVE_ZOOM,
+  STREETS_MIN_ZOOM,
   MAX_NATIVE_ZOOM,
   MAX_ZOOM,
   TILE_ATTRIB,
@@ -206,10 +209,18 @@ export const MapView = ({ markers, lines = [], fitKey, onMapClick, className, la
     const m = map.current;
     if (!m) return;
     for (const t of tiles.current) m.removeLayer(t);
-    const opts = { maxNativeZoom: MAX_NATIVE_ZOOM, maxZoom: MAX_ZOOM };
+    // Canvas tiles up to 16, street tiles from 17: each layer only draws in its own range.
+    const opts = { maxNativeZoom: MAX_NATIVE_ZOOM, maxZoom: STREETS_MIN_ZOOM - 1 };
     tiles.current = [
       L.tileLayer(dark ? ESRI_DARK_BASE : ESRI_BASE, { ...opts, attribution: TILE_ATTRIB }).addTo(m),
       L.tileLayer(dark ? ESRI_DARK_LABELS : ESRI_LABELS, opts).addTo(m),
+      L.tileLayer(ESRI_STREETS, {
+        minZoom: STREETS_MIN_ZOOM,
+        maxNativeZoom: STREETS_MAX_NATIVE_ZOOM,
+        maxZoom: MAX_ZOOM,
+        attribution: TILE_ATTRIB,
+        className: dark ? "tiles-dark-street" : "",
+      }).addTo(m),
     ];
     for (const t of tiles.current) (t as L.TileLayer).bringToBack();
   }, [dark]);

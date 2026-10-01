@@ -5,6 +5,9 @@ export type LocationStatus = "off" | "waiting" | "on" | "denied" | "unavailable"
 
 const MIN_MOVE_M = 15;
 const MAX_GAP_MS = 30_000;
+// Trucks are watched live by greens and crews: post more often than a crew on foot.
+const TRUCK_MIN_MOVE_M = 8;
+const TRUCK_MAX_GAP_MS = 5_000;
 
 // #region store
 let status: LocationStatus = "off";
@@ -69,7 +72,9 @@ const distM = (a: { lat: number; lng: number }, b: { lat: number; lng: number })
  * `shared.position` after 15 m of movement or 30 s, whichever comes first.
  * Crew and driver only; pass `enabled=false` for other roles.
  */
-export const usePositionReporter = (enabled: boolean): void => {
+export const usePositionReporter = (enabled: boolean, truck = false): void => {
+  const minMove = truck ? TRUCK_MIN_MOVE_M : MIN_MOVE_M;
+  const maxGap = truck ? TRUCK_MAX_GAP_MS : MAX_GAP_MS;
   useEffect(() => {
     if (!enabled) return;
     if (!("geolocation" in navigator)) {
@@ -119,7 +124,7 @@ export const usePositionReporter = (enabled: boolean): void => {
       };
       emit();
       const here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      if (!last || distM(last, here) >= MIN_MOVE_M || Date.now() - last.at >= MAX_GAP_MS) void send(pos);
+      if (!last || distM(last, here) >= minMove || Date.now() - last.at >= maxGap) void send(pos);
     };
 
     const onError = (err: GeolocationPositionError): void => {
@@ -129,7 +134,7 @@ export const usePositionReporter = (enabled: boolean): void => {
     const start = (): void => {
       if (watchId !== null) return;
       setStatus(status === "on" ? "on" : "waiting");
-      watchId = navigator.geolocation.watchPosition(onFix, onError, { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 });
+      watchId = navigator.geolocation.watchPosition(onFix, onError, { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 });
     };
     const stop = (): void => {
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
@@ -140,7 +145,7 @@ export const usePositionReporter = (enabled: boolean): void => {
     const heartbeat = window.setInterval(() => {
       if (document.visibilityState !== "visible" || watchId === null) return;
       navigator.geolocation.getCurrentPosition(onFix, () => undefined, { maximumAge: 20_000, timeout: 20_000 });
-    }, MAX_GAP_MS);
+    }, maxGap);
 
     const onVisibility = (): void => {
       if (document.visibilityState === "visible") start();

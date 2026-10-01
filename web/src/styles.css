@@ -615,3 +615,8 @@
   border: 1.5px dashed var(--ink);
   background: color-mix(in srgb, var(--crew) 15%, transparent);
 }
+
+/* Street tiles are light; in dark mode invert them to match the dark canvas. */
+.tiles-dark-street {
+  filter: invert(1) hue-rotate(180deg) brightness(0.82) contrast(0.92) saturate(0.6);
+}

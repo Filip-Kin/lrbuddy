@@ -151,7 +151,7 @@ const NoRoleApp = ({ me }: { me: NoRole }) => {
 const SignedInApp = ({ me }: { me: SignedIn }) => {
   const [loc] = useLocation();
   const adminInGreen = me.role === "admin" && (loc === "/green" || loc.startsWith("/green/"));
-  usePositionReporter(me.role === "crew" || me.role === "driver");
+  usePositionReporter(me.role === "crew" || me.role === "driver", me.role === "driver");
   useLiveInvalidation(me.role, me.role !== "admin" || (adminInGreen && getCcOverride() !== null));
 
   const inPlan = loc === "/plan" || loc.startsWith("/plan/");

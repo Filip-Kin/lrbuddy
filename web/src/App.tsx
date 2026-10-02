@@ -72,6 +72,30 @@ const Offline = ({ onRetry, busy }: { onRetry: () => void; busy: boolean }) => (
   </div>
 );
 
+const LINK_STATES: Record<string, string> = {
+  used: "Invite used",
+  expired: "Invite expired",
+  revoked: "Invite revoked",
+  unknown: "Unknown invite",
+};
+
+/** `/link?state=`: an invite link the server refused (SPEC 26), whatever the session. */
+const LinkRefused = () => {
+  const state = new URLSearchParams(useSearch()).get("state") ?? "unknown";
+  return (
+    <main className="grid h-dvh place-items-center bg-surface-2 p-6">
+      <div className="grid w-full max-w-sm justify-items-center gap-4 rounded-3xl bg-surface p-6 shadow-xl ring-1 ring-line">
+        <h1 role="alert" className="text-lg font-extrabold tracking-tight text-ink">
+          {LINK_STATES[state] ?? LINK_STATES.unknown}
+        </h1>
+        <Button size="lg" block onClick={() => window.location.assign("/")}>
+          Continue
+        </Button>
+      </div>
+    </main>
+  );
+};
+
 const phoneDigits = (v: string): number => v.replace(/\D/g, "").length;
 
 /**
@@ -224,9 +248,11 @@ const SignedInApp = ({ me }: { me: SignedIn }) => {
 
 export const App = () => {
   const me = useMe();
+  const [loc] = useLocation();
   const role = me.data?.role ?? null;
   useEffect(() => setReportRole(role), [role]);
   usePrefetchRole(me.data);
+  if (loc === "/link") return <LinkRefused />;
   if (me.isLoading) return <Splash />;
   // No answer at all (no signal at app open, a restart) is not "signed out": the session
   // cookie is still good, so the app waits here instead of sending the phone to /login.

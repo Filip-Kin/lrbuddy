@@ -2,11 +2,11 @@
  * Shared fixtures for the e2e specs.
  *
  * `as(who)` opens a new browser context signed in as `who` and returns its page plus a tRPC client
- * on the same cookies. `who` is a QR link path (`/g/<green code>`, `/t/<truck code>`,
- * `/j/<crew token>`), opened the way a phone opens the scanned link, or the admin password, posted
- * to `/auth/login`. Those are the only ways in (SPEC 4): codes are never typed. On the signin
- * server (Firebase on) a link path first signs a fresh user in, as a person scanning after sign-in.
- * Every context:
+ * on the same cookies. `who` is a QR or invite link path (`/g/<green code>`, `/t/<truck code>`,
+ * `/j/<crew token>`, `/i/<invite>`): a fresh user signs in through the fake Auth emulator and then
+ * opens the link, as a person scanning after sign-in. Or `who` is the `admin` fixture: the seed's
+ * admin user signs in and lands in its admin membership (SPEC 26). There is no password. Every
+ * context:
  *
  * - carries its own X-Forwarded-For address (the servers trust one proxy hop), so the login limit
  *   of 20 a minute counts per context, as it would per phone;
@@ -17,7 +17,10 @@
  */
 import { test as base, expect, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "@playwright/test";
 import { firebaseSignIn } from "./firebase.ts";
-import { laneFrom, seedCodes, type Lane, type LaneId } from "./lanes.ts";
+import { adminUid, laneFrom, seedCodes, type Lane, type LaneId } from "./lanes.ts";
+
+/** The `admin` fixture's value: `as(admin)` signs in as the seed's admin user. */
+const ADMIN = "admin";
 
 // #region tRPC over the context's cookies
 export class TrpcError extends Error {
@@ -99,7 +102,7 @@ export const expectNoOverflow = async (page: Page, where = ""): Promise<void> =>
 /** Opens a route, waits for the screen, checks overflow. */
 export const visit = async (page: Page, path: string): Promise<void> => {
   await page.goto(path, { waitUntil: "load" });
-  // The sign-in page is a form with no <main>.
+  // Every screen, the sign-in page included, has a <main>; a form counts too.
   await page.locator("main, form").first().waitFor();
   await page.waitForTimeout(400);
   await expectNoOverflow(page, path);
@@ -178,7 +181,7 @@ export const test = base.extend<Fixtures & LaneOptions>({
     await use(url);
   },
   signin: async ({}, use) => use(process.env.E2E_SIGNIN_URL ?? ""),
-  admin: async ({}, use) => use(process.env.E2E_ADMIN_PASSWORD ?? ""),
+  admin: async ({}, use) => use(ADMIN),
   as: async ({ browser, base: mainUrl, viewport, isMobile, hasTouch }, use, testInfo) => {
     const opened: Array<{ role: Role; external: string[]; errors: string[]; base: string }> = [];
     const open = async (code: string, opts: AsOptions = {}): Promise<Role> => {
@@ -210,20 +213,18 @@ export const test = base.extend<Fixtures & LaneOptions>({
       );
       if (!opts.anon) {
         const name = opts.name ?? "E2E";
-        if (code.startsWith("/")) {
-          const firebaseOn = url === process.env.E2E_SIGNIN_URL;
-          if (firebaseOn) {
-            userSerial++;
-            const uid = `e2e-link-${process.pid}-${process.env.TEST_PARALLEL_INDEX ?? 0}-${userSerial}-${Date.now()}`;
-            await firebaseSignIn(ctx, url, uid, name, "");
-          }
+        if (code === ADMIN) {
+          const codes = seedCodes(url === process.env.E2E_SIGNIN_URL ? "E2E_SIGNIN_CODES" : "E2E_CODES");
+          expect(await firebaseSignIn(ctx, url, adminUid(codes), "", ""), "the seed's admin user signs in as admin").toBe("entered");
+        } else if (code.startsWith("/")) {
+          userSerial++;
+          const uid = `e2e-link-${process.pid}-${process.env.TEST_PARALLEL_INDEX ?? 0}-${userSerial}-${Date.now()}`;
+          await firebaseSignIn(ctx, url, uid, name, "");
           const res = await ctx.request.get(`${url}${code}`, { maxRedirects: 0 });
-          expect(res.status(), `QR link ${code}`).toBe(302);
-          expect(res.headers()["location"], `QR link ${code}`).toBe("/");
-          if (!firebaseOn) expect((await ctx.request.post(`${url}/auth/name`, { data: { displayName: name } })).status()).toBe(200);
+          expect(res.status(), `link ${code}`).toBe(302);
+          expect(res.headers()["location"], `link ${code}`).toBe("/");
         } else {
-          const res = await ctx.request.post(`${url}/auth/login`, { data: { code, displayName: name } });
-          expect(res.status(), "login with the admin password").toBe(200);
+          throw new Error(`as(): not a link path or the admin fixture: ${code}`);
         }
       }
       const page = await ctx.newPage();
@@ -231,7 +232,7 @@ export const test = base.extend<Fixtures & LaneOptions>({
       ctx.on("page", (p) => p.on("pageerror", (e) => errors.push(`${p.url()}: ${e.message}`)));
       page.on("pageerror", (e) => errors.push(`${page.url()}: ${e.message}`));
       page.on("console", (m) => {
-        const who = opts.anon ? "signed out" : code === process.env.E2E_ADMIN_PASSWORD ? "admin" : code;
+        const who = opts.anon ? "signed out" : code;
         if (m.type() === "error") testInfo.annotations.push({ type: "console", description: `${who}: ${m.text().slice(0, 200)}` });
       });
       opened.push({ role, external, errors, base: url });

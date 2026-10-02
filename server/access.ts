@@ -2,7 +2,7 @@
  * Users, memberships and the session a user acts under (SPEC 18). Routes and
  * routers stay thin; the rules live here so the tests can call them directly.
  */
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { cleanPhone } from "./auth.ts";
 import { bus } from "./bus.ts";
 import { db } from "./db/index.ts";
@@ -216,13 +216,14 @@ export const clearRole = (sessionId: string): void => {
  */
 export const candidates = (userId: number, at = Date.now()): Membership[] => {
   const ev = activeEvent();
-  if (!ev) return [];
+  // An admin membership holds for every event, and with no event at all (SPEC 26).
   const approved = db
     .select()
     .from(memberships)
-    .where(and(eq(memberships.userId, userId), eq(memberships.eventId, ev.id), eq(memberships.status, "approved")))
+    .where(and(eq(memberships.userId, userId), eq(memberships.status, "approved"), ev ? or(eq(memberships.eventId, ev.id), eq(memberships.role, "admin")) : eq(memberships.role, "admin")))
     .orderBy(desc(memberships.decidedAt), desc(memberships.id))
     .all();
+  if (!ev) return approved;
   const today = currentDayId(ev.id, at);
   return today === null ? approved : approved.filter((m) => m.dayId === null || m.dayId === today);
 };
@@ -277,7 +278,7 @@ const applyContact = (m: Membership, user: User, mode: "fill" | "replace" | "add
 // #region targets
 export type LinkKind = "crew" | "truck" | "cc";
 
-interface Target {
+export interface Target {
   role: Role;
   eventId: number;
   dayId: number;
@@ -307,10 +308,8 @@ export const linkTarget = (kind: LinkKind, raw: string): Target | null => {
   return cc && eventId !== null ? { role: "green", eventId, dayId: cc.dayId, ccId: cc.id, crewId: null, truckId: null } : null;
 };
 
-/** "Crew 7, Ford, CC East" for the sign-in page while a scanned link waits. */
-export const linkLabel = (kind: LinkKind, raw: string): string | null => {
-  const t = linkTarget(kind, raw);
-  if (!t) return null;
+/** "GM 2, General Motors, CC Webb", "Truck 1, CC East" or "CC East": the place a target names. */
+export const placeLabel = (t: Target): string | null => {
   const cc = db.select({ name: commandCenters.name }).from(commandCenters).where(eq(commandCenters.id, t.ccId)).get();
   const ccText = cc ? `CC ${cc.name}` : null;
   if (t.crewId !== null) {
@@ -321,7 +320,15 @@ export const linkLabel = (kind: LinkKind, raw: string): string | null => {
     const truck = db.select({ name: trucks.name }).from(trucks).where(eq(trucks.id, t.truckId)).get();
     return [truck?.name, ccText].filter(Boolean).join(", ");
   }
-  return ["Green shirt", ccText].filter(Boolean).join(", ");
+  return ccText;
+};
+
+/** "Crew 7, Ford, CC East" for the sign-in page while a scanned link waits. */
+export const linkLabel = (kind: LinkKind, raw: string): string | null => {
+  const t = linkTarget(kind, raw);
+  if (!t) return null;
+  const place = placeLabel(t);
+  return kind === "cc" ? ["Green shirt", place].filter(Boolean).join(", ") : place;
 };
 
 /** The user's row for exactly this role and place, whatever its status. */
@@ -354,19 +361,29 @@ const emitChanged = (m: Membership): void => {
  */
 export const joinByLink = (userId: number, sessionId: string, kind: LinkKind, raw: string, now = Date.now()): Membership | null => {
   const t = linkTarget(kind, raw);
+  return t ? grantTarget(userId, sessionId, t, "QR", now) : null;
+};
+
+/**
+ * An approved membership for this role and place, made by a scan or an invite
+ * (`note`), and the session moved into it. The same place again reuses the
+ * row; a pending or denied request for it becomes approved; other requests for
+ * that role and day are answered by it.
+ */
+export const grantTarget = (userId: number, sessionId: string, t: Target, note: string, now = Date.now()): Membership | null => {
   const user = userById(userId);
-  if (!t || !user) return null;
+  if (!user) return null;
   const existing = sameTarget(userId, t);
   let m: Membership;
   if (existing) {
     m =
       existing.status === "approved"
         ? existing
-        : db.update(memberships).set({ status: "approved", decidedAt: now, decidedByUserId: null, note: "QR" }).where(eq(memberships.id, existing.id)).returning().get();
+        : db.update(memberships).set({ status: "approved", decidedAt: now, decidedByUserId: null, note }).where(eq(memberships.id, existing.id)).returning().get();
   } else {
     m = db
       .insert(memberships)
-      .values({ userId, eventId: t.eventId, role: t.role, dayId: t.dayId, ccId: t.ccId, crewId: t.crewId, truckId: t.truckId, status: "approved", requestedAt: now, decidedAt: now, note: "QR" })
+      .values({ userId, eventId: t.eventId, role: t.role, dayId: t.dayId, ccId: t.ccId, crewId: t.crewId, truckId: t.truckId, status: "approved", requestedAt: now, decidedAt: now, note })
       .returning()
       .get();
   }
@@ -382,13 +399,10 @@ export const joinByLink = (userId: number, sessionId: string, kind: LinkKind, ra
 // #endregion
 
 // #region requests
-export interface AccessRequest {
-  role: "crew" | "driver" | "green";
-  dayId: number;
-  ccId: number;
-  crewId?: number | null;
-  truckId?: number | null;
-}
+export type AccessRequest =
+  | { role: "crew" | "driver" | "green"; dayId: number; ccId: number; crewId?: number | null; truckId?: number | null }
+  /** Admin has no day or place; only admins see and decide it (SPEC 26). */
+  | { role: "admin" };
 
 export type RequestResult = { ok: true; membership: Membership; created: boolean } | { ok: false; error: string };
 
@@ -400,6 +414,7 @@ export type RequestResult = { ok: true; membership: Membership; created: boolean
  * picking again.
  */
 export const requestAccess = (userId: number, input: AccessRequest, now = Date.now()): RequestResult => {
+  if (input.role === "admin") return requestAdmin(userId, now);
   const ev = activeEvent();
   if (!ev) return { ok: false, error: "No event" };
   const day = db.select().from(days).where(and(eq(days.id, input.dayId), eq(days.eventId, ev.id))).get();
@@ -436,6 +451,23 @@ export const requestAccess = (userId: number, input: AccessRequest, now = Date.n
   return { ok: true, membership: m, created: true };
 };
 
+/** An Admin request: one row per user, pending until an admin decides it. */
+const requestAdmin = (userId: number, now: number): RequestResult => {
+  const existing = adminRow(userId);
+  if (existing && existing.status !== "denied") return { ok: true, membership: existing, created: false };
+  const m = existing
+    ? db.update(memberships).set({ status: "pending", requestedAt: now, decidedAt: null, decidedByUserId: null, note: null }).where(eq(memberships.id, existing.id)).returning().get()
+    : db.insert(memberships).values({ userId, eventId: null, role: "admin", status: "pending", requestedAt: now }).returning().get();
+  emitChanged(m);
+  const view = membershipViews([m])[0];
+  if (view) pushToAdmins({ title: "Access request", body: requestLine(view), url: "/admin/access", tag: `access-${m.id}` });
+  return { ok: true, membership: m, created: true };
+};
+
+/** The user's admin membership row, whatever its status. */
+const adminRow = (userId: number): Membership | undefined =>
+  db.select().from(memberships).where(and(eq(memberships.userId, userId), eq(memberships.role, "admin"))).get();
+
 /** Withdraws the user's own pending request. */
 export const cancelRequest = (userId: number, id: number): boolean => {
   const m = db.select().from(memberships).where(and(eq(memberships.id, id), eq(memberships.userId, userId), eq(memberships.status, "pending"))).get();
@@ -455,6 +487,16 @@ const pushToCcGreens = (ccId: number, payload: { title: string; body: string; ur
     .map((r) => r.id);
   void sendToSessions(ids, payload);
 };
+/** Every admin session, for a new admin request. */
+const pushToAdmins = (payload: { title: string; body: string; url: string; tag: string }): void => {
+  const ids = db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(eq(sessions.role, "admin"))
+    .all()
+    .map((r) => r.id);
+  void sendToSessions(ids, payload);
+};
 // #endregion
 
 // #region decisions
@@ -463,6 +505,8 @@ export interface Decider {
   userId: number | null;
   /** A green shirt decides for this CC only; null for admin. */
   ccId: number | null;
+  /** Only admins decide Admin requests (SPEC 26). */
+  admin: boolean;
 }
 
 export type DecideResult =
@@ -479,7 +523,7 @@ export type DecideResult =
  */
 export const decide = (id: number, decision: "approve" | "deny", by: Decider, lead?: "replace" | "add", now = Date.now()): DecideResult => {
   const m = db.select().from(memberships).where(eq(memberships.id, id)).get();
-  if (!m || (by.ccId !== null && m.ccId !== by.ccId)) return { ok: false, code: "NOT_FOUND" };
+  if (!m || (by.ccId !== null && m.ccId !== by.ccId) || (m.role === "admin" && !by.admin)) return { ok: false, code: "NOT_FOUND" };
   if (m.status !== "pending") return { ok: false, code: "CONFLICT" };
   const user = userById(m.userId);
   if (!user) return { ok: false, code: "NOT_FOUND" };
@@ -502,14 +546,21 @@ export const decide = (id: number, decision: "approve" | "deny", by: Decider, le
   return { ok: true, membership: row };
 };
 
-/** Pending requests for one CC, or every CC of the active event for admin. Oldest first. */
-export const pendingRequests = (ccId: number | null): MembershipView[] => {
+/**
+ * Pending requests for one CC, or for admin every CC of the active event plus
+ * every Admin request. Oldest first.
+ */
+const scopeWhere = (ccId: number | null) => {
   const ev = activeEvent();
-  if (!ev) return [];
+  if (ccId !== null) return ev ? and(eq(memberships.eventId, ev.id), eq(memberships.ccId, ccId)) : sql`0`;
+  return ev ? or(eq(memberships.eventId, ev.id), eq(memberships.role, "admin")) : eq(memberships.role, "admin");
+};
+
+export const pendingRequests = (ccId: number | null): MembershipView[] => {
   const rows = db
     .select()
     .from(memberships)
-    .where(and(eq(memberships.eventId, ev.id), eq(memberships.status, "pending"), ccId !== null ? eq(memberships.ccId, ccId) : undefined))
+    .where(and(scopeWhere(ccId), eq(memberships.status, "pending")))
     .orderBy(memberships.requestedAt)
     .all();
   return membershipViews(rows);
@@ -517,12 +568,10 @@ export const pendingRequests = (ccId: number | null): MembershipView[] => {
 
 /** The latest decisions, newest first, for the lower half of the Access page. */
 export const recentDecisions = (ccId: number | null, limit = 20): MembershipView[] => {
-  const ev = activeEvent();
-  if (!ev) return [];
   const rows = db
     .select()
     .from(memberships)
-    .where(and(eq(memberships.eventId, ev.id), ne(memberships.status, "pending"), ccId !== null ? eq(memberships.ccId, ccId) : undefined))
+    .where(and(scopeWhere(ccId), ne(memberships.status, "pending")))
     .orderBy(desc(memberships.decidedAt), desc(memberships.id))
     .limit(limit)
     .all();
@@ -543,14 +592,12 @@ export const greenContacts = (ccId: number): Array<{ name: string; phone: string
 export const mine = (userId: number, at = Date.now()) => {
   const ev = activeEvent();
   const user = userById(userId);
-  const rows = ev
-    ? db
-        .select()
-        .from(memberships)
-        .where(and(eq(memberships.userId, userId), eq(memberships.eventId, ev.id)))
-        .orderBy(desc(memberships.requestedAt), desc(memberships.id))
-        .all()
-    : [];
+  const rows = db
+    .select()
+    .from(memberships)
+    .where(and(eq(memberships.userId, userId), ev ? or(eq(memberships.eventId, ev.id), eq(memberships.role, "admin")) : eq(memberships.role, "admin")))
+    .orderBy(desc(memberships.requestedAt), desc(memberships.id))
+    .all();
   const views = membershipViews(rows);
   const open = new Set(candidates(userId, at).map((m) => m.id));
   return {
@@ -600,5 +647,91 @@ export const requestOptions = (at = Date.now()) => {
         })),
     })),
   };
+};
+// #endregion
+
+// #region admins (SPEC 26)
+export type AdminResult = { ok: true } | { ok: false; error: string };
+
+/** Users with an approved admin membership. */
+export const adminUserIds = (): number[] =>
+  db
+    .select({ userId: memberships.userId })
+    .from(memberships)
+    .where(and(eq(memberships.role, "admin"), eq(memberships.status, "approved")))
+    .all()
+    .map((r) => r.userId);
+
+/**
+ * Makes a user an admin: approves a pending or denied Admin request, or adds
+ * an approved row. Already an admin: nothing changes. `note` says where it came
+ * from ("People", "Invite").
+ */
+export const makeAdmin = (userId: number, byUserId: number | null, note: string, now = Date.now()): Membership | null => {
+  if (!userById(userId)) return null;
+  const existing = adminRow(userId);
+  const row = existing
+    ? existing.status === "approved"
+      ? existing
+      : db.update(memberships).set({ status: "approved", decidedAt: now, decidedByUserId: byUserId, note }).where(eq(memberships.id, existing.id)).returning().get()
+    : db.insert(memberships).values({ userId, eventId: null, role: "admin", status: "approved", requestedAt: now, decidedAt: now, decidedByUserId: byUserId, note }).returning().get();
+  if (row !== existing) emitChanged(row);
+  return row;
+};
+
+/**
+ * Takes admin away: the user's admin row goes, and any session acting as admin
+ * drops back to the access screen at once. The last admin stays.
+ */
+export const removeAdmin = (userId: number): AdminResult => {
+  const admins = adminUserIds();
+  if (!admins.includes(userId)) return { ok: false, error: "Not an admin" };
+  if (admins.length <= 1) return { ok: false, error: "Last admin" };
+  const row = adminRow(userId);
+  db.delete(memberships).where(and(eq(memberships.userId, userId), eq(memberships.role, "admin"))).run();
+  db.update(sessions)
+    .set({ role: "none", membershipId: null, crewId: null, truckId: null, ccId: null })
+    .where(and(eq(sessions.userId, userId), eq(sessions.role, "admin")))
+    .run();
+  bus.checkScopes();
+  if (row) emitChanged({ ...row, status: "denied" });
+  return { ok: true };
+};
+
+export interface Person {
+  id: number;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  admin: boolean;
+  lastSeenAt: number;
+}
+
+/**
+ * Users for `/admin/people`, admins first, then by last seen. `q` matches
+ * name, phone (digits too) or email.
+ */
+export const people = (q: string, limit = 50): Person[] => {
+  const term = q.trim().slice(0, 60);
+  const digits = term.replace(/\D/g, "");
+  const admins = new Set(adminUserIds());
+  const where = term
+    ? or(
+        like(users.name, `%${term}%`),
+        like(users.email, `%${term}%`),
+        like(users.phone, `%${term}%`),
+        digits.length >= 3 ? like(users.phone, `%${digits}%`) : undefined,
+      )
+    : undefined;
+  return db
+    .select()
+    .from(users)
+    .where(where)
+    .orderBy(desc(users.lastSeenAt))
+    .limit(500)
+    .all()
+    .map((u) => ({ id: u.id, name: u.name, phone: u.phone, email: u.email, admin: admins.has(u.id), lastSeenAt: u.lastSeenAt }))
+    .sort((a, b) => Number(b.admin) - Number(a.admin))
+    .slice(0, limit);
 };
 // #endregion

@@ -266,8 +266,10 @@ export const users = sqliteTable("users", {
 });
 
 /**
- * What a user may be: one role at one scope on one day. A QR scan creates it
- * approved; a request creates it pending until a green shirt or admin decides.
+ * What a user may be: one role at one scope on one day. A QR scan or an invite
+ * creates it approved; a request creates it pending until a green shirt or
+ * admin decides. An admin row has no event, day or CC: it holds for every event
+ * (SPEC 26).
  */
 export const memberships = sqliteTable(
   "memberships",
@@ -276,9 +278,7 @@ export const memberships = sqliteTable(
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    eventId: integer("event_id")
-      .notNull()
-      .references(() => events.id, { onDelete: "cascade" }),
+    eventId: integer("event_id").references(() => events.id, { onDelete: "cascade" }),
     role: text("role", { enum: ROLES }).notNull(),
     dayId: integer("day_id").references(() => days.id, { onDelete: "cascade" }),
     ccId: integer("cc_id").references(() => commandCenters.id, { onDelete: "cascade" }),
@@ -669,6 +669,37 @@ export const assignments = sqliteTable(
 );
 // #endregion
 
+// #region invites (SPEC 26)
+/**
+ * A link `/i/<token>` that gives whoever opens it (after sign-in) an approved
+ * membership with this role and scope. Admin invites have no event or scope.
+ * `max_uses` null is unlimited; refused once `uses` reaches it, after
+ * `expires_at`, or once revoked.
+ */
+export const invites = sqliteTable(
+  "invites",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    token: text("token").notNull().unique(),
+    role: text("role", { enum: ROLES }).notNull(),
+    eventId: integer("event_id").references(() => events.id, { onDelete: "cascade" }),
+    dayId: integer("day_id").references(() => days.id, { onDelete: "cascade" }),
+    ccId: integer("cc_id").references(() => commandCenters.id, { onDelete: "cascade" }),
+    crewId: integer("crew_id").references(() => crews.id, { onDelete: "cascade" }),
+    truckId: integer("truck_id").references(() => trucks.id, { onDelete: "cascade" }),
+    /** Who it is for, shown in the list. */
+    name: text("name"),
+    maxUses: integer("max_uses"),
+    uses: integer("uses").notNull().default(0),
+    expiresAt: integer("expires_at").notNull(),
+    createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: integer("created_at").notNull(),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => [index("invites_cc_idx").on(t.ccId)],
+);
+// #endregion
+
 // #region client errors
 /** A crash or unhandled rejection reported by a browser (`POST /client-error`). Read on `/admin/client-errors`. */
 export const clientErrors = sqliteTable(
@@ -698,6 +729,7 @@ export type GreenCode = typeof greenCodes.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type Membership = typeof memberships.$inferSelect;
+export type Invite = typeof invites.$inferSelect;
 export type RequestType = typeof requestTypes.$inferSelect;
 export type Request = typeof requests.$inferSelect;
 export type TruckStock = typeof truckStock.$inferSelect;

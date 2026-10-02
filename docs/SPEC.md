@@ -46,7 +46,7 @@ docs/SPEC.md            this file
 reference/              read-only source material, never imported
 server/
   index.ts              Bun.serve, static files, /health, auth routes, tRPC mount
-  config.ts             env parsing, fails fast on missing SESSION_SECRET or ADMIN_PASSWORD
+  config.ts             env parsing, fails fast on missing SESSION_SECRET
   db/schema.ts          the whole Drizzle schema (section 3)
   db/index.ts           connection, pragmas, migrate() at boot
   db/migrations/        drizzle-kit output
@@ -107,8 +107,10 @@ sessions          id (text uuid PK), role ('admin'|'green'|'driver'|'crew'|'none
                   (nullable), crew_id, truck_id, cc_id, display_name, created_at, last_used_at, user_agent
                   -- 'none' is a signed-in user with no role yet (section 18); code sessions have no user
 users             id, firebase_uid (unique), name, phone (E.164), email, created_at, last_seen_at
-memberships       id, user_id, event_id, role, day_id, cc_id, crew_id, truck_id, status ('pending'|'approved'|'denied'),
-                  requested_at, decided_at, decided_by_user_id, note ('QR' when a scan created it)
+memberships       id, user_id, event_id (null for admin), role, day_id, cc_id, crew_id, truck_id, status ('pending'|'approved'|'denied'),
+                  requested_at, decided_at, decided_by_user_id, note ('QR' when a scan created it, 'Invite', 'People')
+invites           id, token (unique, 16 url-safe), role, event_id, day_id, cc_id, crew_id, truck_id, name, max_uses (null = unlimited),
+                  uses, expires_at, created_by_user_id, created_at, revoked_at   -- section 26
 request_types     id, event_id, key, label, unit ('case'|'box'|'can'|'each'|'roll'), priority (1 low, 2 normal, 3 urgent),
                   tracks_stock (bool), default_capacity (stock a new truck gets), sort, active
 requests          id, crew_id (nullable), cc_id, day_id, type_id, qty, note,
@@ -160,9 +162,9 @@ Default request types seeded for every new event, in this order:
 
 ## 4. Auth
 
-Section 18 puts phone and Google sign-in in front of this. People sign in only by QR link (`/j`
-crew, `/t` truck, `/g` command center) or by an access request after phone or Google sign-in.
-Typed codes are not a sign-in method: the only thing anyone types is the staff password. The
+Section 18 puts phone and Google sign-in in front of this. People sign in with phone or Google, then
+get a role by QR link (`/j` crew, `/t` truck, `/g` command center), by invite link (`/i`, section 26)
+or by an access request. Nothing is typed: there is no password and no code field (section 26). The
 system generates every truck code, green code and crew token at random when a day is prepared
 (admin create and regenerate, Copy from previous day, CSV import, the seed); none is ever fixed in
 the code or the docs. A session cookie names a role and a scope.
@@ -172,22 +174,22 @@ the code or the docs. A session cookie names a role and a scope.
 | crew | Open `/j/<token>` (printed as a QR on the crew's sheet). Enter a display name and a mobile number once; the number is stored on the crew (`lead_phone`, overwriting an import only when that field was blank) so greens can call and text the red shirt. | That crew, its CC, its day |
 | driver | Open `/t/<truck code>` (a QR on the CC sheet) | That truck, its CC, its day |
 | green | Open `/g/<green code>` (the QR on the CC sheet) | That CC and day |
-| admin | `/login`, Staff password (`ADMIN_PASSWORD`) | Everything |
+| admin | An approved admin membership (section 26): Access request, invite or `/admin/people` | Everything |
 
 - Cookie `lrb_session`: HttpOnly, SameSite=Lax, Secure when `PUBLIC_URL` starts with https, 30 days.
   Value is the `sessions.id` uuid. Nothing is signed; the id is the secret. `SESSION_SECRET` is still
   required and used to HMAC push payload signatures and QR tokens if needed.
-- Auth routes are plain `Bun.serve` routes, not tRPC: `POST /auth/login {code, displayName?}` takes the
-  admin password only (JSON body; 200 with `{role: 'admin'}`, else 401 "Wrong password"); a truck code,
-  green code or crew token posted there is refused like any wrong password. `GET /j/:token`,
+- Auth routes are plain `Bun.serve` routes, not tRPC. There is no `/auth/login`: every `/auth/*` path
+  that is not a route answers 404. `GET /j/:token`,
   `GET /t/:code`, `GET /g/:code` (each takes only its own kind: a truck code under `/j` or `/g` is
   unknown; with Firebase off they set the session and 302 to `/`, an unknown one 302s to
-  `/login?link=unknown`; with Firebase on see section 18), `POST /auth/logout`, `POST /auth/name {displayName}`.
+  `/login?link=unknown`; with Firebase on see section 18), `GET /i/:token` (section 26),
+  `POST /auth/firebase`, `POST /auth/leave`, `POST /auth/logout`, `POST /auth/name {displayName}`.
 - `shared.me` returns `{ role, displayName, crew?, truck?, cc?, day?, event }` or `{ role: 'anon' }`.
 - Role procedures throw `UNAUTHORIZED` when the session is missing and `FORBIDDEN` when the role is
   wrong. Green procedures are also allowed for admin. Every procedure scopes its queries by the
   session's CC or crew; never trust a `ccId` from the client unless the role is admin.
-- Rate limit `POST /auth/login` to 20 per minute per IP in memory. The IP is the socket address, or with
+- Rate limit `POST /auth/firebase` to 20 per minute per IP in memory. The IP is the socket address, or with
   `TRUST_PROXY_HOPS=N` the Nth `X-Forwarded-For` entry from the right; the caller's own entries never count.
 
 ## 5. Screens
@@ -381,7 +383,7 @@ neighbour; delivering floors stock at 0. `osrm.test.ts` parses steps from a reco
   `/home/filip/FTA-Buddy/Dockerfile`, install `curl`, `bun run build` (web), `CMD ["bun", "server/index.ts"]`,
   `EXPOSE 3000`, `VOLUME /data`. Migrations run at boot.
 - Env (`.env.example` lists them): `PORT`, `DATA_DIR` (default `./data`, prod `/data`), `SESSION_SECRET`,
-  `ADMIN_PASSWORD`, `PUBLIC_URL`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`
+  `PUBLIC_URL`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`
   (`mailto:me@filipkin.com`), `OSRM_URL`, `TRUST_PROXY_HOPS` (default 0, 1 behind Coolify).
 - Scripts: `dev` (server watch plus vite), `build` (vite build), `start`, `typecheck`
   (`tsc --noEmit` for both), `test` (`bun test`), `seed`, `generate` (drizzle-kit), `shots`.
@@ -423,7 +425,7 @@ has content. Idempotent: wipes and recreates the event named "Demo 2026".
 - No user-visible string breaks the `ui-copy` rules.
 - No `any`, no `console.log` noise in the client, no TODO left for a required feature.
 - Docker image builds locally with `docker build .` and answers `/health`.
-- `scripts/gate.py <base> <admin password>` exits 0 against the seeded server. It is the executable form
+- `scripts/gate.py <base>` exits 0 against the seeded server on the fake Auth emulator. It is the executable form
   of section 14 and the final word: a screen is not done while the gate fails on it.
 
 ## 13. Palette
@@ -731,8 +733,7 @@ Identity
   Firebase ID token; the server verifies it with the Admin SDK and keeps its own `users` row.
 - `/login`: the LR Buddy mark, then **Name** and **Mobile number** fields and a **Continue** button
   that sends the SMS code; a six-digit code field appears under it. Below a divider, **Google**.
-  Returning users skip straight to their role. Admin password login stays as a small link
-  ("Staff password") for Filip and Life Remodeled staff until they are added as users.
+  Returning users skip straight to their role. There is no password (section 26).
 - `users`: id, firebase_uid (unique), name, phone (E.164, nullable), email (nullable), created_at, last_seen_at.
 - `sessions` gains `user_id`; a session is the user's current role and scope, as today.
 - `memberships`: id, user_id, event_id, role ('crew'|'driver'|'green'|'admin'), day_id (nullable),
@@ -746,7 +747,7 @@ Access
   print sheet. The same works for a truck QR (`/t/<code>`) and a CC QR (`/g/<code>`) printed on the
   CC sheet, so drivers and greens can also scan in.
 - **Request access** (no QR): after sign-in, a short form, role first because the next choice depends
-  on it: **Role** (Red shirt, Driver, Green shirt), then **Day** (defaults to today), then
+  on it: **Role** (Red shirt, Driver, Green shirt, Admin; Admin asks nothing more, section 26), then **Day** (defaults to today), then
   **Command center**, then for a red shirt **Company** and **Crew**, for a driver **Truck**, for a
   green shirt nothing more. **Request**. The screen then shows the pending state with the CC's green
   shirts' Call and Text buttons, and updates live when a decision lands.
@@ -758,8 +759,7 @@ Access
 - Roles map to the existing scopes unchanged. Switching role or day = a new membership; the session
   picks the approved membership for today, and a user with several gets a chooser.
 - Codes: truck codes, green codes and crew tokens exist only inside the QR links. They are not typed
-  anywhere: `POST /auth/login` takes only the staff password and refuses every code and token, and no
-  screen has a code field. Each is generated at random when the day is prepared (section 4).
+  anywhere: there is no `/auth/login` (section 26) and no screen has a code field. Each is generated at random when the day is prepared (section 4).
 
 Setup outside the repo: a Firebase project on the Blaze plan (phone sign-in on the free plan is capped
 at a handful of SMS a day) with Phone and Google providers enabled and `lrbuddy.filipkin.com` as an
@@ -785,8 +785,8 @@ The calls the build made (details in DECISIONS.md):
 - Approving fills the place with the person: a crew with no red shirt takes the requester as lead
   (Replace lead overwrites, Add leaves it), a truck with no driver takes their name and number, a
   green shirt joins the CC's green shirt list (unless the name or number is already on it).
-- Without `FIREBASE_SERVICE_ACCOUNT` or the emulator the server keeps the pre-18 behaviour: the
-  sign-in page shows the Staff password field and `/j`, `/t`, `/g` sign in on the spot.
+- Without `FIREBASE_SERVICE_ACCOUNT` or the emulator nobody signs in on `/login`, and `/j`, `/t`,
+  `/g` sign in on the spot.
 - The CC sheet carries the green QR top right and one QR per truck; the overview map gives up
   0.45 in per truck so the sheet stays one page.
 
@@ -1048,26 +1048,35 @@ bg color."
 
 ## 26. No staff password; admins and invites (Filip, 2026-10-01 22:51)
 
-- **Staff password removed.** No `ADMIN_PASSWORD`, no password field, no `/auth/login` route. Every
-  person signs in with phone or Google (section 18). Roles come only from approved memberships.
-- **Admin is a membership role** (`role: 'admin'`, no day or CC scope, not tied to the event; an admin
-  membership applies to every event). The first admin is set by hand in the database:
-  `bun run make-admin <phone E.164 | email>` finds the user (they must have signed in once) and inserts
-  an approved admin membership; prints what it did; idempotent. Documented in the README.
+- **Staff password removed.** No `ADMIN_PASSWORD`, no password field, no `/auth/login` route (404).
+  Every person signs in with phone or Google (section 18). Roles come only from approved memberships.
+  No first-time or bootstrap path of any kind.
+- **Admin is a membership role** (`role: 'admin'`, no day or CC scope, `event_id` null; an admin
+  membership applies to every event, and with no event at all). Session resolution offers it like any
+  other membership, and `adminProcedure` (and the admin branches of the green and CC procedures, the
+  admin streams and the photo zip) accept a session only while its user holds an approved admin
+  membership; an admin session without one drops to no role on its next request.
+- **The first admin** is one row inserted by hand in SQL after that person has signed in once (README,
+  two lines). No script, command, flag or route does it.
 - **More admins:** the access request form gains **Admin** as a role (no further fields); only admins
   see and decide admin requests, on `/admin/access`. Admins can also add an admin directly from
   `/admin/people` (search users by name, phone or email, **Make admin** / **Remove admin**; the last
-  admin cannot be removed).
-- **Invites.** Admins (any role, any scope) and greens (crew, driver or green at their own CC and day)
-  create invite links on a new **Invite** screen: pick role and scope (day, CC, crew or truck), optional
-  name, optional single use, expiry (default end of that day; admin invites 7 days). The result is a
-  short link `/i/<token>` with **Copy**, **Share** (Web Share API) and a QR on screen. Opening it signs
-  the person in (or sends them through sign-in first, remembering the link) and creates an approved
-  membership with that role and scope, then lands them in it. Used and expired invites are refused
-  with a label. Invites listed with who made them, uses, and **Revoke**.
+  admin cannot be removed, and the screen shows no Remove admin for them). Remove admin moves that
+  person's admin sessions to the access screen at once.
+- **Invites.** Admins (any role, any scope) and greens signed in as users (crew, driver or green at
+  their own CC and day) create invite links on the **Invite** screen (`/admin/invite`, `/invite`):
+  pick role and scope (day, CC, crew or truck), optional name, optional single use, expiry (End of
+  day, the default, when that day is not over; 1 day; 7 days, the default for admin invites). The
+  result is a short link `/i/<token>` with **Copy**, **Share** (Web Share API, else a copy) and a QR on
+  screen. Opening it signs the person in (or sends them through sign-in first, remembering the link in
+  the `lrb_join` cookie like `/j /t /g`) and creates an approved membership with that role and scope,
+  then lands them in it. Used, expired and revoked invites are refused with a label at `/link`.
+  Invites are listed with who made them, uses, and **Revoke**.
 - `invites` table: id, token (random 16), role, event_id, day_id, cc_id, crew_id, truck_id, name, max_uses
   (null = unlimited), uses, expires_at, created_by_user_id, created_at, revoked_at.
 - `/j /t /g` QR links stay and behave like unlimited invites for their scope.
-- Tests and tooling: the e2e suite, gate, sheets and scripts sign in admins by a seeded admin user and a
-  test session helper (seed writes an admin invite link into `seed-codes.json`; tests open it after a
-  test sign-in), never by password. `/auth/login` returning 404 is asserted.
+- Tests and tooling: no test-only route or env flag. The e2e servers, the gate and the scripts run with
+  Firebase on through the fake Auth emulator (`tests/e2e/support/fake-auth.ts`), which accepts an
+  unsigned token for any uid. The seed keeps an admin user (uid `seed-admin`) with an approved admin
+  membership and writes it as the `admin` row of `seed-codes.json`; admin signs in as that user,
+  everyone else as a fresh user who opens a QR or invite link. `/auth/login` returning 404 is asserted.

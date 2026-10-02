@@ -9,7 +9,6 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "lrbuddy-audit-test-"));
 process.env.DATA_DIR = dir;
 process.env.SESSION_SECRET ??= "test-secret";
-process.env.ADMIN_PASSWORD ??= "test-admin";
 process.env.OSRM_URL = "off";
 process.env.VAPID_PUBLIC_KEY = "";
 process.env.VAPID_PRIVATE_KEY = "";

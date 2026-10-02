@@ -16,12 +16,13 @@ import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 type Mine = RouterOutputs["access"]["mine"];
 type View = Mine["approved"][number];
 type Options = RouterOutputs["access"]["options"];
-type AskRole = "crew" | "driver" | "green";
+type AskRole = "crew" | "driver" | "green" | "admin";
 
 const ROLES: ReadonlyArray<{ value: AskRole; label: string }> = [
   { value: "crew", label: "Red shirt" },
   { value: "driver", label: "Driver" },
   { value: "green", label: "Green shirt" },
+  { value: "admin", label: "Admin" },
 ];
 
 /** "Crew 2, Ford" / "Truck 1" / "CC East", then "CC East, Day 1". */
@@ -59,7 +60,8 @@ const RequestForm = ({ options, onDone }: { options: Options; onDone: () => void
   }, [cc]);
   const crews = (cc?.crews ?? []).filter((c) => companyId === null || (c.companyId ?? "none") === companyId);
 
-  const ready = role !== null && day !== null && cc !== null && (role === "green" || (role === "crew" ? crewId !== null : truckId !== null));
+  const ready =
+    role === "admin" || (role !== null && day !== null && cc !== null && (role === "green" || (role === "crew" ? crewId !== null : truckId !== null)));
 
   return (
     <form
@@ -67,6 +69,10 @@ const RequestForm = ({ options, onDone }: { options: Options; onDone: () => void
       className="space-y-5"
       onSubmit={(e) => {
         e.preventDefault();
+        if (role === "admin") {
+          request.mutate({ role });
+          return;
+        }
         if (!ready || !role || !day || !cc) return;
         request.mutate({ role, dayId: day.id, ccId: cc.id, crewId: role === "crew" ? crewId : null, truckId: role === "driver" ? truckId : null });
       }}
@@ -75,12 +81,12 @@ const RequestForm = ({ options, onDone }: { options: Options; onDone: () => void
         <div className="text-sm font-semibold">
           Role
         </div>
-        <Segmented label="Role" value={role ?? ("" as AskRole)} options={ROLES} onChange={(v) => setRole(v)} size="lg" />
+        <Segmented label="Role" value={role ?? ("" as AskRole)} options={ROLES} onChange={(v) => setRole(v)} size="lg" pairs />
       </div>
 
       {role && (
         <>
-          {options.days.length === 1 && day && (
+          {role !== "admin" && options.days.length === 1 && day && (
             <div className="space-y-1.5">
               <div className="text-sm font-semibold">Day</div>
               <div className="text-base">
@@ -88,7 +94,7 @@ const RequestForm = ({ options, onDone }: { options: Options; onDone: () => void
               </div>
             </div>
           )}
-          {options.days.length > 1 && (
+          {role !== "admin" && options.days.length > 1 && (
             <Select
               label="Day"
               value={dayId ?? ""}
@@ -108,6 +114,7 @@ const RequestForm = ({ options, onDone }: { options: Options; onDone: () => void
             </Select>
           )}
 
+          {role !== "admin" && (
           <div className="space-y-1.5">
             <div className="text-sm font-semibold">Command center</div>
             {ccs.length === 0 ? (
@@ -126,6 +133,7 @@ const RequestForm = ({ options, onDone }: { options: Options; onDone: () => void
               />
             )}
           </div>
+          )}
 
           {role === "crew" && cc && (
             <>
@@ -207,6 +215,7 @@ const Pending = ({ v }: { v: Mine["pending"][number] }) => {
             {ago(v.requestedAt)}
           </div>
         </div>
+        {v.role !== "admin" && (
         <div className="space-y-3">
           <div className="text-sm font-semibold">Green shirts{v.ccName ? `, CC ${v.ccName}` : ""}</div>
           {v.greens.length === 0 ? (
@@ -225,6 +234,7 @@ const Pending = ({ v }: { v: Mine["pending"][number] }) => {
             </ul>
           )}
         </div>
+        )}
         <Button variant="secondary" block busy={cancel.isPending} onClick={() => cancel.mutate({ id: v.id })}>
           Withdraw request
         </Button>

@@ -1,8 +1,10 @@
 """Release gate. Every check here is a mistake that has shipped before.
 
-    /home/filip/pit-podcast-automation/.venv/bin/python scripts/gate.py http://127.0.0.1:3000 <admin password>
+    /home/filip/pit-podcast-automation/.venv/bin/python scripts/gate.py http://127.0.0.1:3000
 
-Run from the repo root against a seeded server. Exit 1 on any failure.
+Run from the repo root against a seeded server that signs in through the fake Auth emulator
+(`bun tests/e2e/support/fake-auth.ts 9297`, server with FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9297;
+CLAUDE.md "Commands"). Admin is the seed's admin user (SPEC 26). Exit 1 on any failure.
 Static checks read the tree; dynamic checks log in as each role and walk every route
 at phone and laptop widths, light and dark. Screenshots land in
 /home/filip/preview-shots/lrbuddy-gate/.
@@ -20,7 +22,6 @@ from playwright.sync_api import sync_playwright
 import seedcodes
 
 BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://127.0.0.1:3000"
-ADMIN = sys.argv[2] if len(sys.argv) > 2 else None
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = pathlib.Path("/home/filip/preview-shots/lrbuddy-gate")
 OUT.mkdir(parents=True, exist_ok=True)
@@ -174,9 +175,9 @@ ROLES = {
     "anon": {"login": None, "routes": ["/login"]},
     "crew": {"login": {"seed": ("crew", "FORD 1", "East", 1), "displayName": "Gate"}, "routes": ["/", "/request", "/requests", "/lots", "/cc", "/settings"]},
     "driver": {"login": {"seed": ("driver", "Truck 1", "East", 1), "displayName": "Gate"}, "routes": ["/", "/stock", "/settings"]},
-    "green": {"login": {"seed": ("green", "CC East", "East", 1), "displayName": "Gate"}, "routes": ["/", "/flag", "/requests", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access"]},
-    "admin": {"login": {"code": ADMIN}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export",
-                                                  "/admin/access", "/admin/client-errors", "/plan/survey", "/plan/blocks", "/plan/assignments", "/plan/print", "/plan/survey/drive"]},
+    "green": {"login": {"seed": ("green", "CC East", "East", 1), "displayName": "Gate"}, "routes": ["/", "/flag", "/requests", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access", "/invite"]},
+    "admin": {"login": {"admin": True}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export",
+                                                  "/admin/access", "/admin/invite", "/admin/people", "/admin/client-errors", "/plan/survey", "/plan/blocks", "/plan/assignments", "/plan/print", "/plan/survey/drive"]},
 }
 SIZES = {"phone": (390, 844), "laptop": (1440, 900)}
 # The planning portal is a laptop surface with one phone screen (drive mode). Other routes run at both sizes.
@@ -264,7 +265,8 @@ LOGIN_JS = """() => {
     phoneForm: !!document.querySelector('[data-phone-signin]'),
     tel: pick('input[type=tel][autocomplete=tel]'),
     otp: pick('input[inputmode=numeric][autocomplete="one-time-code"]'),
-    staffLink: [...document.querySelectorAll('button')].some(b => b.innerText.trim() === 'Staff password'),
+    password: document.querySelectorAll('input[type=password]').length,
+    staffText: document.body.innerText.includes('Staff password'),
   };
 }"""
 
@@ -272,15 +274,19 @@ LOGIN_JS = """() => {
 def login_checks(browser) -> None:
     """SPEC 18: nobody faces a Code box. Reads the page; never presses Continue, so no SMS is sent.
 
-    SPEC 4: `POST /auth/login` takes only the staff password. A truck code, a green code and a crew
-    token posted there are refused; each signs in through its own QR link.
+    SPEC 26: no staff password. `POST /auth/login` is not a route (404) for a password, a truck
+    code, a green code or a crew token; each code signs in only through its own QR link.
     """
     ctx = browser.new_context()
     for role, name, cc, day in (("driver", "Truck 1", "East", 1), ("green", "CC East", "East", 1), ("crew", "FORD 1", "East", 1)):
         code = seedcodes.find(role, name, cc, day)["code"]
         r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps({"code": code}), headers={"content-type": "application/json"})
-        if r.status != 401:
-            fail(f"login: {role} code typed at /auth/login answered {r.status} (expected 401)")
+        if r.status != 404:
+            fail(f"login: {role} code posted to /auth/login answered {r.status} (expected 404)")
+    for pw_guess in ("change-me", "admin"):
+        r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps({"code": pw_guess}), headers={"content-type": "application/json"})
+        if r.status != 404:
+            fail(f"login: a password posted to /auth/login answered {r.status} (expected 404)")
     ctx.close()
     for scheme in ("light", "dark"):
         ctx = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme, is_mobile=True, has_touch=True)
@@ -296,10 +302,8 @@ def login_checks(browser) -> None:
         for label in info["labels"]:
             if re.search(r"\bcode\b", label, re.I):
                 fail(f"login-{scheme}: field labelled '{label}' on first paint")
-        if info["phoneForm"] and not info["staffLink"]:
-            fail(f"login-{scheme}: no Staff password link")
-        if not info["phoneForm"] and not page.locator("input[type=password]").first.is_visible():
-            fail(f"login-{scheme}: Firebase off and no password field on first paint")
+        if info["password"] or info["staffText"]:
+            fail(f"login-{scheme}: a password field or Staff password on the sign-in page")
         if info["phoneForm"]:
             tel, otp = info["tel"], info["otp"]
             if not tel or not tel["visible"]:
@@ -314,18 +318,11 @@ def login_checks(browser) -> None:
                 if otp["fs"] < 16:
                     fail(f"login-{scheme}: code field font-size {otp['fs']}px (<16)")
         elif scheme == "light":
-            warn("login: Firebase sign-in is off on this server (no phone form); phone field checks skipped")
+            warn("login: no phone form in this web build (no Firebase web config); phone field checks skipped")
         over = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
         if over != 0:
             fail(f"login-{scheme}: horizontal overflow {over}px")
         page.screenshot(path=str(OUT / f"login-sign-in-phone-{scheme}.png"))
-        if info["staffLink"]:
-            page.get_by_role("button", name="Staff password").click()
-            page.wait_for_timeout(200)
-            field = page.locator("input[type=password]")
-            if field.count() == 0 or not field.first.is_visible():
-                fail(f"login-{scheme}: Staff password does not reveal a password field")
-            page.screenshot(path=str(OUT / f"login-staff-password-phone-{scheme}.png"))
         ctx.close()
 
 
@@ -336,9 +333,6 @@ def dynamic_checks() -> None:
         only = {r for r in os.environ.get("GATE_ROLES", "").split(",") if r}
         for role, cfg in ROLES.items():
             if only and role not in only:
-                continue
-            if role == "admin" and not ADMIN:
-                warn("no admin password given, admin routes skipped")
                 continue
             for scheme in ("light", "dark"):
                 for size, (w, h) in SIZES.items():
@@ -1341,15 +1335,12 @@ def draw_lot_checks() -> None:
 # Crash visibility: a screen that throws shows the error panel (title, the error, Reload and Back at
 # 44 px), not a blank page, and the report reaches /admin/client-errors.
 def crash_checks() -> None:
-    if not ADMIN:
-        warn("no admin password given, crash checks skipped")
-        return
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
         for scheme in ("light", "dark"):
             tag = f"crash-test-phone-{scheme}"
             ctx = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme, is_mobile=True, has_touch=True, device_scale_factor=1)
-            r_status = seedcodes.sign_in(ctx, BASE, {"code": ADMIN})
+            r_status = seedcodes.sign_in(ctx, BASE, {"admin": True})
             if r_status != 200:
                 fail(f"{tag}: admin login returned {r_status}")
                 ctx.close()

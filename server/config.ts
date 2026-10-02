@@ -20,7 +20,6 @@ export const config = {
   port: Number(optional("PORT", "3000")),
   dataDir: optional("DATA_DIR", "./data"),
   sessionSecret: required("SESSION_SECRET"),
-  adminPassword: required("ADMIN_PASSWORD"),
   publicUrl,
   secureCookie: publicUrl.startsWith("https"),
   vapidPublicKey: optional("VAPID_PUBLIC_KEY", ""),

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { Zip, ZipPassThrough } from "fflate";
-import { getSession, sessionIdFrom } from "./auth.ts";
+import { getSession, isAdminSession, sessionIdFrom } from "./auth.ts";
 import { dataDir, db } from "./db/index.ts";
 import {
   commandCenters,
@@ -111,7 +111,7 @@ export const photoScope = (session: Session): PhotoScope | null => {
   let crew: Crew | null = null;
   let truck: Truck | null = null;
   let ccId: number | null = null;
-  if (session.role === "admin") return { session, role: "admin", crew, truck, ccId: null, dayId: null, eventId: null };
+  if (session.role === "admin") return isAdminSession(session) ? { session, role: "admin", crew, truck, ccId: null, dayId: null, eventId: null } : null;
   if (session.role === "crew" && session.crewId !== null) {
     crew = db.select().from(crews).where(eq(crews.id, session.crewId)).get() ?? null;
     if (!crew) return null;

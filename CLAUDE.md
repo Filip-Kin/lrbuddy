@@ -18,21 +18,25 @@ Field app for Life Remodeled's Six Day Project. Read `docs/SPEC.md` first; it is
 
 ```
 bun install
-cp .env.example .env         # then set SESSION_SECRET and ADMIN_PASSWORD
+cp .env.example .env         # then set SESSION_SECRET
 bun run generate             # drizzle-kit, after a schema change
 bun run seed                 # demo event, prints codes and join links
 bun run dev                  # server on :3000 + vite on :5173
 bun run typecheck && bun test && bun run build
 bun run shots                # screenshots into /home/filip/preview-shots/lrbuddy
-/home/filip/pit-podcast-automation/.venv/bin/python scripts/gate.py http://127.0.0.1:3000 <admin pw>   # release gate, must exit 0
-/home/filip/pit-podcast-automation/.venv/bin/python scripts/story.py http://127.0.0.1:3000 <admin pw>  # end-to-end flow, all roles; reseed after
+bun tests/e2e/support/fake-auth.ts 9297 &   # fake Auth emulator; run the server with FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9297
+/home/filip/pit-podcast-automation/.venv/bin/python scripts/gate.py http://127.0.0.1:3000   # release gate, must exit 0
+/home/filip/pit-podcast-automation/.venv/bin/python scripts/story.py http://127.0.0.1:3000  # end-to-end flow, all roles; reseed after
 docker compose up -d         # Firebase Auth emulator for phone and Google sign-in (SPEC 18, README "Sign-in setup")
-/home/filip/pit-podcast-automation/.venv/bin/python scripts/access.py http://127.0.0.1:3000 http://127.0.0.1:9099 <admin pw>  # sign-in, request, approval, QR joins
+/home/filip/pit-podcast-automation/.venv/bin/python scripts/access.py http://127.0.0.1:3000 http://127.0.0.1:9099  # sign-in, request, approval, QR joins
 ```
 
 On the NAS, port 3000 belongs to zwavejs2mqtt: run test servers with `PORT=3020`.
 Shared controls (Button, Sheet, ConfirmSheet, Segmented, Chips, Switch, Skeleton, Panel, Settings rows,
 StatusPill) live in `web/src/components`. Use them; do not add per-role copies.
+
+There is no password anywhere (SPEC 26). Scripts and tests sign in through the fake Auth emulator:
+admin as the seed's admin user (`seed-admin`), everyone else as a fresh user who opens a QR link.
 
 Screenshot harness needs Playwright: use `/home/filip/pit-podcast-automation/.venv/bin/python scripts/shots.py`.
 Chromium is at `/usr/bin/chromium`.

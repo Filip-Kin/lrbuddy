@@ -8,8 +8,8 @@ import { expect, expectNoOverflow, test, visit, type Role } from "../support/fix
 const ROUTES: Record<string, string[]> = {
   crew: ["/", "/request", "/requests", "/lots", "/cc", "/settings"],
   driver: ["/", "/stock", "/settings"],
-  green: ["/", "/flag", "/requests", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access"],
-  admin: ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export", "/admin/access", "/admin/client-errors", "/admin/green"],
+  green: ["/", "/flag", "/requests", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access", "/invite"],
+  admin: ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export", "/admin/access", "/admin/invite", "/admin/people", "/admin/client-errors", "/admin/green"],
 };
 /** The planning portal is a laptop surface with one phone screen, drive mode (gate ROUTE_SIZES). */
 const PLAN_LAPTOP = ["/plan/survey", "/plan/blocks", "/plan/assignments"];
@@ -77,7 +77,7 @@ test("signed out, a role's screen sends the phone to the sign-in page", async ({
   for (const path of ["/", "/admin", "/plan/survey"]) {
     await anon.page.goto(path);
     await anon.page.waitForURL("**/login**");
-    await expect(anon.page.getByLabel("Staff password")).toBeVisible();
+    await expect(anon.page.getByRole("heading", { name: "LR Buddy" })).toBeVisible();
   }
   const health = await anon.ctx.request.get("/health");
   expect(await health.json()).toMatchObject({ ok: true, db: "ok" });

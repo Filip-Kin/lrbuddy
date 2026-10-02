@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// SPEC 4: POST /auth/login takes only the staff password. A truck code, a
-// green code and a crew token are refused there and sign in only through
-// their own /t, /g and /j links. Runs the real server (Firebase off) on its
+// SPEC 26: there is no staff password and no /auth/login route. A truck
+// code, a green code and a crew token sign in only through their own /t, /g
+// and /j links; an invite /i/<token> is remembered through sign-in. Runs the real server (Firebase off) on its
 // own temp database. Bun runs every test file in one process and the db
 // module opens one $DATA_DIR for all of them, so the fixture is written by a
 // child process with this test's DATA_DIR, not through an import here.
@@ -16,7 +16,6 @@ const env = {
   ...process.env,
   DATA_DIR: dir,
   SESSION_SECRET: "test-secret",
-  ADMIN_PASSWORD: "right-password",
   OSRM_URL: "off",
   // Bun reads the repo's .env too; empty values keep Firebase off whatever it holds.
   FIREBASE_SERVICE_ACCOUNT: "",
@@ -36,6 +35,12 @@ const cc = setup.createCc({ dayId: day.id, name: "East", lat: 42.37, lng: -82.99
 const truck = setup.createTruck({ dayId: day.id, ccId: cc.id, name: "Truck 1" });
 const crew = setup.createCrew({ dayId: day.id, ccId: cc.id, companyId: null });
 const green = db.select().from(s.greenCodes).where(eq(s.greenCodes.ccId, cc.id)).get();
+const now = Date.now();
+const base = { role: "green", eventId: ev.id, dayId: day.id, ccId: cc.id, uses: 0, createdAt: now };
+db.insert(s.invites).values({ ...base, token: "invite-live-0001", expiresAt: now + 3600000 }).run();
+db.insert(s.invites).values({ ...base, token: "invite-old-00001", expiresAt: now - 1000 }).run();
+db.insert(s.invites).values({ ...base, token: "invite-used-0001", maxUses: 1, uses: 1, expiresAt: now + 3600000 }).run();
+db.insert(s.invites).values({ ...base, token: "invite-gone-0001", revokedAt: now, expiresAt: now + 3600000 }).run();
 console.log(JSON.stringify({ truck: truck.code, green: green.code, crew: crew.token }));
 `;
 const made = Bun.spawnSync(["bun", "-e", FIXTURE], { cwd: ROOT, env });
@@ -69,14 +74,8 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-let ipSerial = 0;
-/** Each call from its own client address, so the 20 a minute login limit never interferes. */
 const login = (code: string): Promise<Response> =>
-  fetch(`${base}/auth/login`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-forwarded-for": `198.51.100.${++ipSerial}` },
-    body: JSON.stringify({ code }),
-  });
+  fetch(`${base}/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
 
 const open = (path: string): Promise<Response> => fetch(`${base}${path}`, { redirect: "manual" });
 
@@ -87,27 +86,35 @@ const roleOf = async (res: Response): Promise<string> => {
   return body.result.data.json.role;
 };
 
-describe("POST /auth/login takes only the staff password", () => {
-  test("a truck code is refused", async () => {
-    const res = await login(truck.code);
-    expect(res.status).toBe(401);
-    expect(res.headers.get("set-cookie")).toBeNull();
-    expect(await res.json()).toEqual({ ok: false, error: "Wrong password" });
+describe("no staff password", () => {
+  test("POST /auth/login is gone: 404 for a password, a truck code, a green code and a crew token", async () => {
+    for (const code of ["right-password", "change-me", truck.code, greenCode, crew.token]) {
+      const res = await login(code);
+      expect(res.status, code).toBe(404);
+      expect(res.headers.get("set-cookie"), code).toBeNull();
+    }
+  });
+});
+
+describe("invite links", () => {
+  test("signed out, a live invite is remembered and sends the phone to sign in", async () => {
+    const res = await open("/i/invite-live-0001");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/login");
+    expect(res.headers.get("set-cookie") ?? "").toContain("lrb_join=invite%3Ainvite-live-0001");
   });
 
-  test("a green code is refused", async () => {
-    expect((await login(greenCode)).status).toBe(401);
-    expect((await login(greenCode.toLowerCase())).status).toBe(401);
-  });
-
-  test("a crew token is refused", async () => {
-    expect((await login(crew.token)).status).toBe(401);
-  });
-
-  test("the admin password signs in as admin", async () => {
-    const res = await login("right-password");
-    expect(res.status).toBe(200);
-    expect(await roleOf(res)).toBe("admin");
+  test("expired, used, revoked and unknown invites are refused with their state", async () => {
+    for (const [token, state] of [
+      ["invite-old-00001", "expired"],
+      ["invite-used-0001", "used"],
+      ["invite-gone-0001", "revoked"],
+      ["no-such-invite-1", "unknown"],
+    ] as const) {
+      const res = await open(`/i/${token}`);
+      expect(res.headers.get("location"), token).toBe(`/link?state=${state}`);
+      expect(res.headers.get("set-cookie"), token).toBeNull();
+    }
   });
 });
 
@@ -131,8 +138,8 @@ describe("the QR links still sign in", () => {
     expect(await roleOf(res)).toBe("crew");
   });
 
-  test("a link takes only its own kind, and never the admin password", async () => {
-    for (const path of [`/j/${truck.code}`, `/g/${truck.code}`, `/t/${greenCode}`, `/t/${crew.token}`, "/j/right-password", "/t/right-password"]) {
+  test("a link takes only its own kind", async () => {
+    for (const path of [`/j/${truck.code}`, `/g/${truck.code}`, `/t/${greenCode}`, `/t/${crew.token}`]) {
       const res = await open(path);
       expect(res.headers.get("location"), path).toBe("/login?link=unknown");
       expect(res.headers.get("set-cookie"), path).toBeNull();

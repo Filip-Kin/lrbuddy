@@ -35,7 +35,7 @@ DRIVER = {"seed": ("driver", "Truck B1", "Webb", 4), "displayName": "Perf"}
 SLOW_4G = {"offline": False, "latency": 150, "downloadThroughput": 1_600_000 / 8, "uploadThroughput": 750_000 / 8}
 
 LOTS_DRAWN = "() => document.querySelectorAll('.leaflet-container path[class*=\"lrb-lot-shape-\"]').length > 0 && performance.now()"
-LOGIN_PAINT = "() => { const i = document.querySelector('main input, form input, input'); return !!i && i.getBoundingClientRect().height > 0 && performance.now(); }"
+LOGIN_PAINT = "() => { const h = document.querySelector('main h1'); return !!h && h.getBoundingClientRect().height > 0 && performance.now(); }"
 FLAG_READY = "() => { const t = document.querySelector('[data-flag-target]'); return !!t && !/No parcel/.test(t.textContent || '') && performance.now(); }"
 
 

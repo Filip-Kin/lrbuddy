@@ -4,6 +4,8 @@ import { adminRouter } from "./admin.ts";
 import { crewRouter } from "./crew.ts";
 import { driverRouter } from "./driver.ts";
 import { greenRouter } from "./green.ts";
+import { invitesRouter } from "./invites.ts";
+import { peopleRouter } from "./people.ts";
 import { onewayRouter } from "./oneway.ts";
 import { alleysRouter } from "./alleys.ts";
 import { planRouter } from "./plan.ts";
@@ -19,6 +21,8 @@ export const appRouter = router({
   access: accessRouter,
   oneway: onewayRouter,
   alleys: alleysRouter,
+  people: peopleRouter,
+  invites: invitesRouter,
 });
 
 export type AppRouter = typeof appRouter;

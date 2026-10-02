@@ -2,6 +2,9 @@
  * Demo event for SPEC 11. Wipes and recreates "Demo 2026" on every run, so it
  * is safe to run again. Codes and tokens are generated (setup.ts); the join
  * links are printed at the end and written to $DATA_DIR/seed-codes.json.
+ * The seed also keeps one admin user (Firebase uid `seed-admin`) with an
+ * approved admin membership, so tests and scripts sign in as admin through the
+ * fake Auth emulator (SPEC 26). Never run against production.
  */
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -18,12 +21,14 @@ import {
   greenCodes,
   greenShirts,
   lots,
+  memberships,
   positions,
   requests,
   requestTypes,
   stockMoves,
   trucks,
   truckStock,
+  users,
   type Crew,
   type Lot,
   type RequestStatus,
@@ -116,7 +121,8 @@ const loadLots = async (eventId: number): Promise<"dlba" | "synthetic"> => {
 // #region seed codes
 /** One generated code and its QR link, as written to `$DATA_DIR/seed-codes.json`. */
 interface SeedCode {
-  role: "green" | "driver" | "crew";
+  /** For `admin`, `code` is the seeded admin user's Firebase uid and there is no link. */
+  role: "green" | "driver" | "crew" | "admin";
   /** Day number in the event (sort), 1 to 6. */
   day: number;
   /** CC name without "CC ". */
@@ -151,9 +157,24 @@ const seedCodes = (eventId: number): SeedCode[] => {
 };
 // #endregion
 
+// #region admin user (SPEC 26)
+const SEED_ADMIN_UID = "seed-admin";
+
+/** The seed's admin user and its approved admin membership, kept across runs. */
+const seedAdmin = (now: number): void => {
+  const user =
+    db.select().from(users).where(eq(users.firebaseUid, SEED_ADMIN_UID)).get() ??
+    db.insert(users).values({ firebaseUid: SEED_ADMIN_UID, name: "Avery Admin", phone: null, email: "admin@lrbuddy.test", createdAt: now, lastSeenAt: now }).returning().get();
+  const row = db.select().from(memberships).where(and(eq(memberships.userId, user.id), eq(memberships.role, "admin"))).get();
+  if (!row) db.insert(memberships).values({ userId: user.id, eventId: null, role: "admin", status: "approved", requestedAt: now, decidedAt: now, note: "Seed" }).run();
+  else if (row.status !== "approved") db.update(memberships).set({ status: "approved", decidedAt: now }).where(eq(memberships.id, row.id)).run();
+};
+// #endregion
+
 const main = async (): Promise<void> => {
   wipe();
   const now = Date.now();
+  seedAdmin(now);
   const ev = createEvent({ name: EVENT_NAME, year: 2026, startDate: START, dayCount: 6, active: true });
   const day1 = db.select().from(days).where(and(eq(days.eventId, ev.id), eq(days.sort, 1))).get()!;
   const types = db.select().from(requestTypes).where(eq(requestTypes.eventId, ev.id)).all();
@@ -376,13 +397,13 @@ const main = async (): Promise<void> => {
   // #endregion
 
   // #region report: every generated code and join link, printed and written to $DATA_DIR/seed-codes.json
-  const codes = seedCodes(ev.id);
+  const codes: SeedCode[] = [{ role: "admin", day: 0, cc: "", name: "Admin", code: SEED_ADMIN_UID, path: "", link: "" }, ...seedCodes(ev.id)];
   const file = join(config.dataDir, "seed-codes.json");
   mkdirSync(config.dataDir, { recursive: true });
   writeFileSync(file, `${JSON.stringify(codes, null, 2)}\n`);
   const rows: Array<[string, string, string]> = [
-    ["admin", "Admin", `(ADMIN_PASSWORD)  ${config.publicUrl}/login`],
-    ...codes.map((c): [string, string, string] => [c.role, c.role === "green" ? `Day ${c.day} CC ${c.cc}` : `Day ${c.day} CC ${c.cc}: ${c.name}`, c.link]),
+    ["admin", "Admin", `Firebase uid ${SEED_ADMIN_UID}`],
+    ...codes.filter((c) => c.role !== "admin").map((c): [string, string, string] => [c.role, c.role === "green" ? `Day ${c.day} CC ${c.cc}` : `Day ${c.day} CC ${c.cc}: ${c.name}`, c.link]),
   ];
   const w0 = Math.max(...rows.map((r) => r[0].length));
   const w1 = Math.max(...rows.map((r) => r[1].length));

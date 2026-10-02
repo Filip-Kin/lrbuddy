@@ -7,7 +7,6 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "lrbuddy-photos-test-"));
 process.env.DATA_DIR = dir;
 process.env.SESSION_SECRET = "test-secret";
-process.env.ADMIN_PASSWORD = "test-admin";
 process.env.OSRM_URL = "off";
 process.env.VAPID_PUBLIC_KEY = "";
 process.env.VAPID_PRIVATE_KEY = "";
@@ -17,6 +16,7 @@ const s = await import("./db/schema.ts");
 const d = await import("./dispatch.ts");
 const setup = await import("./setup.ts");
 const { createSession } = await import("./auth.ts");
+const { adminSession: mkAdmin } = await import("./testing.ts");
 const photos = await import("./photos.ts");
 const { encode } = await import("jpeg-js");
 const { eq } = await import("drizzle-orm");
@@ -68,7 +68,7 @@ const world = () => {
     westDriver: createSession({ role: "driver", truckId: westTruck.id, ccId: west.id, displayName: "Kim" }),
     green: createSession({ role: "green", ccId: east.id, displayName: "Dana" }),
     westGreen: createSession({ role: "green", ccId: west.id, displayName: "Tom" }),
-    admin: createSession({ role: "admin", displayName: "Admin" }),
+    admin: mkAdmin("Admin"),
   };
 };
 

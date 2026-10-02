@@ -8,7 +8,6 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "lrbuddy-green-test-"));
 process.env.DATA_DIR ??= dir;
 process.env.SESSION_SECRET ??= "test-secret";
-process.env.ADMIN_PASSWORD ??= "test-admin";
 process.env.OSRM_URL = "off";
 process.env.VAPID_PUBLIC_KEY = "";
 process.env.VAPID_PRIVATE_KEY = "";
@@ -19,6 +18,7 @@ const d = await import("./dispatch.ts");
 const setup = await import("./setup.ts");
 const { bus } = await import("./bus.ts");
 const { greenRouter } = await import("./routers/green.ts");
+const { adminSession: mkAdmin } = await import("./testing.ts");
 const { eq, and } = await import("drizzle-orm");
 
 type Session = typeof s.sessions.$inferSelect;
@@ -205,9 +205,11 @@ describe("green router", () => {
   });
 
   test("roles: admin needs a CC, drivers and crews are refused", async () => {
-    const admin = callerFor(session("admin", null), w.east.id);
+    const admin = callerFor(mkAdmin(), w.east.id);
     expect((await admin.overview()).cc.id).toBe(w.east.id);
-    await expect(callerFor(session("admin", null)).overview()).rejects.toThrow("No command center");
+    await expect(callerFor(mkAdmin()).overview()).rejects.toThrow("No command center");
+    // An admin role with no admin membership behind it (a removed admin, a pre-SPEC 26 session) gets nothing.
+    await expect(callerFor(session("admin", null), w.east.id).overview()).rejects.toThrow("Not allowed");
     await expect(callerFor(session("driver", null)).overview()).rejects.toThrow("Not allowed");
     await expect(callerFor(session("crew", null)).overview()).rejects.toThrow("Not allowed");
     await expect(callerFor(null).overview()).rejects.toThrow("Sign in");

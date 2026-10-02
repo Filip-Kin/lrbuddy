@@ -10,9 +10,9 @@ import { getAuth } from "firebase-admin/auth";
  *   `demo-lrbuddy`, which is what docker-compose.yml starts).
  * - `FIREBASE_SERVICE_ACCOUNT` set: the service-account JSON on one line, as
  *   Coolify stores it. The project id comes from it.
- * - Neither: Firebase sign-in is off. `/auth/firebase` answers 503, the client
- *   shows only the staff password, and `/j/<token>` signs a crew in directly
- *   as it did before SPEC 18, so printed QR codes keep working.
+ * - Neither: Firebase sign-in is off. `/auth/firebase` answers 503, the
+ *   sign-in page has no form, and `/j/<token>` signs a crew in directly as it
+ *   did before SPEC 18.
  *
  * Tests swap the verifier with `setVerifier` instead of running the emulator.
  */

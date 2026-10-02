@@ -9,7 +9,6 @@ import type { ParcelInput } from "./parcels.ts";
 const dir = mkdtempSync(join(tmpdir(), "lrbuddy-plan-test-"));
 process.env.DATA_DIR = dir;
 process.env.SESSION_SECRET = "test-secret";
-process.env.ADMIN_PASSWORD = "test-admin";
 process.env.OSRM_URL = "off";
 process.env.VAPID_PUBLIC_KEY = "";
 process.env.VAPID_PRIVATE_KEY = "";
@@ -20,6 +19,7 @@ const setup = await import("./setup.ts");
 const d = await import("./dispatch.ts");
 const p = await import("./parcels.ts");
 const { createSession } = await import("./auth.ts");
+const { adminSession: mkAdmin } = await import("./testing.ts");
 const { planRouter } = await import("./routers/plan.ts");
 const { splitSides, joinNames } = await import("./routers/plan/areas.ts");
 const { eq } = await import("drizzle-orm");
@@ -55,7 +55,7 @@ const parcel = (street: string, n: number, lat: number, lng: number): ParcelInpu
   saleDate: null,
 });
 
-const callerFor = (role: "admin" | "green") => planRouter.createCaller({ session: createSession({ role, displayName: "Kelsey" }), ip: "test", ccOverride: null });
+const callerFor = (role: "admin" | "green") => planRouter.createCaller({ session: role === "admin" ? mkAdmin("Kelsey") : createSession({ role, displayName: "Kelsey" }), ip: "test", ccOverride: null });
 
 let eventId = 0;
 let dayId = 0;

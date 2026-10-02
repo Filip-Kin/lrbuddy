@@ -10,7 +10,6 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "lrbuddy-access-test-"));
 process.env.DATA_DIR = dir;
 process.env.SESSION_SECRET = "test-secret";
-process.env.ADMIN_PASSWORD = "test-admin";
 process.env.OSRM_URL = "off";
 process.env.VAPID_PUBLIC_KEY = "";
 process.env.VAPID_PRIVATE_KEY = "";
@@ -176,47 +175,47 @@ describe("approval rules", () => {
   test("a green shirt decides only for their own CC", () => {
     const { user } = person();
     const m = ask(user.id, w.crew.id);
-    expect(a.decide(m.id, "approve", { userId: null, ccId: w.west.id })).toEqual({ ok: false, code: "NOT_FOUND" });
-    expect(a.decide(m.id, "approve", { userId: null, ccId: w.east.id }).ok).toBe(true);
+    expect(a.decide(m.id, "approve", { userId: null, ccId: w.west.id, admin: false })).toEqual({ ok: false, code: "NOT_FOUND" });
+    expect(a.decide(m.id, "approve", { userId: null, ccId: w.east.id, admin: false }).ok).toBe(true);
   });
 
   test("a decided request cannot be decided again", () => {
     const { user } = person();
     const m = ask(user.id, w.crew.id);
-    a.decide(m.id, "deny", { userId: null, ccId: null });
-    expect(a.decide(m.id, "approve", { userId: null, ccId: null })).toEqual({ ok: false, code: "CONFLICT" });
+    a.decide(m.id, "deny", { userId: null, ccId: null, admin: true });
+    expect(a.decide(m.id, "approve", { userId: null, ccId: null, admin: true })).toEqual({ ok: false, code: "CONFLICT" });
   });
 
   test("approving a red shirt for a crew with a lead asks Replace lead or Add", () => {
     const one = person();
     const m1 = ask(one.user.id, w.led.id);
-    expect(a.decide(m1.id, "approve", { userId: null, ccId: w.east.id })).toEqual({ ok: false, code: "LEAD_CHOICE", lead: "Pat Lee, 313-555-0100" });
+    expect(a.decide(m1.id, "approve", { userId: null, ccId: w.east.id, admin: false })).toEqual({ ok: false, code: "LEAD_CHOICE", lead: "Pat Lee, 313-555-0100" });
     expect(db.select().from(s.memberships).where(eq(s.memberships.id, m1.id)).get()?.status).toBe("pending");
-    expect(a.decide(m1.id, "approve", { userId: null, ccId: w.east.id }, "add").ok).toBe(true);
+    expect(a.decide(m1.id, "approve", { userId: null, ccId: w.east.id, admin: false }, "add").ok).toBe(true);
     expect(db.select().from(s.crews).where(eq(s.crews.id, w.led.id)).get()).toMatchObject({ leadName: "Pat Lee" });
 
     const two = person("Alex Kim", "+13135550144");
     const m2 = ask(two.user.id, w.led.id);
-    expect(a.decide(m2.id, "approve", { userId: null, ccId: w.east.id }, "replace").ok).toBe(true);
+    expect(a.decide(m2.id, "approve", { userId: null, ccId: w.east.id, admin: false }, "replace").ok).toBe(true);
     expect(db.select().from(s.crews).where(eq(s.crews.id, w.led.id)).get()).toMatchObject({ leadName: "Alex Kim", leadPhone: "+13135550144" });
   });
 
   test("a crew with no lead takes the approved red shirt without asking", () => {
     const { user } = person();
     const m = ask(user.id, w.crew.id);
-    expect(a.decide(m.id, "approve", { userId: null, ccId: w.east.id }).ok).toBe(true);
+    expect(a.decide(m.id, "approve", { userId: null, ccId: w.east.id, admin: false }).ok).toBe(true);
     expect(db.select().from(s.crews).where(eq(s.crews.id, w.crew.id)).get()).toMatchObject({ leadName: "Jordan Reed" });
   });
 
   test("approval moves a waiting session into the role; denial leaves it waiting", () => {
     const { user, session } = person();
     const m = ask(user.id, w.crew.id);
-    a.decide(m.id, "approve", { userId: null, ccId: w.east.id });
+    a.decide(m.id, "approve", { userId: null, ccId: w.east.id, admin: false });
     expect(sessionRow(session.id)).toMatchObject({ role: "crew", crewId: w.crew.id, membershipId: m.id });
 
     const other = person("Sam Ortiz", "+13135550143");
     const m2 = ask(other.user.id, w.crew.id);
-    a.decide(m2.id, "deny", { userId: user.id, ccId: w.east.id });
+    a.decide(m2.id, "deny", { userId: user.id, ccId: w.east.id, admin: false });
     expect(sessionRow(other.session.id).role).toBe("none");
     expect(db.select().from(s.memberships).where(eq(s.memberships.id, m2.id)).get()).toMatchObject({ status: "denied", decidedByUserId: user.id });
   });
@@ -236,7 +235,7 @@ describe("session resolution", () => {
   const approve = (userId: number, input: Parameters<typeof a.requestAccess>[1]) => {
     const r = a.requestAccess(userId, input);
     if (!r.ok) throw new Error(r.error);
-    const d = a.decide(r.membership.id, "approve", { userId: null, ccId: null }, "add");
+    const d = a.decide(r.membership.id, "approve", { userId: null, ccId: null, admin: true }, "add");
     if (!d.ok) throw new Error(d.code);
     return d.membership;
   };

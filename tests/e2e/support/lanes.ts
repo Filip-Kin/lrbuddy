@@ -5,7 +5,7 @@
  *
  *   crews[0] crew.e2e        crews[3] live.e2e
  *   crews[1] driver.e2e      crews[4] auth.e2e
- *   crews[2] green.e2e
+ *   crews[2] green.e2e       crews[5] invite.e2e
  *
  * The driver and live specs deliver whole stops, so crews[1] and crews[3] are crews the seed gave
  * no open, assigned or en route request (delivering would close the seed's request too).
@@ -16,8 +16,9 @@
  *
  * The seed generates every code and token (SPEC 11) and writes them to `$DATA_DIR/seed-codes.json`;
  * global-setup.ts passes each server's file in E2E_CODES and E2E_SIGNIN_CODES. A lane names its
- * places by CC and crew or truck name and reads the QR link paths from that file. Sign-in is by
- * link path (`/g/...`, `/t/...`, `/j/...`) or the admin password (fixtures.ts `as`).
+ * places by CC and crew or truck name and reads the QR link paths from that file. Sign-in is a fake
+ * Firebase sign-in, then a link path (`/g/...`, `/t/...`, `/j/...`), or the seed's admin user
+ * (fixtures.ts `as`).
  */
 import { readFileSync } from "node:fs";
 
@@ -25,7 +26,8 @@ export type LaneId = "a" | "b";
 
 /** One row of `$DATA_DIR/seed-codes.json` (server/seed.ts). */
 export interface SeedCode {
-  role: "green" | "driver" | "crew";
+  /** `admin`: the seeded admin user, its Firebase uid in `code`, no link. */
+  role: "green" | "driver" | "crew" | "admin";
   day: number;
   cc: string;
   name: string;
@@ -117,6 +119,13 @@ const pick = (codes: readonly SeedCode[], role: SeedCode["role"], day: number, c
   const row = codes.find((c) => c.role === role && c.day === day && c.cc === cc && c.name === name);
   if (!row) throw new Error(`seed-codes.json has no ${role} "${name}" at Day ${day} CC ${cc}`);
   return row;
+};
+
+/** Firebase uid of the seed's admin user. */
+export const adminUid = (codes: readonly SeedCode[]): string => {
+  const row = codes.find((c) => c.role === "admin");
+  if (!row) throw new Error("seed-codes.json has no admin row");
+  return row.code;
 };
 
 export const laneFrom = (id: LaneId, codes: readonly SeedCode[]): Lane => {

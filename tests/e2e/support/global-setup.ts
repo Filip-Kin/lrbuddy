@@ -1,27 +1,29 @@
 /**
  * Runs once before the suite: builds the web bundle into a temp folder, seeds two fresh databases
- * and starts two servers on free ports, both with the network faked (offline.ts):
+ * and starts two servers on free ports, both with the network faked (offline.ts) and Firebase on
+ * through the fake Auth emulator (fake-auth.ts), as production signs people in (SPEC 18, 26):
  *
- * - main: Firebase off, the way production ran before SPEC 18. Every spec but access uses it.
- * - signin: Firebase on through a fake Auth emulator that answers the one call the Admin SDK makes
- *   (`accounts:lookup`), so a test can sign in with an unsigned ID token and reach the Access
- *   request and approval screens without SMS or Google.
+ * - main: every spec but access uses it.
+ * - signin: its own database for the access request and approval flows.
  *
- * The returned function stops both servers and deletes the temp folder. URLs, the admin
- * password and each server's generated codes (`seed-codes.json` in its data folder, E2E_CODES
- * and E2E_SIGNIN_CODES) reach the workers through process.env.
+ * A test signs in with an unsigned ID token (firebase.ts): admin as the seed's admin user
+ * (`seed-admin`), everyone else as a fresh user who then opens a QR or invite link.
+ *
+ * The returned function stops both servers and deletes the temp folder. URLs and each server's
+ * generated codes (`seed-codes.json` in its data folder, E2E_CODES and E2E_SIGNIN_CODES) reach the
+ * workers through process.env.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:http";
+import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer as netServer } from "node:net";
+import { startFakeAuth } from "./fake-auth.ts";
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 const PRELOAD = join(ROOT, "tests/e2e/support/offline.ts");
-const ADMIN_PASSWORD = "e2e-admin-password";
 const PROJECT_ID = "demo-lrbuddy";
 
 const freePort = (): Promise<number> =>
@@ -40,7 +42,6 @@ const baseEnv = (extra: Record<string, string>): NodeJS.ProcessEnv => ({
   PATH: process.env.PATH ?? "/usr/bin:/bin",
   HOME: process.env.HOME ?? "/tmp",
   SESSION_SECRET: "e2e-session-secret-not-for-production",
-  ADMIN_PASSWORD,
   TRUST_PROXY_HOPS: "1",
   // Bun also reads the repo's .env; set everything it might hold. Both hosts are answered by offline.ts.
   OSRM_URL: "https://router.project-osrm.org",
@@ -75,30 +76,6 @@ const waitHealthy = async (url: string, proc: ChildProcess, log: () => string): 
   }
   throw new Error(`server at ${url} never answered /health:\n${log()}`);
 };
-
-/** The Auth emulator's account lookup, answered for any uid with a live, enabled user. */
-const fakeEmulator = (): Promise<{ server: Server; port: number }> =>
-  new Promise((ok) => {
-    const server = createServer((req, res) => {
-      let body = "";
-      req.on("data", (d: Buffer) => (body += d.toString()));
-      req.on("end", () => {
-        res.setHeader("content-type", "application/json");
-        if (req.url?.includes("/accounts:lookup")) {
-          const parsed = JSON.parse(body || "{}") as { localId?: string[] };
-          const users = (parsed.localId ?? []).map((id) => ({ localId: id, disabled: false, createdAt: "1", lastLoginAt: "1", validSince: "1" }));
-          res.end(JSON.stringify({ kind: "identitytoolkit#GetAccountInfoResponse", users }));
-          return;
-        }
-        res.statusCode = 404;
-        res.end(JSON.stringify({ error: { code: 404, message: `e2e fake emulator: ${req.url}` } }));
-      });
-    });
-    server.listen(0, "127.0.0.1", () => {
-      const addr = server.address();
-      ok({ server, port: typeof addr === "object" && addr ? addr.port : 0 });
-    });
-  });
 
 interface Started {
   proc: ChildProcess;
@@ -151,12 +128,10 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   };
   try {
     run("web build", ["x", "vite", "build", "--config", "web/vite.config.ts", "--logLevel", "error"], baseEnv({ WEB_DIST: dist }));
-    const fake = await fakeEmulator();
+    const fake = await startFakeAuth();
     emu = fake.server;
-    [main, signin] = await Promise.all([
-      start("main", dir, dist, {}),
-      start("signin", dir, dist, { FIREBASE_AUTH_EMULATOR_HOST: `127.0.0.1:${fake.port}`, FIREBASE_PROJECT_ID: PROJECT_ID }),
-    ]);
+    const firebase = { FIREBASE_AUTH_EMULATOR_HOST: `127.0.0.1:${fake.port}`, FIREBASE_PROJECT_ID: PROJECT_ID };
+    [main, signin] = await Promise.all([start("main", dir, dist, firebase), start("signin", dir, dist, firebase)]);
   } catch (err) {
     await teardown();
     throw err;
@@ -165,7 +140,6 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   process.env.E2E_SIGNIN_URL = signin.url;
   process.env.E2E_CODES = main.codes;
   process.env.E2E_SIGNIN_CODES = signin.codes;
-  process.env.E2E_ADMIN_PASSWORD = ADMIN_PASSWORD;
   process.env.E2E_FIREBASE_PROJECT = PROJECT_ID;
   process.env.E2E_DIR = dir;
   return teardown;

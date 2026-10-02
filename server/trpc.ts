@@ -2,7 +2,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import { eq } from "drizzle-orm";
 import superjson from "superjson";
-import { getSession, JOIN_COOKIE, parseCookies, sessionIdFrom } from "./auth.ts";
+import { getSession, isAdminSession, JOIN_COOKIE, parseCookies, sessionIdFrom } from "./auth.ts";
 import { bus, type BusMessage } from "./bus.ts";
 import { markTruckSeen } from "./dispatch.ts";
 import { db } from "./db/index.ts";
@@ -113,7 +113,7 @@ export const readCcScope = (sessionId: string, ccOverride: number | null): CcSco
     ccId = db.select({ ccId: trucks.ccId }).from(trucks).where(eq(trucks.id, s.truckId)).get()?.ccId ?? null;
   } else if (s.role === "green") {
     ccId = s.ccId;
-  } else if (s.role === "admin") {
+  } else if (isAdminSession(s)) {
     ccId = ccOverride;
   }
   if (ccId === null) return null;
@@ -121,9 +121,11 @@ export const readCcScope = (sessionId: string, ccOverride: number | null): CcSco
   return cc ? { ccId, dayId: cc.dayId } : null;
 };
 
-/** True while the session exists and is still an admin session. */
-export const readAdmin = (sessionId: string): true | null =>
-  db.select({ role: sessions.role }).from(sessions).where(eq(sessions.id, sessionId)).get()?.role === "admin" ? true : null;
+/** True while the session exists and is still an admin session with an admin membership behind it. */
+export const readAdmin = (sessionId: string): true | null => {
+  const s = db.select({ role: sessions.role, userId: sessions.userId }).from(sessions).where(eq(sessions.id, sessionId)).get();
+  return s && isAdminSession(s) ? true : null;
+};
 
 export const sameCc = (a: CcScope, b: CcScope): boolean => a.ccId === b.ccId && a.dayId === b.dayId;
 
@@ -202,7 +204,7 @@ export const greenProcedure = authedProcedure.use(({ ctx, next }) => {
   const role = ctx.session.role;
   let ccId: number | null = null;
   if (role === "green") ccId = ctx.session.ccId;
-  else if (role === "admin") {
+  else if (isAdminSession(ctx.session)) {
     ccId = ctx.ccOverride;
     if (ccId === null) throw new TRPCError({ code: "BAD_REQUEST", message: "No command center" });
   } else throw forbidden();
@@ -211,8 +213,9 @@ export const greenProcedure = authedProcedure.use(({ ctx, next }) => {
   return next({ ctx: { ...ctx, ...scope } });
 });
 
+/** Admin sessions whose user holds an approved admin membership (SPEC 26). */
 export const adminProcedure = authedProcedure.use(async ({ ctx, type, next }) => {
-  if (ctx.session.role !== "admin") throw forbidden();
+  if (!isAdminSession(ctx.session)) throw forbidden();
   const result = await next({ ctx });
   // Admin writes delete sessions (new codes and tokens, deleted crews, trucks
   // and CCs) and move trucks and crews between CCs. The sites that do so also
@@ -242,7 +245,7 @@ export const ccProcedure = authedProcedure.use(({ ctx, next }) => {
     ccId = truck.ccId;
   } else if (s.role === "green") {
     ccId = s.ccId;
-  } else if (s.role === "admin") {
+  } else if (isAdminSession(s)) {
     ccId = ctx.ccOverride;
   }
   if (ccId === null) throw new TRPCError({ code: "BAD_REQUEST", message: "No command center" });

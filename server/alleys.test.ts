@@ -7,7 +7,6 @@ import type { Fetcher } from "./oneway.ts";
 const dir = mkdtempSync(join(tmpdir(), "lrbuddy-alleys-test-"));
 process.env.DATA_DIR = dir;
 process.env.SESSION_SECRET ??= "test-secret";
-process.env.ADMIN_PASSWORD ??= "test-admin";
 process.env.OSRM_URL = "off";
 
 const { db } = await import("./db/index.ts");
@@ -15,6 +14,7 @@ const s = await import("./db/schema.ts");
 const a = await import("./alleys.ts");
 const setup = await import("./setup.ts");
 const { createSession } = await import("./auth.ts");
+const { adminSession: mkAdmin } = await import("./testing.ts");
 const { alleysRouter } = await import("./routers/alleys.ts");
 const { eq } = await import("drizzle-orm");
 
@@ -52,7 +52,7 @@ describe("alley hint cache", () => {
     const other = setup.createCc({ dayId: day.id, name: "East", lat: 42.3786, lng: -82.9911, address: "Anchor" });
     return { cc, other, day };
   };
-  const caller = (session: Parameters<typeof createSession>[0]) => alleysRouter.createCaller({ session: createSession(session), ip: "test", ccOverride: null });
+  const caller = (session: Parameters<typeof createSession>[0]) => alleysRouter.createCaller({ session: session.role === "admin" ? mkAdmin() : createSession(session), ip: "test", ccOverride: null });
 
   test("centrelines cached once per OSM way; a refetch updates in place; Overpass down keeps them", async () => {
     const { cc, other } = world();

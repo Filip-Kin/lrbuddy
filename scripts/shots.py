@@ -1,11 +1,12 @@
 """Screenshot LR Buddy routes at phone and desktop widths, light and dark.
 
     bun run shots http://127.0.0.1:3000 crew-map --link /j/<token> /,/requests
-    .venv/bin/python scripts/shots.py <base> <tag> (--password ADMIN | --link PATH) [routes] [--sizes phone,desktop]
+    .venv/bin/python scripts/shots.py <base> <tag> (--admin | --link PATH) [routes] [--sizes phone,desktop]
 
-Signs in first in every browser context: `--password` posts the admin password to /auth/login,
-`--link` opens a QR link path (`/j/<crew token>`, `/t/<truck code>`, `/g/<green code>`; the
-seed writes them to `$DATA_DIR/seed-codes.json`). Codes are never typed (SPEC 4).
+Signs in first in every browser context, through the fake Auth emulator the local server runs
+with (scripts/seedcodes.py): `--admin` as the seed's admin user, `--link` as a fresh user who
+then opens a QR or invite link path (`/j/<crew token>`, `/t/<truck code>`, `/g/<green code>`,
+`/i/<invite>`; the seed writes the QR links to `$DATA_DIR/seed-codes.json`). There is no password.
 Writes /home/filip/preview-shots/lrbuddy/<tag>/<route>-<size>-<scheme>.png and
 prints overflow_px per shot (must be 0) plus how many map tiles loaded.
 Adapted from reference/shots.py.
@@ -21,8 +22,8 @@ ap.add_argument("base")
 ap.add_argument("tag")
 ap.add_argument("routes", nargs="?", default="/")
 who = ap.add_mutually_exclusive_group()
-who.add_argument("--password", help="admin password")
-who.add_argument("--link", help="QR link path: /j/<crew token>, /t/<truck code>, /g/<green code>")
+who.add_argument("--admin", action="store_true", help="the seed's admin user")
+who.add_argument("--link", help="link path: /j/<crew token>, /t/<truck code>, /g/<green code>, /i/<invite>")
 ap.add_argument("--name", default="Sam", help="session display name, so the crew name prompt stays closed")
 ap.add_argument("--sizes", default="phone,desktop")
 ap.add_argument("--schemes", default="light,dark")
@@ -38,10 +39,10 @@ sizes = {k: all_sizes[k] for k in args.sizes.split(",") if k in all_sizes}
 
 def login(ctx, page):
     # The name keeps the crew name prompt closed.
-    if not args.password and not args.link:
+    if not args.admin and not args.link:
         return
     named = {"displayName": args.name} if args.name else {}
-    status = seedcodes.sign_in(ctx, base, {"link": args.link, **named} if args.link else {"code": args.password, **named})
+    status = seedcodes.sign_in(ctx, base, {"link": args.link, **named} if args.link else {"admin": True})
     if status != 200:
         raise SystemExit(f"login failed: HTTP {status}")
 

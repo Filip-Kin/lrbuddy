@@ -9,10 +9,10 @@ import {
   createSession,
   deleteSession,
   getSession,
+  isAdminSession,
   JOIN_COOKIE,
   joinCookie,
   loginWithLink,
-  loginWithPassword,
   parseCookies,
   sessionCookie,
   sessionIdFrom,
@@ -21,6 +21,7 @@ import {
 import { handleClientError } from "./client-errors.ts";
 import { withEtag } from "./etag.ts";
 import { firebaseEnabled, verifyIdToken } from "./firebase.ts";
+import { acceptInvite, inviteByToken, stateOf } from "./invites.ts";
 import { config } from "./config.ts";
 import { sqlite } from "./db/index.ts";
 import { startRouteRefresh } from "./dispatch.ts";
@@ -50,7 +51,7 @@ const redirect = (location: string, cookie?: string): Response =>
   new Response(null, { status: 302, headers: cookie ? { location, "set-cookie": cookie } : { location } });
 
 const LINK_KINDS: Record<"j" | "t" | "g", LinkKind> = { j: "crew", t: "truck", g: "cc" };
-const LINK_COOKIE = /^(crew|truck|cc):([A-Za-z0-9_-]{4,64})$/;
+const LINK_COOKIE = /^(crew|truck|cc|invite):([A-Za-z0-9_-]{4,64})$/;
 
 // #region static
 const IMMUTABLE = /^\/assets\//;
@@ -182,16 +183,6 @@ const server = Bun.serve({
       return handleClientError(req, ip, getSession(sessionIdFrom(req))?.role ?? null);
     }
 
-    if (path === "/auth/login" && req.method === "POST" && process.env.LRB_TEST_AUTH === "1") {
-      if (!allowLogin(ip)) return json({ ok: false, error: "Too many tries" }, { status: 429 });
-      const body = await readBody(req);
-      // Staff password only (SPEC 4); codes and tokens sign in through /j, /t and /g.
-      const session = loginWithPassword(body.code ?? "", req.headers.get("user-agent"), body.displayName);
-      if (!session) return json({ ok: false, error: "Wrong password" }, { status: 401 });
-      deleteSession(sessionIdFrom(req));
-      return json({ ok: true, role: session.role }, { headers: { "set-cookie": sessionCookie(session.id) } });
-    }
-
     if (path === "/auth/name" && req.method === "POST") {
       const body = await readBody(req);
       const name = setSessionName(sessionIdFrom(req), body.displayName, body.phone);
@@ -211,7 +202,9 @@ const server = Bun.serve({
       const cookies = [sessionCookie(session.id)];
       const pending = LINK_COOKIE.exec(parseCookies(req.headers.get("cookie"))[JOIN_COOKIE] ?? "");
       let state: "entered" | "choose" | "request";
-      if (pending && joinByLink(user.id, session.id, pending[1] as LinkKind, pending[2]!)) state = "entered";
+      const joined =
+        pending?.[1] === "invite" ? acceptInvite(user.id, session.id, pending[2]!).ok : pending ? joinByLink(user.id, session.id, pending[1] as LinkKind, pending[2]!) !== null : false;
+      if (joined) state = "entered";
       else state = resolveSession(session.id, user.id);
       if (pending) cookies.push(clearJoinCookie());
       const headers = new Headers({ "content-type": "application/json" });
@@ -235,6 +228,9 @@ const server = Bun.serve({
       return json({ ok: true }, { headers: { "set-cookie": clearCookie() } });
     }
 
+    // Every other /auth path, /auth/login included (SPEC 26: no staff password), is not a route.
+    if (path === "/auth" || path.startsWith("/auth/")) return json({ ok: false, error: "Not found" }, { status: 404 });
+
     // #region QR links: /j/<crew token>, /t/<truck code>, /g/<green code>
     const link = /^\/([jtg])\/([A-Za-z0-9_-]{4,64})\/?$/.exec(path);
     if (link && req.method === "GET") {
@@ -257,6 +253,24 @@ const server = Bun.serve({
     }
     // #endregion
 
+    // #region invite links: /i/<token> (SPEC 26)
+    const inviteLink = /^\/i\/([A-Za-z0-9_-]{4,64})\/?$/.exec(path);
+    if (inviteLink && req.method === "GET") {
+      const token = inviteLink[1]!;
+      const invite = inviteByToken(token);
+      if (!invite) return redirect("/link?state=unknown");
+      const state = stateOf(invite);
+      if (state !== "active") return redirect(`/link?state=${state}`);
+      const current = getSession(sessionIdFrom(req));
+      if (current?.userId != null) {
+        const r = acceptInvite(current.userId, current.id, token);
+        return r.ok ? redirect("/", clearJoinCookie()) : redirect(`/link?state=${r.state}`);
+      }
+      // Signed out: remember the invite through sign-in, as the QR links do.
+      return redirect("/login", joinCookie(`invite:${token}`));
+    }
+    // #endregion
+
     // #region photos
     if (path === "/photos" && req.method === "POST") return handlePhotoUpload(req);
 
@@ -264,7 +278,8 @@ const server = Bun.serve({
     if (photo && (req.method === "GET" || req.method === "HEAD")) return servePhoto(req, Number(photo[1]), photo[2] !== undefined);
 
     if (path === "/admin/photos.zip" && req.method === "GET") {
-      if (getSession(sessionIdFrom(req))?.role !== "admin") return new Response("Sign in", { status: 401 });
+      const zipSession = getSession(sessionIdFrom(req));
+      if (!zipSession || !isAdminSession(zipSession)) return new Response("Sign in", { status: 401 });
       const ev = activeEvent();
       if (!ev) return new Response("No active event", { status: 404 });
       const id = (k: string): number | null => {

@@ -7,7 +7,6 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "lrbuddy-admin-test-"));
 process.env.DATA_DIR = dir;
 process.env.SESSION_SECRET = "test-secret";
-process.env.ADMIN_PASSWORD = "test-admin";
 process.env.OSRM_URL = "off";
 process.env.VAPID_PUBLIC_KEY = "";
 process.env.VAPID_PRIVATE_KEY = "";
@@ -17,6 +16,7 @@ const s = await import("./db/schema.ts");
 const setup = await import("./setup.ts");
 const d = await import("./dispatch.ts");
 const { createSession } = await import("./auth.ts");
+const { adminSession: mkAdmin } = await import("./testing.ts");
 const { adminRouter } = await import("./routers/admin.ts");
 const { eq } = await import("drizzle-orm");
 // Config is read once per process; another test file may have loaded it first.
@@ -32,7 +32,7 @@ const EAST = { lat: 42.3786, lng: -82.9911 };
 const WEST = { lat: 42.3701, lng: -83.0209 };
 
 const callerFor = (role: "admin" | "green") => {
-  const session = createSession({ role });
+  const session = role === "admin" ? mkAdmin() : createSession({ role });
   return adminRouter.createCaller({ session, ip: "test", ccOverride: null });
 };
 

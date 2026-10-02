@@ -1,12 +1,11 @@
-import { timingSafeEqual } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { bus } from "./bus.ts";
 import { config } from "./config.ts";
 import { db } from "./db/index.ts";
-import { crews, greenCodes, sessions, trucks, type Session, type SessionRole } from "./db/schema.ts";
+import { crews, greenCodes, memberships, sessions, trucks, type Session, type SessionRole } from "./db/schema.ts";
 
 export const COOKIE = "lrb_session";
-/** A scanned QR link (`crew:<token>`, `truck:<code>`, `cc:<code>`) kept across the sign-in round trip. */
+/** A scanned QR or invite link (`crew:<token>`, `truck:<code>`, `cc:<code>`, `invite:<token>`) kept across the sign-in round trip. */
 export const JOIN_COOKIE = "lrb_join";
 const JOIN_MAX_AGE_S = 3600;
 const MAX_AGE_S = 30 * 24 * 3600;
@@ -60,10 +59,36 @@ export const clearJoinCookie = (): string =>
 // #endregion
 
 // #region sessions
+/** True when the user holds an approved admin membership (SPEC 26). */
+export const hasAdmin = (userId: number | null): boolean =>
+  userId !== null &&
+  db
+    .select({ id: memberships.id })
+    .from(memberships)
+    .where(and(eq(memberships.userId, userId), eq(memberships.role, "admin"), eq(memberships.status, "approved")))
+    .get() !== undefined;
+
+/**
+ * An admin session counts only while its user holds an approved admin
+ * membership; roles come from memberships alone (SPEC 26).
+ */
+export const isAdminSession = (s: Pick<Session, "role" | "userId">): boolean => s.role === "admin" && hasAdmin(s.userId);
+
 export const getSession = (id: string | null): Session | null => {
   if (!id) return null;
   const s = db.select().from(sessions).where(eq(sessions.id, id)).get();
   if (!s) return null;
+  if (s.role === "admin" && !hasAdmin(s.userId)) {
+    // Admin taken away, or a session from before SPEC 26 with no user: no admin role left.
+    if (s.userId === null) {
+      db.delete(sessions).where(eq(sessions.id, id)).run();
+      return null;
+    }
+    db.update(sessions).set({ role: "none", membershipId: null, crewId: null, truckId: null, ccId: null }).where(eq(sessions.id, id)).run();
+    s.role = "none";
+    s.membershipId = null;
+    s.ccId = null;
+  }
   const now = Date.now();
   if (now - s.lastUsedAt > TOUCH_EVERY_MS) {
     db.update(sessions).set({ lastUsedAt: now }).where(eq(sessions.id, id)).run();
@@ -111,25 +136,9 @@ export const deleteSession = (id: string | null): void => {
 // #endregion
 
 // #region login
-const safeEqual = (a: string, b: string): boolean => {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
-};
-
 const cleanName = (n: string | null | undefined): string | null => {
   const v = n?.trim().slice(0, 60);
   return v ? v : null;
-};
-
-/**
- * The staff password, the only thing `POST /auth/login` takes (SPEC 4). Truck
- * codes, green codes and crew tokens sign in only through their QR links.
- */
-export const loginWithPassword = (raw: string, userAgent: string | null, displayName?: string | null): Session | null => {
-  const code = raw.trim();
-  if (!code || !safeEqual(code, config.adminPassword)) return null;
-  return createSession({ role: "admin", displayName: cleanName(displayName) ?? "Admin", userAgent });
 };
 
 /**
@@ -191,7 +200,7 @@ const WINDOW_MS = 60_000;
 const LIMIT = 20;
 const hits = new Map<string, number[]>();
 
-/** True when the IP is still under 20 login attempts in the last minute. */
+/** True when the IP is still under 20 sign-in attempts in the last minute. */
 export const allowLogin = (ip: string, now = Date.now()): boolean => {
   const list = (hits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
   if (list.length >= LIMIT) {
@@ -220,6 +229,7 @@ const randomFrom = (alphabet: string, n: number): string => {
 };
 
 export const newCrewToken = (): string => randomFrom(URL_SAFE, 20);
+export const newInviteToken = (): string => randomFrom(URL_SAFE, 16);
 export const newCode = (): string => randomFrom(CODE_CHARS, 6);
 
 /** A 6 character code not used by any truck or green code. */

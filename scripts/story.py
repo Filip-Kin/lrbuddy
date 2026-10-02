@@ -1,9 +1,10 @@
 """End-to-end story across all four roles, each in its own browser context.
 
-    /home/filip/pit-podcast-automation/.venv/bin/python scripts/story.py http://127.0.0.1:3000 <admin password>
+    /home/filip/pit-podcast-automation/.venv/bin/python scripts/story.py http://127.0.0.1:3000
 
-Run against a freshly seeded server (`bun run seed`, same DATA_DIR: the crew, truck and green
-sign in by their QR links from `$DATA_DIR/seed-codes.json`). It changes data: one
+Run against a freshly seeded server on the fake Auth emulator (`bun run seed`, same DATA_DIR: the
+crew, truck and green sign in and open their QR links from `$DATA_DIR/seed-codes.json`; admin is
+the seed's admin user). It changes data: one
 request, one green stop and a DLBA import. Every step prints PASS or FAIL;
 exit 1 on any FAIL. Screenshots of each step land in
 /home/filip/preview-shots/lrbuddy/story/.
@@ -28,7 +29,6 @@ from playwright.sync_api import Page, BrowserContext, sync_playwright
 import seedcodes
 
 BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://127.0.0.1:3000"
-ADMIN = sys.argv[2] if len(sys.argv) > 2 else None
 OUT = pathlib.Path("/home/filip/preview-shots/lrbuddy/story")
 OUT.mkdir(parents=True, exist_ok=True)
 
@@ -71,14 +71,14 @@ def wait_for(fn, timeout_s: float = 15, every_s: float = 0.5):
 
 
 def new_role(browser, who: str, size: tuple[int, int], geo: dict | None = None, name: str = "Sam") -> tuple[BrowserContext, Page]:
-    """`who` is a QR link path (`/j/...`, `/t/...`, `/g/...`) or the admin password."""
+    """`who` is a QR link path (`/j/...`, `/t/...`, `/g/...`) or "admin" for the seed's admin user."""
     code = who if who.startswith("/") else "admin"
     opts: dict = {"viewport": {"width": size[0], "height": size[1]}, "device_scale_factor": 1}
     if geo:
         opts["geolocation"] = geo
         opts["permissions"] = ["geolocation"]
     ctx = browser.new_context(**opts)
-    status = seedcodes.sign_in(ctx, BASE, {"link": who, "displayName": name} if who.startswith("/") else {"code": who, "displayName": name})
+    status = seedcodes.sign_in(ctx, BASE, {"link": who, "displayName": name} if who.startswith("/") else {"admin": True})
     if status != 200:
         raise SystemExit(f"login {code}: HTTP {status}")
     page = ctx.new_page()
@@ -229,35 +229,32 @@ with sync_playwright() as pw:
     # #endregion
 
     # #region 7. admin imports DLBA lots into CC East
-    if ADMIN:
-        adm_ctx, adm = new_role(browser, ADMIN, (1440, 900))
-        go(green, "/lots")
-        lots_before = len(api(green_ctx, "green.lots")["lots"])
-        go(adm, "/admin/lots")
-        adm.locator("img.leaflet-tile-loaded").first.wait_for(timeout=15_000)
-        adm.get_by_role("button", name="Import DLBA").click()
-        box = adm.locator(".leaflet-container").bounding_box()
-        cx, cy = box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5
-        # Oriented rectangle: two clicks along the street, a third for the width.
-        adm.mouse.click(cx - 60, cy)
-        adm.mouse.click(cx + 60, cy)
-        adm.mouse.click(cx, cy + 45)
-        sheet = adm.get_by_role("dialog")
-        sheet.get_by_label("Command center").select_option(label="Day 1, CC East")
-        shot(adm, "7-admin-import-sheet")
-        sheet.get_by_role("button", name="Import Land Bank lots").click()
-        notice = adm.get_by_role("status").filter(has_text="added")
-        notice.first.wait_for(timeout=60_000)
-        note = notice.first.inner_text()
-        check("to CC East" in note, f"admin import: {note}")
-        shot(adm, "7-admin-imported")
-        lots_after = wait_for(lambda: (n := len(api(green_ctx, "green.lots")["lots"])) > lots_before and n, 10)
-        check(bool(lots_after), f"green lots {lots_before} -> {lots_after}")
-        green.reload(wait_until="load")
-        shot(green, "7-green-lots")
-        adm_ctx.close()
-    else:
-        check(False, "admin step skipped: no admin password given")
+    adm_ctx, adm = new_role(browser, "admin", (1440, 900))
+    go(green, "/lots")
+    lots_before = len(api(green_ctx, "green.lots")["lots"])
+    go(adm, "/admin/lots")
+    adm.locator("img.leaflet-tile-loaded").first.wait_for(timeout=15_000)
+    adm.get_by_role("button", name="Import DLBA").click()
+    box = adm.locator(".leaflet-container").bounding_box()
+    cx, cy = box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5
+    # Oriented rectangle: two clicks along the street, a third for the width.
+    adm.mouse.click(cx - 60, cy)
+    adm.mouse.click(cx + 60, cy)
+    adm.mouse.click(cx, cy + 45)
+    sheet = adm.get_by_role("dialog")
+    sheet.get_by_label("Command center").select_option(label="Day 1, CC East")
+    shot(adm, "7-admin-import-sheet")
+    sheet.get_by_role("button", name="Import Land Bank lots").click()
+    notice = adm.get_by_role("status").filter(has_text="added")
+    notice.first.wait_for(timeout=60_000)
+    note = notice.first.inner_text()
+    check("to CC East" in note, f"admin import: {note}")
+    shot(adm, "7-admin-imported")
+    lots_after = wait_for(lambda: (n := len(api(green_ctx, "green.lots")["lots"])) > lots_before and n, 10)
+    check(bool(lots_after), f"green lots {lots_before} -> {lots_after}")
+    green.reload(wait_until="load")
+    shot(green, "7-green-lots")
+    adm_ctx.close()
     # #endregion
 
     noise = [e for e in console_errors if "geolocation" not in e.lower()]

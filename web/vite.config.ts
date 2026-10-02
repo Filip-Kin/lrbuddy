@@ -28,6 +28,7 @@ export default defineConfig({
       "/j/": api,
       "/t/": api,
       "/g/": api,
+      "/i/": api,
       "/health": api,
       "/client-error": api,
       "/admin/photos.zip": api,

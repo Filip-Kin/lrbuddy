@@ -13,6 +13,8 @@ export const adminLinks: NavLink[] = [
   { href: "/admin/export", label: "Export" },
   { href: "/admin/green", label: "Green view" },
   { href: "/admin/access", label: "Access" },
+  { href: "/admin/invite", label: "Invite" },
+  { href: "/admin/people", label: "People" },
   { href: "/admin/client-errors", label: "Client errors" },
 ];
 

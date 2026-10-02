@@ -8,7 +8,6 @@ import type { LotGeometry } from "./db/schema.ts";
 const dir = mkdtempSync(join(tmpdir(), "lrbuddy-parcel-status-test-"));
 process.env.DATA_DIR ??= dir;
 process.env.SESSION_SECRET ??= "test-secret";
-process.env.ADMIN_PASSWORD ??= "test-admin";
 process.env.OSRM_URL = "off";
 process.env.VAPID_PUBLIC_KEY = "";
 process.env.VAPID_PRIVATE_KEY = "";
@@ -18,6 +17,7 @@ const s = await import("./db/schema.ts");
 const setup = await import("./setup.ts");
 const { bus } = await import("./bus.ts");
 const { createSession } = await import("./auth.ts");
+const { adminSession: mkAdmin } = await import("./testing.ts");
 const { upsertParcels } = await import("./parcels.ts");
 const { greenRouter } = await import("./routers/green.ts");
 const { driverRouter } = await import("./routers/driver.ts");
@@ -103,7 +103,7 @@ const world = () => {
     truck,
     westLot,
     green: greenRouter.createCaller(sessionCtx(createSession({ role: "green", ccId: east.id, displayName: "Gwen" }))),
-    admin: greenRouter.createCaller(sessionCtx(createSession({ role: "admin", displayName: "Staff" }), east.id)),
+    admin: greenRouter.createCaller(sessionCtx(mkAdmin("Staff"), east.id)),
     driver: driverRouter.createCaller(sessionCtx(createSession({ role: "driver", truckId: truck.id, ccId: east.id, displayName: "Dana" }))),
     crew: (crewId: number) => crewRouter.createCaller(sessionCtx(createSession({ role: "crew", crewId, ccId: east.id, displayName: "Red" }))),
   };

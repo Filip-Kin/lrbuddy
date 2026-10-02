@@ -9,7 +9,6 @@ import type { AreaPolygon } from "./db/schema.ts";
 const dir = mkdtempSync(join(tmpdir(), "lrbuddy-crew-name-test-"));
 process.env.DATA_DIR = dir;
 process.env.SESSION_SECRET = "test-secret";
-process.env.ADMIN_PASSWORD = "test-admin";
 process.env.OSRM_URL = "off";
 process.env.VAPID_PUBLIC_KEY = "";
 process.env.VAPID_PRIVATE_KEY = "";
@@ -20,6 +19,7 @@ const setup = await import("./setup.ts");
 const d = await import("./dispatch.ts");
 const n = await import("./crew-name.ts");
 const { createSession } = await import("./auth.ts");
+const { adminSession: mkAdmin } = await import("./testing.ts");
 const { adminRouter } = await import("./routers/admin.ts");
 const { driverRouter } = await import("./routers/driver.ts");
 const { createSharedArea } = await import("./routers/plan/areas.ts");
@@ -67,7 +67,7 @@ beforeEach(() => {
   };
 });
 
-const admin = () => adminRouter.createCaller({ session: createSession({ role: "admin" }), ip: "test", ccOverride: null });
+const admin = () => adminRouter.createCaller({ session: mkAdmin(), ip: "test", ccOverride: null });
 const crew = (companyId: number | null, dayId = w.day1, ccId = w.cc1) => setup.createCrew({ dayId, ccId, companyId });
 const nameOf = (id: number) => db.select().from(s.crews).where(eq(s.crews.id, id)).get()!.name;
 // #endregion

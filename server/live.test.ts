@@ -10,7 +10,6 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "lrbuddy-live-test-"));
 process.env.DATA_DIR = dir;
 process.env.SESSION_SECRET ??= "test-secret";
-process.env.ADMIN_PASSWORD ??= "test-admin";
 process.env.OSRM_URL = "off";
 process.env.VAPID_PUBLIC_KEY = "";
 process.env.VAPID_PRIVATE_KEY = "";
@@ -20,6 +19,7 @@ const s = await import("./db/schema.ts");
 const d = await import("./dispatch.ts");
 const setup = await import("./setup.ts");
 const { createSession, deleteSession } = await import("./auth.ts");
+const { adminSession: mkAdmin } = await import("./testing.ts");
 const { adminRouter } = await import("./routers/admin.ts");
 const { greenRouter } = await import("./routers/green.ts");
 const { sharedRouter } = await import("./routers/shared.ts");
@@ -50,7 +50,7 @@ beforeEach(() => {
   w = fresh();
 });
 
-const admin = () => adminRouter.createCaller({ session: createSession({ role: "admin" }), ip: "test", ccOverride: null });
+const admin = () => adminRouter.createCaller({ session: mkAdmin(), ip: "test", ccOverride: null });
 const green = (ccId: number) => greenRouter.createCaller({ session: createSession({ role: "green", ccId }), ip: "test", ccOverride: null });
 
 /** Reads a stream in the background until it ends or `stop` is called. */
@@ -124,7 +124,7 @@ describe("a revoked session's open stream", () => {
   test("signed out: crew.onMine and admin.onEvent end too", async () => {
     const crew = setup.createCrew({ dayId: w.dayId, ccId: w.west.id, companyId: null });
     const crewSession = createSession({ role: "crew", crewId: crew.id, ccId: w.west.id });
-    const adminSession = createSession({ role: "admin" });
+    const adminSession = mkAdmin();
     const mine = await drain(await crewRouter.createCaller({ session: crewSession, ip: "test", ccOverride: null }).onMine());
     const all = await drain(await adminRouter.createCaller({ session: adminSession, ip: "test", ccOverride: null }).onEvent());
     deleteSession(crewSession.id);

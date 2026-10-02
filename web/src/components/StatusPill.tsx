@@ -17,7 +17,12 @@ export type PillStatus =
   | "urgent"
   | "pending"
   | "approved"
-  | "denied";
+  | "denied"
+  | "admin"
+  | "invite_active"
+  | "used"
+  | "expired"
+  | "revoked";
 
 type Tone = "crew" | "green" | "warn" | "brand" | "plain" | "muted" | "outline";
 
@@ -52,6 +57,11 @@ const STATUS: Record<PillStatus, { label: string; tone: Tone }> = {
   pending: { label: "Pending", tone: "brand" },
   approved: { label: "Approved", tone: "green" },
   denied: { label: "Denied", tone: "muted" },
+  admin: { label: "Admin", tone: "brand" },
+  invite_active: { label: "Active", tone: "green" },
+  used: { label: "Used", tone: "muted" },
+  expired: { label: "Expired", tone: "muted" },
+  revoked: { label: "Revoked", tone: "muted" },
 };
 
 /** Lot statuses share keys with request statuses; `open` means a different thing for each. */

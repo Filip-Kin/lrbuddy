@@ -9,7 +9,6 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "lrbuddy-review-test-"));
 process.env.DATA_DIR = dir;
 process.env.SESSION_SECRET ??= "test-secret";
-process.env.ADMIN_PASSWORD ??= "test-admin";
 process.env.OSRM_URL = "off";
 process.env.VAPID_PUBLIC_KEY = "";
 process.env.VAPID_PRIVATE_KEY = "";
@@ -19,6 +18,7 @@ const s = await import("./db/schema.ts");
 const d = await import("./dispatch.ts");
 const setup = await import("./setup.ts");
 const { createSession, getSession } = await import("./auth.ts");
+const { adminSession: mkAdmin } = await import("./testing.ts");
 const { adminRouter } = await import("./routers/admin.ts");
 const { driverRouter } = await import("./routers/driver.ts");
 const { sharedRouter } = await import("./routers/shared.ts");
@@ -51,7 +51,7 @@ beforeEach(() => {
   w = fresh();
 });
 
-const admin = () => adminRouter.createCaller({ session: createSession({ role: "admin" }), ip: "test", ccOverride: null });
+const admin = () => adminRouter.createCaller({ session: mkAdmin(), ip: "test", ccOverride: null });
 // #endregion
 
 describe("a quiet truck still gets the request", () => {
@@ -124,13 +124,14 @@ describe("push scope follows a move", () => {
 describe("login rate limit", () => {
   // clientIp() takes the first X-Forwarded-For entry, which the caller writes.
   // A new value per request resets the 20 per minute limit, so truck and CC
-  // codes (32^6) and the admin password can be guessed without a 429.
+  // codes (32^6) could be guessed without a 429.
   test("a spoofed X-Forwarded-For per attempt still hits 429 by the 21st try", async () => {
     const port = 31000 + Math.floor(Math.random() * 2000);
     const dataDir = mkdtempSync(join(tmpdir(), "lrbuddy-review-rl-"));
     const proc = Bun.spawn(["bun", "server/index.ts"], {
       cwd: join(import.meta.dir, ".."),
-      env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, SESSION_SECRET: "x", ADMIN_PASSWORD: "right-password" },
+      // Firebase on through an emulator address nothing answers: every token is refused with 401 until the limit.
+      env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, SESSION_SECRET: "x", FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9", FIREBASE_SERVICE_ACCOUNT: "" },
       stdout: "ignore",
       stderr: "ignore",
     });
@@ -143,10 +144,10 @@ describe("login rate limit", () => {
       }
       const codes: number[] = [];
       for (let i = 0; i < 25; i++) {
-        const res = await fetch(`${base}/auth/login`, {
+        const res = await fetch(`${base}/auth/firebase`, {
           method: "POST",
           headers: { "content-type": "application/json", "x-forwarded-for": `198.51.100.${i + 1}` },
-          body: JSON.stringify({ code: `WRONG${i}` }),
+          body: JSON.stringify({ idToken: `WRONG${i}` }),
         });
         codes.push(res.status);
       }

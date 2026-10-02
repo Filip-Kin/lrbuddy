@@ -16,6 +16,7 @@ import {
   type LinkKind,
 } from "../access.ts";
 import { bus } from "../bus.ts";
+import { inviteByToken, inviteLabel, stateOf } from "../invites.ts";
 import { db } from "../db/index.ts";
 import { sessions } from "../db/schema.ts";
 import { adminProcedure, greenProcedure, publicProcedure, router, userProcedure } from "../trpc.ts";
@@ -31,13 +32,17 @@ const decided = (r: DecideResult): { ok: true } | { ok: false; leadChoice: strin
   throw new TRPCError({ code: r.code, message: r.code === "CONFLICT" ? "Already decided" : "Request not found" });
 };
 
-const LINK = /^(crew|truck|cc):([A-Za-z0-9_-]{4,64})$/;
+const LINK = /^(crew|truck|cc|invite):([A-Za-z0-9_-]{4,64})$/;
 
 export const accessRouter = router({
   /** The scanned link waiting for sign-in, as a label for the sign-in page. */
   link: publicProcedure.query(({ ctx }): { label: string } | null => {
     const m = LINK.exec(ctx.joinLink ?? "");
     if (!m) return null;
+    if (m[1] === "invite") {
+      const invite = inviteByToken(m[2]!);
+      return invite && stateOf(invite) === "active" ? { label: inviteLabel(invite) } : null;
+    }
     const label = linkLabel(m[1] as LinkKind, m[2]!);
     return label ? { label } : null;
   }),
@@ -48,7 +53,12 @@ export const accessRouter = router({
   options: userProcedure.query(() => requestOptions()),
 
   request: userProcedure
-    .input(z.object({ role: z.enum(["crew", "driver", "green"]), dayId: id, ccId: id, crewId: id.nullish(), truckId: id.nullish() }))
+    .input(
+      z.union([
+        z.object({ role: z.enum(["crew", "driver", "green"]), dayId: id, ccId: id, crewId: id.nullish(), truckId: id.nullish() }),
+        z.object({ role: z.literal("admin") }),
+      ]),
+    )
     .mutation(({ ctx, input }) => {
       const r = requestAccess(ctx.user.id, input);
       if (!r.ok) throw new TRPCError({ code: "BAD_REQUEST", message: r.error });
@@ -95,7 +105,7 @@ export const accessRouter = router({
   pendingCount: greenProcedure.query(({ ctx }) => pendingRequests(ctx.cc.id).length),
 
   decide: greenProcedure.input(decision).mutation(({ ctx, input }) =>
-    decided(decide(input.id, input.decision, { userId: ctx.session.userId, ccId: ctx.cc.id }, input.lead)),
+    decided(decide(input.id, input.decision, { userId: ctx.session.userId, ccId: ctx.cc.id, admin: false }, input.lead)),
   ),
   // #endregion
 
@@ -105,7 +115,7 @@ export const accessRouter = router({
   adminPendingCount: adminProcedure.query(() => pendingRequests(null).length),
 
   adminDecide: adminProcedure.input(decision).mutation(({ ctx, input }) =>
-    decided(decide(input.id, input.decision, { userId: ctx.session.userId, ccId: null }, input.lead)),
+    decided(decide(input.id, input.decision, { userId: ctx.session.userId, ccId: null, admin: true }, input.lead)),
   ),
   // #endregion
 });

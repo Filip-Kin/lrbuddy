@@ -9,7 +9,6 @@ import type { ParcelInput } from "../../parcels.ts";
 const dir = mkdtempSync(join(tmpdir(), "lrbuddy-survey-test-"));
 process.env.DATA_DIR = dir;
 process.env.SESSION_SECRET = "test-secret";
-process.env.ADMIN_PASSWORD = "test-admin";
 process.env.OSRM_URL = "off";
 process.env.VAPID_PUBLIC_KEY = "";
 process.env.VAPID_PRIVATE_KEY = "";
@@ -20,6 +19,7 @@ const setup = await import("../../setup.ts");
 const d = await import("../../dispatch.ts");
 const p = await import("../../parcels.ts");
 const { createSession } = await import("../../auth.ts");
+const { adminSession: mkAdmin } = await import("../../testing.ts");
 const { planRouter } = await import("../plan.ts");
 const { hullRing } = await import("./survey.ts");
 const { and, eq } = await import("drizzle-orm");
@@ -75,7 +75,7 @@ beforeEach(() => {
     parcel("Garland", 3965, 42.3805, -82.99),
     parcel("Garland", 3964, 42.3802, -82.9897),
   ]);
-  admin = planRouter.createCaller({ session: createSession({ role: "admin", displayName: "Kelsey" }), ip: "test", ccOverride: null });
+  admin = planRouter.createCaller({ session: mkAdmin("Kelsey"), ip: "test", ccOverride: null });
 });
 // #endregion
 

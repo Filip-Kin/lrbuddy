@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 /**
  * One choice out of a few, as a row of equal buttons. `tabs` switches a view
  * (tablist); otherwise it is a form choice (radiogroup). `stacked` puts the
- * count above the label, for four or more tabs on a phone.
+ * count above the label, for four or more tabs on a phone. `pairs` sets four
+ * options two by two below 860 px, so none scrolls out of sight.
  */
 export const Segmented = <T extends string | number>({
   label,
@@ -12,6 +13,7 @@ export const Segmented = <T extends string | number>({
   onChange,
   tabs,
   stacked,
+  pairs,
   size = "md",
   className = "",
 }: {
@@ -21,13 +23,14 @@ export const Segmented = <T extends string | number>({
   onChange: (v: T) => void;
   tabs?: boolean;
   stacked?: boolean;
+  pairs?: boolean;
   size?: "md" | "lg";
   className?: string;
 }) => (
   <div
     role={tabs ? "tablist" : "radiogroup"}
     aria-label={label}
-    className={`${stacked ? "grid auto-cols-fr grid-flow-col" : "flex overflow-x-auto"} w-full gap-1 rounded-2xl bg-surface-2 p-1 ring-1 ring-inset ring-line ${className}`}
+    className={`${stacked ? "grid auto-cols-fr grid-flow-col" : pairs ? "grid grid-cols-2 nav:flex" : "flex overflow-x-auto"} w-full gap-1 rounded-2xl bg-surface-2 p-1 ring-1 ring-inset ring-line ${className}`}
   >
     {options.map((o) => {
       const on = o.value === value;

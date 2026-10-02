@@ -4,7 +4,7 @@
     VITE_FIREBASE_EMULATOR=http://127.0.0.1:9099 bun run build
     bun run seed                              # writes $DATA_DIR/seed-codes.json, read here for the QR links
     FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 bun run start
-    /home/filip/pit-podcast-automation/.venv/bin/python scripts/access.py http://127.0.0.1:3000 http://127.0.0.1:9099 <admin pw>
+    /home/filip/pit-podcast-automation/.venv/bin/python scripts/access.py http://127.0.0.1:3000 http://127.0.0.1:9099
 
 Reads the codes the emulator "sent" from its REST API, so no SMS leaves the box. Never point it at
 production: it signs up test users. Reseed afterwards. Screenshots in /home/filip/preview-shots/lrbuddy-access/.
@@ -13,6 +13,7 @@ import json
 import pathlib
 import sys
 import time
+import urllib.error
 import urllib.request
 
 from playwright.sync_api import Page, expect, sync_playwright
@@ -41,8 +42,10 @@ def shot(page: Page, name: str) -> None:
     check(over == 0, f"{name}: no horizontal overflow ({over}px)")
 
 
-def emulator(path: str, method: str = "GET") -> dict:
-    req = urllib.request.Request(f"{EMU}{path}", method=method, headers={"authorization": "Bearer owner"})
+def emulator(path: str, method: str = "GET", body: dict | None = None) -> dict:
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"authorization": "Bearer owner", **({"content-type": "application/json"} if data else {})}
+    req = urllib.request.Request(f"{EMU}{path}", method=method, data=data, headers=headers)
     with urllib.request.urlopen(req, timeout=10) as r:
         body = r.read()
         return json.loads(body) if body else {}
@@ -202,14 +205,19 @@ def main() -> None:
         gg.close()
         # endregion
 
-        # region 4. Admin sees every CC; staff password still works.
+        # region 4. Admin (the seed's admin user, SPEC 26) sees every CC. No password anywhere.
         adm = browser.new_context(viewport={"width": 1440, "height": 900})
         apage = adm.new_page()
         apage.goto(BASE + "/login", wait_until="networkidle")
-        apage.get_by_role("button", name="Staff password").click()
-        apage.get_by_label("Staff password").fill(ADMIN)
-        apage.get_by_role("button", name="Sign in").last.click()
-        apage.wait_for_url("**/admin", timeout=15000)
+        check(apage.locator("input[type=password]").count() == 0, "no password field on the sign-in page")
+        uid = seedcodes.admin_uid()
+        # The emulator only vouches for accounts it holds; the seed's admin needs one there.
+        try:
+            emulator(f"/identitytoolkit.googleapis.com/v1/projects/{PROJECT}/accounts", "POST", {"localId": uid})
+        except urllib.error.HTTPError:
+            pass  # already there from an earlier run
+        status, state = seedcodes.firebase_sign_in(adm, BASE, uid)
+        check(status == 200 and state == "entered", f"seed admin signs in as admin ({status} {state})")
         apage.goto(BASE + "/admin/access", wait_until="networkidle")
         expect(apage.get_by_text("Decided")).to_be_visible()
         shot(apage, "admin-1-access")
@@ -218,7 +226,6 @@ def main() -> None:
         browser.close()
 
 
-ADMIN = sys.argv[3] if len(sys.argv) > 3 else ""
 main()
 print()
 print(f"{len(failures)} failures, screenshots in {OUT}")

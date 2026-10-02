@@ -1,4 +1,5 @@
 import type { NavLink } from "../../components/Nav.tsx";
+import { useMe } from "../../lib/session.ts";
 import { trpc } from "../../lib/trpc.ts";
 
 /**
@@ -17,10 +18,16 @@ export const greenLinks = (base = "", search = ""): NavLink[] =>
     { href: "/broadcast", label: "Broadcast" },
     { href: "/stats", label: "Stats" },
     { href: "/access", label: "Access" },
+    { href: "/invite", label: "Invite" },
   ].map((l) => ({ label: l.label, href: `${base}${l.href === "/" && base ? "" : l.href}${search}` }));
 
 /** Green links with the pending access count on Access. */
 export const useGreenLinks = (base = "", search = ""): NavLink[] => {
   const count = trpc.access.pendingCount.useQuery(undefined, { refetchInterval: 60_000 });
-  return greenLinks(base, search).map((l) => (l.label === "Access" ? { ...l, badge: count.data ?? 0 } : l));
+  const me = useMe();
+  // Invites name who made them: a green shirt signed in with a code has no user, so no Invite.
+  const user = me.data !== undefined && "user" in me.data && me.data.user === true;
+  return greenLinks(base, search)
+    .filter((l) => l.label !== "Invite" || user)
+    .map((l) => (l.label === "Access" ? { ...l, badge: count.data ?? 0 } : l));
 };

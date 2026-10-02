@@ -4,7 +4,7 @@ import { useSearch } from "wouter";
 import { Button } from "../../components/Button.tsx";
 import { Field } from "../../components/Field.tsx";
 import { firebaseOptions, googleEnabled } from "../../lib/firebaseConfig.ts";
-import { login, signInWithIdToken } from "../../lib/session.ts";
+import { signInWithIdToken } from "../../lib/session.ts";
 import { trpc } from "../../lib/trpc.ts";
 
 // #region helpers
@@ -32,11 +32,8 @@ const FIREBASE_ERRORS: Record<string, string> = {
 
 const firebaseError = (code: string | null): string => (code ? FIREBASE_ERRORS[code] : undefined) ?? "Sign-in failed, try again";
 
-/** Portal paths an admin sign-in returns to (`/login?next=/plan/...`). */
-const portalNext = (search: URLSearchParams): string | null => {
-  const next = search.get("next") ?? (window.location.pathname.startsWith("/plan") ? window.location.pathname : null);
-  return next && /^\/plan(\/[a-z/]*)?$/.test(next) ? next : null;
-};
+/** Why a scanned link did not sign in (`/login?link=`). */
+const LINK_ERRORS: Record<string, string> = { unknown: "Unknown QR code" };
 // #endregion
 
 const Brand = () => (
@@ -48,17 +45,17 @@ const Brand = () => (
 
 /**
  * SPEC 18 sign-in: Name and Mobile number, Continue sends a text with a
- * six-digit code; Google below a divider; "Staff password" reveals the admin
- * password field (truck, green and crew codes sign in only through their QR links). A Firebase user already signed in on this phone
- * goes straight through. Without Firebase (no config here or on the server)
- * only the staff password shows.
+ * six-digit code; Google below a divider. Truck, green and crew codes and
+ * invites sign in only through their links. A Firebase user already signed in
+ * on this phone goes straight through. There is no password (SPEC 26); without
+ * Firebase (no config here or on the server) the page says sign-in is off.
  */
 export const LoginPage = () => {
   const search = new URLSearchParams(useSearch());
   const authConfig = trpc.shared.authConfig.useQuery(undefined, { staleTime: Infinity, retry: 5, refetchOnReconnect: true });
   const link = trpc.access.link.useQuery(undefined, { staleTime: Infinity });
   // A built-in config means the project exists; only an explicit "off" from the server hides the
-  // phone form. A slow or failed config request must not strand an installed app on Staff password.
+  // phone form, so a slow or failed config request never hides it.
   const firebaseOn = firebaseOptions !== null && authConfig.data?.firebase !== false;
   const decided = authConfig.data !== undefined || authConfig.isError;
 
@@ -66,12 +63,9 @@ export const LoginPage = () => {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState<ConfirmationResult | null>(null);
-  const [error, setError] = useState<string | null>(search.get("link") === "unknown" ? "Unknown QR code" : null);
-  const [busy, setBusy] = useState<"send" | "confirm" | "google" | "password" | null>(null);
+  const [error, setError] = useState<string | null>(LINK_ERRORS[search.get("link") ?? ""] ?? null);
+  const [busy, setBusy] = useState<"send" | "confirm" | "google" | null>(null);
   const [restoring, setRestoring] = useState(false);
-  const [staffOpen, setStaffOpen] = useState(false);
-  const [password, setPassword] = useState("");
-  const [staffError, setStaffError] = useState<string | null>(null);
   const recaptchaRef = useRef<HTMLDivElement>(null);
 
   const finish = async (idToken: string, typedName?: string): Promise<void> => {
@@ -176,27 +170,8 @@ export const LoginPage = () => {
     }
   };
 
-  const staff = async (e: FormEvent): Promise<void> => {
-    e.preventDefault();
-    if (!password.trim()) {
-      setStaffError("Enter the password");
-      return;
-    }
-    setBusy("password");
-    setStaffError(null);
-    const res = await login(password).catch(() => ({ ok: false as const, error: "No connection" }));
-    if (res.ok) {
-      window.location.assign(res.role === "admin" ? (portalNext(search) ?? "/admin") : "/");
-      return;
-    }
-    setBusy(null);
-    setStaffError(res.error);
-  };
-
-  const showStaff = staffOpen || (decided && !firebaseOn);
-
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-surface-2 px-4 py-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+    <main className="flex min-h-dvh flex-col items-center justify-center bg-surface-2 px-4 py-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="w-full max-w-sm space-y-5 rounded-3xl bg-surface p-6 shadow-xl ring-1 ring-line">
         <Brand />
         {link.data && (
@@ -205,6 +180,16 @@ export const LoginPage = () => {
           </p>
         )}
 
+        {decided && !firebaseOn && (
+          <p role="status" className="py-4 text-center text-base font-semibold text-muted">
+            Sign-in unavailable
+          </p>
+        )}
+        {error && !firebaseOn && (
+          <p role="alert" className="text-center text-sm font-semibold">
+            {error}
+          </p>
+        )}
         {restoring ? (
           <p role="status" aria-live="polite" className="py-6 text-center text-base font-semibold text-muted">
             Signing in…
@@ -295,7 +280,7 @@ export const LoginPage = () => {
         )}
 
       </div>
-    </div>
+    </main>
   );
 };
 

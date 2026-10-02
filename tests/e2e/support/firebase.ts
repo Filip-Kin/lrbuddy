@@ -1,6 +1,6 @@
 /**
  * Firebase ID tokens for the signin server. In emulator mode the Admin SDK accepts an unsigned
- * token (alg "none") and only asks the emulator whether the account exists; global-setup.ts
+ * token (alg "none") and only asks the emulator whether the account exists; fake-auth.ts
  * answers that. So a test signs a person in with one POST, the way the client does after the
  * SMS code, without the phone form (which needs the real Firebase client and reCAPTCHA).
  */

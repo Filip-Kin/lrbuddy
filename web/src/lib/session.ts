@@ -13,24 +13,6 @@ export const useMe = () => trpc.shared.me.useQuery(undefined, { staleTime: 60_00
 
 export const isSignedIn = (me: Me | undefined): me is SignedIn => !!me && me.role !== "anon" && me.role !== "none";
 
-export type LoginResult = { ok: true; role: Role } | { ok: false; error: string };
-
-/** Staff password sign-in (`POST /auth/login`). Codes and tokens sign in only through /j, /t and /g. */
-export const login = async (code: string, displayName?: string): Promise<LoginResult> => {
-  const res = await fetch("/auth/login", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(displayName ? { code, displayName } : { code }),
-    credentials: "same-origin",
-  });
-  const body: unknown = await res.json().catch(() => null);
-  if (res.ok && typeof body === "object" && body !== null && (body as { ok?: unknown }).ok === true) {
-    return { ok: true, role: (body as { role: Role }).role };
-  }
-  if (res.status === 429) return { ok: false, error: "Too many tries" };
-  return { ok: false, error: "Wrong password" };
-};
-
 export type FirebaseState = "entered" | "choose" | "request";
 export type FirebaseResult = { ok: true; state: FirebaseState } | { ok: false; status: number; error: string };
 

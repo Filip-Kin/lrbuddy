@@ -73,7 +73,7 @@ export const Nav = ({
   }, [open]);
 
   const inlineCls = (active: boolean): string =>
-    `inline-flex min-h-10 items-center whitespace-nowrap rounded-lg px-3 text-sm font-semibold transition-colors ${
+    `inline-flex min-h-10 items-center whitespace-nowrap rounded-lg px-2.5 text-sm font-semibold transition-colors ${
       active ? "bg-brand text-on-brand" : "text-bar-text/85 hover:bg-white/10 hover:text-bar-text"
     }`;
 

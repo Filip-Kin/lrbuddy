@@ -27,13 +27,18 @@ to approve it.
 | Crew (red shirt) | Crew sheet, `/j/<token>` | Map, Request, Requests, Lots, Command center, Settings |
 | Driver | CC sheet, one per truck, `/t/<truck code>` | Queue, Map, Stock, Settings |
 | Green shirt | CC sheet, `/g/<green code>` | Map, Requests, Lots, Photos, Crews, Trucks, Broadcast, Stats, Access |
-| Admin | none; the Staff password link on `/login` (`ADMIN_PASSWORD`) | Event, Day, Companies, Crews, Lots, Photos, Catalog, Export, Green view, Access, and the planning portal (Plan) |
+| Admin | none; an admin membership (Access request, invite, or `/admin/people`) | Event, Day, Companies, Crews, Lots, Photos, Catalog, Export, Green view, Access, Invite, People, and the planning portal (Plan) |
 
 Green shirts approve requests for their CC at `/access` (a count shows in the
-nav); admin sees every CC at `/admin/access`. Typed codes are not a way in:
-`POST /auth/login` (the Staff password field) takes only `ADMIN_PASSWORD`, and a
-truck code, green code or crew token works only through its `/t`, `/g` or `/j`
-link. The gate, the scripts and the e2e suite sign in through those links.
+nav); admin sees every CC and every Admin request at `/admin/access`. There is no
+password and nothing is typed: a truck code, green code or crew token works only
+through its `/t`, `/g` or `/j` link. Admins (any role and scope) and green shirts
+(their own CC) make invite links `/i/<token>` on the Invite screen; admins add and
+remove admins on `/admin/people`, and the last admin stays.
+
+The first admin is one row, inserted by hand after that person has signed in once:
+
+    INSERT INTO memberships (user_id, role, status, requested_at, decided_at, note) SELECT id, 'admin', 'approved', CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000, 'SQL' FROM users WHERE phone = '+1XXXXXXXXXX';
 
 ## Sign-in setup (Firebase)
 
@@ -68,9 +73,8 @@ Production needs, once:
 5. Project settings, Service accounts: generate a key and set its JSON, on one
    line, as `FIREBASE_SERVICE_ACCOUNT` on Coolify.
 
-Without `FIREBASE_SERVICE_ACCOUNT` (or the emulator) the server runs as before
-this feature: `/login` shows the staff password field and a crew QR signs the
-phone straight into the crew.
+Without `FIREBASE_SERVICE_ACCOUNT` (or the emulator) nobody can sign in on
+`/login`; a crew, truck or CC QR still signs the phone straight into its place.
 
 ## Planning portal
 
@@ -107,7 +111,7 @@ rotate handles. It exists because the east side's streets run on a diagonal.
 
 ```sh
 bun install
-cp .env.example .env          # set SESSION_SECRET and ADMIN_PASSWORD
+cp .env.example .env          # set SESSION_SECRET
 bun run seed                  # demo event; prints every QR join link, writes $DATA_DIR/seed-codes.json
 bun run dev                   # server on :3000 with watch, vite on :5173
 ```
@@ -130,8 +134,8 @@ Every green code, truck code and crew token is generated on each run, the same w
 pages make them. The seed prints the QR join links (`/g/<code>`, `/t/<code>`, `/j/<token>`) and
 writes them to `$DATA_DIR/seed-codes.json` (role, day, cc, name, code, path, link), where the
 scripts and the e2e suite read them. That file stays in the data folder, never in the repo.
-People sign in only by QR link or, after phone or Google sign-in, by access request; the staff
-password is the only thing `/auth/login` takes.
+The seed also keeps an admin user (Firebase uid `seed-admin`, the `admin` row of that file) with
+an admin membership, which the scripts and the e2e suite sign in as through the fake Auth emulator.
 
 ## Environment
 
@@ -140,12 +144,11 @@ password is the only thing `/auth/login` takes.
 | `PORT` | `3000` | |
 | `DATA_DIR` | `./data` | SQLite file `lrbuddy.db`. `/data` in the container. |
 | `SESSION_SECRET` | required | Long random string. The server refuses to start without it. |
-| `ADMIN_PASSWORD` | required | Admin login. |
 | `PUBLIC_URL` | `http://localhost:3000` | Used in join links and QR codes. `https` turns on Secure cookies. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | empty | Web Push keys (`bunx web-push generate-vapid-keys`). Without them the Notifications switch reads "Not set up on this server". |
 | `VAPID_SUBJECT` | `mailto:me@filipkin.com` | |
 | `OSRM_URL` | `https://router.project-osrm.org` | Routing. `off` uses straight lines at 25 km/h. |
-| `TRUST_PROXY_HOPS` | `0` | Proxies in front that append to `X-Forwarded-For`. Set `1` behind Coolify so the login limit counts per client, not per proxy. |
+| `TRUST_PROXY_HOPS` | `0` | Proxies in front that append to `X-Forwarded-For`. Set `1` behind Coolify so the sign-in limit counts per client, not per proxy. |
 | `WEB_DIST` | `web/dist` | Serve the web build from another folder. |
 | `FIREBASE_SERVICE_ACCOUNT` | empty | Firebase service-account JSON on one line. Turns on phone and Google sign-in. |
 | `FIREBASE_AUTH_EMULATOR_HOST` | empty | `127.0.0.1:9099` for the local emulator instead of a real project. |
@@ -158,14 +161,17 @@ password is the only thing `/auth/login` takes.
 ```sh
 bun run typecheck && bun test && bun run build
 PY=/home/filip/pit-podcast-automation/.venv/bin/python
-$PY scripts/gate.py http://127.0.0.1:3000 <admin password>     # release gate, must exit 0
-$PY scripts/story.py http://127.0.0.1:3000 <admin password>    # full flow across all four roles, on a fresh seed
-$PY scripts/access.py http://127.0.0.1:3000 http://127.0.0.1:9099 <admin password>   # sign-in and approvals, emulator only
+bun tests/e2e/support/fake-auth.ts 9297 &      # fake Auth emulator: any uid signs in, no SMS
+bun run seed && FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9297 bun run start &
+$PY scripts/gate.py http://127.0.0.1:3000      # release gate, must exit 0
+$PY scripts/story.py http://127.0.0.1:3000     # full flow across all four roles, on a fresh seed
+$PY scripts/access.py http://127.0.0.1:3000 http://127.0.0.1:9099   # sign-in and approvals, real emulator (docker compose) only
 bun run shots http://127.0.0.1:3000 crew /,/requests --link "$(jq -r '.[] | select(.name=="FORD 1") | .path' data/seed-codes.json)"
 ```
 
-The scripts read the QR links from `$DATA_DIR/seed-codes.json` (`SEED_CODES` names another file),
-so run them with the `DATA_DIR` the server was seeded into. `story.py` changes data (one request, one green stop, a Land Bank import); run
+The scripts sign in through the fake Auth emulator: admin as the seed's admin user, everyone else
+as a fresh user who opens a QR link from `$DATA_DIR/seed-codes.json` (`SEED_CODES` names another
+file), so run them with the `DATA_DIR` the server was seeded into. `story.py` changes data (one request, one green stop, a Land Bank import); run
 `bun run seed` again afterwards. Screenshots land in
 `/home/filip/preview-shots/lrbuddy/`.
 
@@ -187,8 +193,9 @@ production. `E2E_KEEP=1` keeps the folder and the server logs; `E2E_WORKERS` set
   ArcGIS (Land Bank and parcel layers), Overpass, OSRM and World Imagery from a made-up street grid
   (`fake-world.ts`) around CC East, CC West and CC Webb. Browsers get a blank tile for Esri and
   nothing else outside; any other outside request fails the test.
-- Two servers: the main one with Firebase off, and one with Firebase on through a fake Auth
-  emulator for the access request tests.
+- Two servers, each with its own database, both with Firebase on through the fake Auth emulator
+  (`support/fake-auth.ts`): the main one, and one for the access request tests. Admin is the seed's
+  admin user; everyone else signs in as a fresh user and opens a QR or invite link.
 - The phone and laptop projects run at the same time on one server, each in its own lane of the
   seed (`support/lanes.ts`). Each test puts back what it changes where the app allows it
   (broadcasts and events have no delete); the databases are thrown away at the end.
@@ -206,6 +213,8 @@ memory limit, persistent volume at `/data`.
 
 ```sh
 docker build -t lrbuddy .
-docker run -e SESSION_SECRET=... -e ADMIN_PASSWORD=... -e PUBLIC_URL=https://lrbuddy.filipkin.com \
+docker run -e SESSION_SECRET=... -e PUBLIC_URL=https://lrbuddy.filipkin.com \
   -p 3000:3000 -v lrbuddy-data:/data lrbuddy
 ```
+
+Coolify: `ADMIN_PASSWORD` is no longer read; delete it from the app's environment.

@@ -3,6 +3,7 @@ import { Redirect, Route, Switch } from "wouter";
 import { ErrorBoundary } from "../../components/ErrorBoundary.tsx";
 import { ScreenLoading } from "../../components/ScreenLoading.tsx";
 import { GreenAccessPage } from "../access/AccessQueue.tsx";
+import { InvitePage } from "../access/InvitePage.tsx";
 import { BroadcastPage } from "./BroadcastPage.tsx";
 import { CrewsPage } from "./CrewsPage.tsx";
 import { MapPage } from "./MapPage.tsx";
@@ -33,6 +34,7 @@ export const GreenRoutes = () => (
     <Route path="/broadcast" component={BroadcastPage} />
     <Route path="/stats" component={StatsPage} />
     <Route path="/access" component={GreenAccessPage} />
+    <Route path="/invite" component={InvitePage} />
     <Route>
       <Redirect to="/" />
     </Route>

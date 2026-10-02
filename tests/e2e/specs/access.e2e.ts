@@ -14,7 +14,7 @@ test("sign in, request a red shirt role, the green shirt approves, the phone mov
   const red = await as("", { anon: true, base: signin });
   const page = red.page;
   await visit(page, "/login");
-  await expect(page.getByLabel("Staff password").or(page.getByRole("button", { name: "Staff password" })).first()).toBeVisible();
+  await expect(page.locator("input[type=password]")).toHaveCount(0);
   expect(await firebaseSignIn(red.ctx, signin, uid, name, `${L.phone}1`)).toBe("request");
 
   await visit(page, "/");

@@ -145,3 +145,22 @@ test("Crews, Trucks, Stats and Photos screens", async ({ as, L }) => {
   await page.keyboard.press("Escape");
   await expect(viewer).toHaveCount(0);
 });
+
+test("a screen chunk gone after a deploy reloads the page, again on the next deploy", async ({ as, L }) => {
+  const green = await as(L.green);
+  green.allowPageErrors = true;
+  const page = green.page;
+  await visit(page, "/");
+  // The tab already reloaded for an earlier deploy, long ago.
+  await page.evaluate(() => sessionStorage.setItem("lrb.chunkReload", String(Date.now() - 3_600_000)));
+  // This deploy: the Wrap up chunk the old page knows is gone, once.
+  let failed = 0;
+  await page.route(/\/assets\/WrapPage-[^/]+\.js$/, async (route) => {
+    if (failed++ === 0) return route.fulfill({ status: 404, body: "" });
+    return route.continue();
+  });
+  await navTo(page, "Wrap up");
+  await expect.poll(() => failed, { message: "the chunk asked for twice: the 404, then after the reload" }).toBeGreaterThanOrEqual(2);
+  await expect(page.locator("[data-error-panel]")).toHaveCount(0);
+  await expect(page.locator("[data-wrap-camera], [data-flag-camera], video").first()).toBeAttached();
+});

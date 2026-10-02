@@ -56,16 +56,22 @@ export const reportError = (err: unknown, extraStack?: string | null): void => {
 };
 
 /**
- * One reload per tab when a lazy screen fails to load: after a deploy the old chunk names are
- * gone and the fresh index.html points at the new ones.
+ * A reload when a lazy screen fails to load: after a deploy the old chunk names are gone and the
+ * fresh index.html points at the new ones. At most one per minute per tab, so a chunk that is
+ * really missing shows the error panel instead of a reload loop, and the next deploy (Filip,
+ * 2026-10-02: a tab open across a day of deploys hit "Screen failed" because a once-per-tab
+ * flag was spent hours earlier) reloads again.
  */
 const RELOAD_KEY = "lrb.chunkReload";
+const RELOAD_GAP_MS = 60_000;
 export const reloadOnceForChunk = (err: unknown): boolean => {
   if (!isChunkLoadError(err)) return false;
-  if (storageGet("session", RELOAD_KEY)) return false;
-  storageSet("session", RELOAD_KEY, "1");
+  const last = Number(storageGet("session", RELOAD_KEY) ?? 0);
+  if (Number.isFinite(last) && Date.now() - last < RELOAD_GAP_MS) return false;
+  const stamp = String(Date.now());
+  storageSet("session", RELOAD_KEY, stamp);
   // Storage refused: no way to know this is the second try, so no reload loop.
-  if (!storageGet("session", RELOAD_KEY)) return false;
+  if (storageGet("session", RELOAD_KEY) !== stamp) return false;
   window.location.reload();
   return true;
 };
@@ -86,5 +92,10 @@ export const installGlobalErrorReporting = (): void => {
   });
   window.addEventListener("unhandledrejection", (e) => {
     reportError(e.reason);
+  });
+  // Vite's preload of a chunk's CSS or imports failed: the same stale-deploy case.
+  window.addEventListener("vite:preloadError", (e) => {
+    const err = (e as Event & { payload?: unknown }).payload ?? new Error("Failed to fetch dynamically imported module");
+    if (reloadOnceForChunk(isChunkLoadError(err) ? err : new Error("Failed to fetch dynamically imported module"))) e.preventDefault();
   });
 };

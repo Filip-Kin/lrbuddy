@@ -1,9 +1,14 @@
 # Bugs the e2e suite found
 
-Each entry has a test in `specs/found.e2e.ts` marked `test.fixme` with the entry's id. When a fix
-lands, change `test.fixme` to `test` and run `bun run e2e specs/found.e2e.ts`.
+Each entry has a test in `specs/found.e2e.ts` named with the entry's id, marked `test.fixme` while
+the bug is open. When a fix lands, change `test.fixme` to `test`, run `bun run e2e found.e2e.ts`,
+and mark the entry fixed with its commit.
 
 ## FOUND-1: leaving a map while it zooms throws `_leaflet_pos`
+
+**Fixed in 1dd57ca.** Every map now goes through `web/src/lib/map/removeMap.ts`, which stops
+animations, finishes the pending zoom, clears the wheel and pinch timers, removes the map and
+drops its listeners. The fixtures no longer excuse this error.
 
 Tapping a nav link while a Leaflet map is still animating (the zoom buttons, a wheel zoom, or the
 first fit just after the screen opens) throws an uncaught
@@ -23,11 +28,14 @@ fit). Likely cause: `web/src/lib/map/MapView.tsx` calls `m.remove()` on unmount 
 transition is pending; Leaflet's `_onZoomTransitionEnd` then reads a removed pane. Stopping the
 animation first (`m.stop()`, or `m.off()` and removing on `zoomend`) is the usual fix.
 
-Test: `found.e2e.ts` "FOUND-1 ...". Other specs wait for the map to settle before they navigate,
-and the fixtures report this one error as an annotation instead of failing the test, so the bug
-does not make unrelated tests flaky.
+Test: `found.e2e.ts` "FOUND-1 ...", with an in-page round (zoom and route change from one script)
+because the Playwright clicks alone could land after the zoom had ended and pass on the bug.
 
 ## FOUND-2: Land Bank addresses keep the Land Bank's capitals
+
+**Fixed in 1dd57ca.** `titleCase` runs in `fetchDlba`, `upsertLots` (Land Bank, vacant parcels,
+CSV), `addManualLot`, publish, the survey photo lot and the drawn-lot alley names. Lots stored
+before the fix: `DATA_DIR=<dir> bun scripts/fix-address-case.ts` (`--dry` to count first).
 
 `fetchDlba` (`server/lots-import.ts`, the `out.push` in the page loop) stores the Land Bank's
 `name` as it comes, in capitals ("4136 BUCKINGHAM"), while lots from the parcel layer go through

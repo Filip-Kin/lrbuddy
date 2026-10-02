@@ -20,12 +20,17 @@ export const Sheet = ({
 }) => {
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
+  // Parents pass a new onClose on every render. Read it through a ref so a re-render (a GPS
+  // fix, a live refetch, a keystroke in the parent's state) does not re-run the focus effect,
+  // which pulled focus out of the field being typed in and closed the phone keyboard.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
     const prev = document.activeElement as HTMLElement | null;
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") closeRef.current();
     };
     document.addEventListener("keydown", onKey);
     const overflow = document.body.style.overflow;
@@ -36,7 +41,7 @@ export const Sheet = ({
       document.body.style.overflow = overflow;
       prev?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return createPortal(

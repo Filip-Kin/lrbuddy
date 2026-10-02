@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export type NoticeValue = { tone: "ok" | "error"; text: string } | null;
 
@@ -7,11 +7,14 @@ export type NoticeValue = { tone: "ok" | "error"; text: string } | null;
  * screen readers hear it; clears itself after a while when it is good news.
  */
 export const Notice = ({ value, onClear }: { value: NoticeValue; onClear: () => void }) => {
+  // An inline onClear is new on every parent render; a ref keeps a re-render from restarting the timer.
+  const clear = useRef(onClear);
+  clear.current = onClear;
   useEffect(() => {
     if (!value || value.tone === "error") return;
-    const t = setTimeout(onClear, 6000);
+    const t = setTimeout(() => clear.current(), 6000);
     return () => clearTimeout(t);
-  }, [value, onClear]);
+  }, [value]);
   return (
     <div role="status" aria-live="polite" className="empty:hidden">
       {value && (

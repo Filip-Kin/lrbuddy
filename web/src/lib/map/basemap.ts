@@ -16,8 +16,9 @@ export const ESRI_DARK_BASE = `${ESRI}/World_Dark_Gray_Base/MapServer/tile/{z}/{
 export const ESRI_DARK_LABELS = `${ESRI}/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`;
 /**
  * Past zoom 16 the canvas tiles are upscaled and blur into mush on a phone.
- * Esri's World Street Map is native to zoom 19 in Detroit, so it takes over
- * from 17 up; dark mode inverts it with a CSS filter (see .tiles-dark-street).
+ * Esri's World Street Map is native to zoom 19 in Detroit, so it draws over the
+ * canvas with its zoom 17 tiles and up (from map zoom 16.5, see basemapLayers.ts);
+ * dark mode inverts it with a CSS filter (see .tiles-dark-street).
  */
 export const ESRI_STREETS = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
 export const STREETS_MIN_ZOOM = 17;

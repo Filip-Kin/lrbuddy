@@ -2,7 +2,8 @@ import L from "leaflet";
 import { removeMap } from "../../../lib/map/removeMap.ts";
 import { useEffect, useRef } from "react";
 import type { LotGeometry } from "../../../../../server/db/schema.ts";
-import { DEFAULT_CENTER, DEFAULT_ZOOM, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM, TILE_ATTRIB } from "../../../lib/map/basemap.ts";
+import { DEFAULT_CENTER, DEFAULT_ZOOM, MAX_ZOOM } from "../../../lib/map/basemap.ts";
+import { addBasemap } from "../../../lib/map/basemapLayers.ts";
 import { bandStroke, gradeColour, toLatLngs, usePalette, type Band, type Grade } from "./style.ts";
 import { usePrefersDark } from "../../../lib/map/MapView.tsx";
 
@@ -102,9 +103,7 @@ export const SurveyMap = ({ parcels, context, sides, selectedId, onParcel, passi
     const l = layers.current;
     if (!m || !l) return;
     for (const t of l.tiles) m.removeLayer(t);
-    const opts = { maxNativeZoom: MAX_NATIVE_ZOOM, maxZoom: MAX_ZOOM };
-    l.tiles = [L.tileLayer(dark ? ESRI_DARK_BASE : ESRI_BASE, { ...opts, attribution: TILE_ATTRIB }).addTo(m), L.tileLayer(dark ? ESRI_DARK_LABELS : ESRI_LABELS, opts).addTo(m)];
-    for (const t of l.tiles) (t as L.TileLayer).bringToBack();
+    l.tiles = addBasemap(m, { dark, streets: false });
   }, [dark]);
 
   const shape = (p: MapParcel, style: L.PathOptions): L.Path => {

@@ -11,6 +11,16 @@ const STEP_PX = 4;
 const COMMIT_PX = 8;
 const COMMIT_MS = 120;
 
+/** The Leaflet internals its own pinch uses (leaflet/src/map/handler/Map.TouchZoom.js, 1.9). */
+interface PinchInternals {
+  _stop(): void;
+  _moveStart(zoomChanged: boolean, noMoveStart: boolean): void;
+  _move(center: L.LatLng, zoom: number, data: { pinch: boolean; round: boolean }): void;
+  _limitZoom(zoom: number): number;
+  _animateZoom(center: L.LatLng, zoom: number, startAnim: boolean, noUpdate: number | undefined): void;
+  _resetView(center: L.LatLng, zoom: number): void;
+}
+
 export interface PaintStrokeOptions {
   /** Paint mode is on. */
   on: boolean;
@@ -75,7 +85,8 @@ export const usePaintStroke = (map: L.Map | null, opts: PaintStrokeOptions): { z
     el.style.touchAction = "none";
 
     const touches = new Map<number, L.Point>();
-    let gesture: { mid: L.Point; dist: number; zoom: number; anchor: L.LatLng; snap: number | undefined } | null = null;
+    const lm = map as unknown as PinchInternals;
+    let gesture: { mid: L.Point; dist: number; zoom: number; anchor: L.LatLng; moved: boolean; center: L.LatLng; to: number; frame: number } | null = null;
     const pair = (): [L.Point, L.Point] | null => {
       const v = [...touches.values()];
       return v.length >= 2 ? [v[0]!, v[1]!] : null;
@@ -83,24 +94,39 @@ export const usePaintStroke = (map: L.Map | null, opts: PaintStrokeOptions): { z
     const startGesture = (): void => {
       const pts = pair();
       if (!pts) return;
+      lm._stop();
       const mid = pts[0].add(pts[1]).divideBy(2);
-      gesture = { mid, dist: Math.max(1, pts[0].distanceTo(pts[1])), zoom: map.getZoom(), anchor: map.containerPointToLatLng(mid), snap: map.options.zoomSnap };
-      map.options.zoomSnap = 0;
+      gesture = { mid, dist: Math.max(1, pts[0].distanceTo(pts[1])), zoom: map.getZoom(), anchor: map.containerPointToLatLng(mid), moved: false, center: map.getCenter(), to: map.getZoom(), frame: 0 };
     };
+    // Moves the map the way Leaflet's own pinch does (Map.TouchZoom): one `_move` per frame with
+    // `pinch`, which scales the tiles and vectors already drawn. `setView` per touch move reset the
+    // whole view every frame instead: every tile thrown away and refetched, every path redrawn.
     const moveGesture = (): void => {
       const pts = pair();
-      if (!gesture || !pts) return;
+      const g = gesture;
+      if (!g || !pts) return;
       const mid = pts[0].add(pts[1]).divideBy(2);
       const dist = Math.max(1, pts[0].distanceTo(pts[1]));
-      const zoom = Math.min(map.getMaxZoom(), Math.max(map.getMinZoom(), gesture.zoom + Math.log2(dist / gesture.dist)));
+      const zoom = Math.min(map.getMaxZoom(), Math.max(map.getMinZoom(), g.zoom + Math.log2(dist / g.dist)));
       // Keep the spot that was under the fingers under the fingers.
-      const centre = map.unproject(map.project(gesture.anchor, zoom).subtract(mid).add(map.getSize().divideBy(2)), zoom);
-      map.setView(centre, zoom, { animate: false });
+      g.center = map.unproject(map.project(g.anchor, zoom).subtract(mid).add(map.getSize().divideBy(2)), zoom);
+      g.to = zoom;
+      if (!g.moved) {
+        lm._moveStart(true, false);
+        g.moved = true;
+      }
+      cancelAnimationFrame(g.frame);
+      g.frame = requestAnimationFrame(() => lm._move(g.center, g.to, { pinch: true, round: false }));
     };
     const endGesture = (): void => {
-      if (!gesture) return;
-      map.options.zoomSnap = gesture.snap;
+      const g = gesture;
+      if (!g) return;
       gesture = null;
+      cancelAnimationFrame(g.frame);
+      if (!g.moved) return;
+      const zoom = lm._limitZoom(g.to);
+      if (map.options.zoomAnimation) lm._animateZoom(g.center, zoom, true, map.options.zoomSnap);
+      else lm._resetView(g.center, zoom);
     };
     let stroke: {
       id: number;

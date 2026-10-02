@@ -2,7 +2,8 @@ import L from "leaflet";
 import { removeMap } from "../../../lib/map/removeMap.ts";
 import { useEffect, useRef, useState } from "react";
 import type { LotGeometry } from "../../../../../server/db/schema.ts";
-import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM } from "../../../lib/map/basemap.ts";
+import { DEFAULT_CENTER, MAX_ZOOM } from "../../../lib/map/basemap.ts";
+import { addBasemap } from "../../../lib/map/basemapLayers.ts";
 import { escapeHtml } from "../../../lib/map/markers.ts";
 import { ahead, metresPerPixel, turn, type LatLng } from "./geo.ts";
 import { gradeColour, toLatLngs, usePalette, type Grade } from "./style.ts";
@@ -100,9 +101,7 @@ export const DriveMap = ({ fix, heading, shapes, zoom }: { fix: LatLng | null; h
     const m = map.current;
     if (!m) return;
     for (const t of tiles.current) m.removeLayer(t);
-    const opts = { maxNativeZoom: MAX_NATIVE_ZOOM, maxZoom: MAX_ZOOM };
-    tiles.current = [L.tileLayer(dark ? ESRI_DARK_BASE : ESRI_BASE, opts).addTo(m), L.tileLayer(dark ? ESRI_DARK_LABELS : ESRI_LABELS, opts).addTo(m)];
-    for (const t of tiles.current) (t as L.TileLayer).bringToBack();
+    tiles.current = addBasemap(m, { dark, streets: false });
   }, [dark]);
 
   const d = Math.ceil(Math.hypot(size.w, size.h));

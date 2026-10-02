@@ -98,6 +98,45 @@ test("the CC map draws lots, crew rectangles, the CC and the legend", async ({ a
   for (const b of ["Paint", "Draw area", "Draw lot", "Add stop"]) await expect(page.getByRole("button", { name: b, exact: true })).toBeVisible();
 });
 
+test("a basemap at every zoom, 16.5 included (field report 2026-10-02: only the data layers)", async ({ as, L }) => {
+  const green = await as(L.webbGreen);
+  const page = green.page;
+  await visit(page, "/");
+  await expect(page.getByRole("region", { name: "Command center map" })).toBeVisible();
+  // Loaded tiles on screen, by layer: canvas base, canvas labels, streets.
+  const tiles = () =>
+    page.evaluate(() => {
+      const box = document.querySelector(".leaflet-container")!.getBoundingClientRect();
+      const n = { base: 0, labels: 0, streets: 0 };
+      for (const img of document.querySelectorAll<HTMLImageElement>("img.leaflet-tile-loaded")) {
+        const r = img.getBoundingClientRect();
+        if (r.right <= box.left || r.left >= box.right || r.bottom <= box.top || r.top >= box.bottom) continue;
+        if (img.src.includes("World_Street_Map")) n.streets++;
+        else if (img.src.includes("Reference")) n.labels++;
+        else n.base++;
+      }
+      return n;
+    });
+  await zoomButtonTo(page, 16);
+  // Half a zoom step with the wheel: zoomSnap is 0.5, so a small wheel turn lands on 16.5.
+  const box = (await page.locator(".leaflet-container").first().boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let i = 0; i < 6 && (await zoomOf(page)) <= 16; i++) {
+    await page.mouse.wheel(0, -40);
+    await page.waitForTimeout(450);
+  }
+  expect(await zoomOf(page)).toBe(16.5);
+  // The canvas runs under everything at every zoom; the streets take over from 16.5.
+  await expect.poll(async () => (await tiles()).base, { message: "canvas tiles at 16.5" }).toBeGreaterThan(0);
+  await expect.poll(async () => (await tiles()).streets, { message: "street tiles at 16.5" }).toBeGreaterThan(0);
+  await zoomButtonTo(page, 18);
+  await expect.poll(async () => (await tiles()).base, { message: "canvas tiles at 18" }).toBeGreaterThan(0);
+  await expect.poll(async () => (await tiles()).streets, { message: "street tiles at 18" }).toBeGreaterThan(0);
+  await zoomButtonTo(page, 15);
+  await expect.poll(async () => (await tiles()).base, { message: "canvas tiles at 15" }).toBeGreaterThan(0);
+  expect((await tiles()).streets, "no street tiles under 16.5").toBe(0);
+});
+
 test("rectangle names: small, along the top edge inside the rectangle, taking no taps but their dot", async ({ as, L }) => {
   const green = await as(L.webbGreen);
   const page = green.page;
@@ -210,7 +249,8 @@ test("Paint: a stroke across three parcels makes them Todo, Undo takes them back
     await until(async () => !(await lotsOf(green)).some((l) => painted.includes(l.parcelId ?? "") && l.status === "open"), "the lots gone after Undo");
     const before = await page.evaluate(() => {
       const r = document.querySelector(".leaflet-container")!.getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2, pane: getComputedStyle(document.querySelector(".leaflet-map-pane")!).transform };
+      const p = document.querySelector("[data-parcel]")!.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, parcel: [p.left, p.top, p.width].map(Math.round).join(",") };
     });
     const cdp = await page.context().newCDPSession(page);
     const pts = (dx: number, spread: number) => [
@@ -220,8 +260,13 @@ test("Paint: a stroke across three parcels makes them Todo, Undo takes them back
     await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: pts(0, 40) });
     for (let i = 1; i <= 8; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: pts(i * 15, 40 + i * 8) });
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-    const after = await page.evaluate(() => getComputedStyle(document.querySelector(".leaflet-map-pane")!).transform);
-    expect(after, "two fingers moved the map").not.toBe(before.pane);
+    // Leaflet's pinch moves the layers, not the map pane: a parcel's place on screen says the map moved.
+    const parcelBox = () =>
+      page.evaluate(() => {
+        const p = document.querySelector("[data-parcel]")!.getBoundingClientRect();
+        return [p.left, p.top, p.width].map(Math.round).join(",");
+      });
+    await expect.poll(parcelBox, { message: "two fingers moved the map" }).not.toBe(before.parcel);
     await expect(page.locator("[data-paint-count]")).not.toHaveText(/[1-9] lots?$/);
     await until(async () => !(await lotsOf(green)).some((l) => painted.includes(l.parcelId ?? "") && l.status === "open"), "the lots gone after Undo");
     await page.locator("[data-paint-exit]").click();

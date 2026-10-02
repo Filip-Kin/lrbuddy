@@ -1,7 +1,8 @@
 import L from "leaflet";
 import { removeMap } from "../../lib/map/removeMap.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, ESRI_STREETS, MAX_NATIVE_ZOOM, MAX_ZOOM, STREETS_MAX_NATIVE_ZOOM, STREETS_MIN_ZOOM, TILE_ATTRIB } from "../../lib/map/basemap.ts";
+import { DEFAULT_CENTER, MAX_ZOOM } from "../../lib/map/basemap.ts";
+import { addBasemap } from "../../lib/map/basemapLayers.ts";
 import type { LotGeometry } from "../../../../server/db/schema.ts";
 import { ccBody, escapeHtml, lotIcon, lotShape, routeLine, type LotStatus } from "../../lib/map/markers.ts";
 import { attachLabelDeclutter } from "../../lib/map/declutter.ts";
@@ -268,14 +269,8 @@ export const DriverMap = ({
     const m = map.current;
     if (!m) return;
     for (const t of tiles.current) m.removeLayer(t);
-    // Same tiles as every other map (MapView): canvas up to 16, street tiles from 17.
-    const opts = { maxNativeZoom: MAX_NATIVE_ZOOM, maxZoom: STREETS_MIN_ZOOM - 1 };
-    tiles.current = [
-      L.tileLayer(dark ? ESRI_DARK_BASE : ESRI_BASE, { ...opts, attribution: TILE_ATTRIB }).addTo(m),
-      L.tileLayer(dark ? ESRI_DARK_LABELS : ESRI_LABELS, opts).addTo(m),
-      L.tileLayer(ESRI_STREETS, { minZoom: STREETS_MIN_ZOOM, maxNativeZoom: STREETS_MAX_NATIVE_ZOOM, maxZoom: MAX_ZOOM, className: dark ? "tiles-dark-street" : "" }).addTo(m),
-    ];
-    for (const t of tiles.current) (t as L.TileLayer).bringToBack();
+    // Same basemap as every other map (MapView).
+    tiles.current = addBasemap(m, { dark });
   }, [dark]);
 
   const d = Math.ceil(Math.hypot(size.w, size.h));

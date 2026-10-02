@@ -1104,3 +1104,31 @@ bg color."
   unsigned token for any uid. The seed keeps an admin user (uid `seed-admin`) with an approved admin
   membership and writes it as the `admin` row of `seed-codes.json`; admin signs in as that user,
   everyone else as a fresh user who opens a QR or invite link. `/auth/login` returning 404 is asserted.
+
+## 27. Switch day, CC and role from the header (Filip, 2026-10-02 13:05)
+
+Field report: his phone was signed into Day 4; Sign out took him to admin and he could not find how to
+get into Day 5. And as a green shirt driving the truck he wants the truck screens but still to mark
+lots Todo.
+
+- The scope chip in the header ("Truck B1, CC Monterey", "CC Monterey, Day 5") is a button on every
+  screen. It opens a **Switch** sheet: Day (chips for the event's days, today first and marked),
+  then CC for that day, then Role (the roles the user holds there). Picking a combination signs the
+  session into it at once, no reload of the app shell, and lands on that role's home.
+- What a user may pick: every approved membership; admins any day, any CC and any role (green,
+  driver of any truck, crew of any crew); a green at a CC may also take Driver for any truck of that
+  CC and day without a request (an approved driver membership is created on the spot, noted
+  "self, green"). Anything else is a request (the existing access request, prefilled).
+- Membership days: a green or driver membership for one day does not carry to the next, but the
+  Switch sheet lists the same role at the same company/CC name on other days as "Request" with one
+  tap.
+- **Capabilities follow the person, not only the current screen.** A user who holds green at the
+  current CC and day gets green powers on the driver screens: the driver map shows bare parcels as
+  thin outlines and has Paint (toggle brush plus Do not touch) and the parcel sheet with all five
+  statuses. Server-side, procedures accept an actor whose user holds any approved membership granting
+  the action at that CC and day, not only the session's current role.
+- Sign out signs out (Firebase and the session) and lands on /login. It never drops a person into the
+  admin screens. Leaving a role is "Switch".
+- The Switch sheet is a bottom sheet on phones, a popover on laptops; labels only (ui-copy).
+- Gate and e2e: switch green Day 5 to driver Truck B1 and back from the chip; a green-and-driver user
+  paints on the driver map; Sign out lands on /login; an admin switches to any day.

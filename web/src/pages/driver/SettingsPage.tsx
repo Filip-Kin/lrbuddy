@@ -73,7 +73,7 @@ export const SettingsPage = () => {
       <ConfirmSheet
         open={leaving}
         title={`Leave ${truckName}`}
-        body="Truck code needed to rejoin"
+        body="Truck QR needed to rejoin"
         action="Leave truck"
         dismiss="Stay"
         busy={busy}

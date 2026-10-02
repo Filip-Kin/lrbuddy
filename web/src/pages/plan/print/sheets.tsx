@@ -298,8 +298,6 @@ export const CrewPage = ({ page, cc, event, day, onReady }: { page: CrewSheet; c
                 <dt className="font-semibold">Sign in</dt>
                 <dd className="min-w-0 font-mono break-all">{bareUrl(page.loginUrl)}</dd>
               </div>
-              <dt className="font-semibold">Code</dt>
-              <dd className="font-mono text-sm font-black whitespace-nowrap">{page.code}</dd>
             </dl>
           </section>
         </div>
@@ -327,10 +325,6 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
         <div className="min-w-0">
           <h2 className="text-4xl leading-none font-black tracking-tight">CC {page.name}</h2>
           {page.address && <p className="mt-1 text-base">{page.address}</p>}
-          <div className="mt-2 inline-block rounded-md border-2 border-[#0e3038] px-3 py-1.5">
-            <Caps>Green code</Caps>
-            <div className="font-mono text-3xl font-black tracking-[0.25em]">{page.greenCode ?? ""}</div>
-          </div>
         </div>
         <figure className="flex w-[1.6in] shrink-0 flex-col items-center gap-0.5">
           <Qr svg={page.greenQrSvg ?? page.loginQrSvg} label={`QR code for green shirts at CC ${page.name}`} className="aspect-square w-[1.2in]" />
@@ -373,7 +367,7 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
           <tbody>
             {page.trucks.length === 0 ? (
               <tr className="border-t border-[#d1d3d4]">
-                <td className="py-1" colSpan={3}>
+                <td className="py-1" colSpan={2}>
                   None
                 </td>
               </tr>
@@ -387,7 +381,6 @@ export const CcPage = ({ page, event, day, onReady }: { page: CcSheet; event: st
                     <div className="font-semibold">{t.name}</div>
                     <div>{t.driverName ?? ""}</div>
                   </td>
-                  <td className="py-1 text-right align-middle font-mono text-base font-black tracking-[0.2em]">{t.code}</td>
                 </tr>
               ))
             )}

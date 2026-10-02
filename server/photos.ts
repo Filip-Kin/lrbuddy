@@ -204,7 +204,8 @@ export interface UploadedPhoto {
 
 /**
  * `POST /photos`, multipart: `lotId`, `kind`, `photo` and `thumb` (JPEG, 6 MB
- * each at most), optional `lat` and `lng`. Writes both files, inserts the row,
+ * each at most), optional `lat` and `lng` (where the phone stood) and `heading` (the back
+ * camera's compass bearing, in-app camera only; kept 0 to 360). Writes both files, inserts the row,
  * emits `lot.changed`.
  */
 export const handlePhotoUpload = async (req: Request, now = Date.now()): Promise<Response> => {
@@ -233,6 +234,8 @@ export const handlePhotoUpload = async (req: Request, now = Date.now()): Promise
   if (!size || !isJpeg(small)) return refuse(400, "Photo not a JPEG");
   const lat = num(form.get("lat"));
   const lng = num(form.get("lng"));
+  const rawHeading = num(form.get("heading"));
+  const heading = rawHeading === null ? null : ((rawHeading % 360) + 360) % 360;
   const where = fileUnder(scope, lot, now);
   const row = db
     .insert(lotPhotos)
@@ -249,6 +252,7 @@ export const handlePhotoUpload = async (req: Request, now = Date.now()): Promise
       at: now,
       lat: lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? lat : null,
       lng: lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? lng : null,
+      heading,
       width: size.width,
       height: size.height,
       bytes: full.byteLength,
@@ -368,6 +372,35 @@ export const photoSummary = (eventId: number): Map<number, PhotoSummary> => {
       s.afterCount = r.n;
     }
     out.set(r.lotId, s);
+  }
+  return out;
+};
+
+/** Where the phone stood for a lot's newest Before, and which way its camera faced (SPEC 28, Before spot). */
+export interface BeforeSpot {
+  lat: number;
+  lng: number;
+  heading: number | null;
+}
+
+/**
+ * The Before spot of each photo id given (the newest Before of each lot). None when the photo has no
+ * position, or when its position is the lot's own centre: the Flag screen sent the parcel's centre
+ * instead of the phone's fix until 2026-10-02, and a pin there would point at the wrong place.
+ */
+export const beforeSpots = (photoIds: readonly number[]): Map<number, BeforeSpot> => {
+  const out = new Map<number, BeforeSpot>();
+  if (photoIds.length === 0) return out;
+  const rows = db
+    .select({ id: lotPhotos.id, lat: lotPhotos.lat, lng: lotPhotos.lng, heading: lotPhotos.heading, lotLat: lots.lat, lotLng: lots.lng })
+    .from(lotPhotos)
+    .innerJoin(lots, eq(lots.id, lotPhotos.lotId))
+    .where(inArray(lotPhotos.id, [...photoIds]))
+    .all();
+  for (const r of rows) {
+    if (r.lat === null || r.lng === null) continue;
+    if (Math.abs(r.lat - r.lotLat) < 1e-7 && Math.abs(r.lng - r.lotLng) < 1e-7) continue;
+    out.set(r.id, { lat: r.lat, lng: r.lng, heading: r.heading });
   }
   return out;
 };

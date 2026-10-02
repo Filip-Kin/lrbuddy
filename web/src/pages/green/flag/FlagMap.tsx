@@ -24,6 +24,14 @@ export interface FlagMapLot extends LatLng {
   hasBefore?: boolean;
 }
 
+/** Where the phone stood for a Before and which way its camera faced (SPEC 28): a yellow pin and cone. */
+export interface MapSpot extends LatLng {
+  heading: number | null;
+}
+
+/** Flag's camera badge (SPEC 28): a Todo or In progress lot still waiting for its Before. */
+const needsBefore = (l: FlagMapLot, status: LotStatus): boolean => l.hasBefore === false && (status === "open" || status === "in_progress");
+
 interface Props {
   lots: readonly FlagMapLot[];
   parcels: readonly BareParcel[] | undefined;
@@ -41,6 +49,15 @@ interface Props {
   onMap: (map: L.Map | null) => void;
   /** A tap on a parcel in the strip: `l:<lot id>` or `p:<parcel id>`. */
   onPick: (key: string) => void;
+  /** Which lots carry the camera badge; Flag's rule (no Before yet) when left out. */
+  badge?: (lot: FlagMapLot, status: LotStatus) => boolean;
+  /** Bare parcels on the strip too (Flag), or only on the full-screen Paint map (Wrap up). */
+  bareOnStrip?: boolean;
+  /** The picked lot's Before spot (Wrap up). */
+  spot?: MapSpot | null;
+  /** What the strip centres on instead of the phone, while set. */
+  centre?: LatLng | null;
+  label?: string;
 }
 // #endregion
 
@@ -50,6 +67,8 @@ const cone = (at: LatLng, heading: number): L.LatLngTuple[] => {
   return [[at.lat, at.lng], pt(heading - 20, 30), pt(heading + 20, 30)];
 };
 
+const finitePoint = (p: LatLng): boolean => Number.isFinite(p.lat) && Number.isFinite(p.lng);
+
 /**
  * The Flag screen's map (SPEC 22, map strip): north-up at zoom 18 on the
  * phone, the green map's lot, parcel, rectangle and CC layers, the heading
@@ -57,7 +76,7 @@ const cone = (at: LatLng, heading: number): L.LatLngTuple[] => {
  * pan or zoom gestures, and a tap on a parcel picks it. Full screen is Paint:
  * it centres on the phone once, then holds still under the strokes.
  */
-export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending, expanded, onMap, onPick }: Props) => {
+export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending, expanded, onMap, onPick, badge = needsBefore, bareOnStrip = true, spot = null, centre = null, label = "Flag map" }: Props) => {
   const [map, setMapState] = useState<L.Map | null>(null);
   const mapRef = useRef(onMap);
   mapRef.current = onMap;
@@ -86,21 +105,21 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
       title: l.address ?? undefined,
       onClick: tapPicks ? () => pickRef.current(`l:${l.id}`) : undefined,
     }));
-    // Camera badge: the lots still waiting for their Before (the morning photo round).
+    // Camera badge: the lots still waiting for their photo of this round.
     for (const l of lots) {
       const status = pending.get(`l:${l.id}`) ?? l.status;
-      if (l.hasBefore !== false || (status !== "open" && status !== "in_progress")) continue;
+      if (!badge(l, status)) continue;
       out.push({ id: `cam-${l.id}`, kind: "camera", lat: l.lat, lng: l.lng, noFit: true, title: l.address ?? undefined, onClick: tapPicks ? () => pickRef.current(`l:${l.id}`) : undefined });
     }
     if (cc) out.push({ id: "cc", kind: "cc", lat: cc.lat, lng: cc.lng, name: `CC ${cc.name}`, letter: cc.letter, noFit: true });
     if (fix) out.push({ id: "me", kind: "me", lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, noFit: true });
     return out;
-  }, [lots, cc, fix, pending, tapPicks]);
+  }, [lots, cc, fix, pending, tapPicks, badge]);
 
   const onBare = useCallback((parcelId: string) => {
     if (tapPicksRef.current) pickRef.current(`p:${parcelId}`);
   }, []);
-  useParcelLayer(map, parcels, true, onBare, pending, expanded);
+  useParcelLayer(map, parcels, bareOnStrip || expanded, onBare, pending, expanded);
   // Rectangle names take no tap on this map.
   useDayOfLayer(map, plan, true, undefined);
 
@@ -123,8 +142,18 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
     const o = overlay.current;
     if (!o) return;
     o.group.clearLayers();
-    if (fix && heading !== null && Number.isFinite(heading) && Number.isFinite(fix.lat) && Number.isFinite(fix.lng)) {
+    if (fix && heading !== null && Number.isFinite(heading) && finitePoint(fix)) {
       o.group.addLayer(L.polygon(cone(fix, heading), { renderer: o.renderer, pane: PICK_PANE, className: "lrb-flag-cone", weight: 1, interactive: false }));
+    }
+    if (spot && finitePoint(spot)) {
+      if (spot.heading !== null && Number.isFinite(spot.heading)) {
+        const c = L.polygon(cone(spot, spot.heading), { renderer: o.renderer, pane: PICK_PANE, className: "lrb-wrap-spot-cone", weight: 1, interactive: false });
+        o.group.addLayer(c);
+        c.getElement()?.setAttribute("data-spot-cone", "");
+      }
+      const pin = L.circleMarker([spot.lat, spot.lng], { renderer: o.renderer, pane: PICK_PANE, className: "lrb-wrap-spot", radius: 7, interactive: false });
+      o.group.addLayer(pin);
+      pin.getElement()?.setAttribute("data-spot-pin", "");
     }
     if (picked?.geometry) {
       const shape = L.geoJSON(picked.geometry, { pane: PICK_PANE, style: () => ({ className: "lrb-flag-pick", weight: 4, fill: false, interactive: false }) });
@@ -133,7 +162,7 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
         if (l instanceof L.Path) l.getElement()?.setAttribute("data-flag-pick", picked.key);
       });
     }
-  }, [map, fix, heading, picked]);
+  }, [map, fix, heading, picked, spot]);
   // #endregion
 
   // #region view
@@ -150,7 +179,7 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
   // The strip stays centred on the phone (or the CC before the first fix). Expanding centres once
   // at zoom 18 (again when the first fix arrives after it), then the map holds still so a stroke
   // never lands on a map that moved.
-  const at = fix ?? cc;
+  const at = centre ?? fix ?? cc;
   const atLat = at?.lat;
   const atLng = at?.lng;
   const atRef = useRef(at);
@@ -170,7 +199,7 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
 
   return (
     <div className={`absolute inset-0 ${expanded ? "" : "[&_.leaflet-control-zoom]:hidden"}`} data-flag-map={expanded ? "full" : "strip"}>
-      <MapView markers={markers} fitKey="flag" label="Flag map" className="absolute inset-0" onReady={setMap} />
+      <MapView markers={markers} fitKey="flag" label={label} className="absolute inset-0" onReady={setMap} />
     </div>
   );
 };

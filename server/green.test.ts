@@ -327,6 +327,35 @@ describe("wrap up", () => {
     expect((await w.green.setLotStatus({ lotId: lot.id, status: "open" })).lot?.status).toBe("open");
   });
 
+  test("Before spot: the newest Before's position and heading; none with no position or at the lot's centre", async () => {
+    const w = world();
+    const mk = (n: number) =>
+      db
+        .insert(s.lots)
+        .values({ eventId: w.ev.id, parcelId: `BS-${n}`, address: `${n} Harding`, lat: CC_EAST.lat, lng: CC_EAST.lng, source: "manual", ccId: w.east.id, status: "done" })
+        .returning()
+        .get();
+    const photo = (lotId: number, at: number, spot: { lat: number | null; lng: number | null; heading: number | null }) =>
+      db.insert(s.lotPhotos).values({ lotId, kind: "before", role: "green", ccId: w.east.id, dayId: w.day.id, at, width: 10, height: 10, bytes: 10, ...spot }).run();
+    const spotted = mk(1);
+    photo(spotted.id, 1, { lat: 1, lng: 1, heading: 10 });
+    photo(spotted.id, 2, { lat: CC_EAST.lat + 0.0001, lng: CC_EAST.lng, heading: 90 });
+    const noHeading = mk(2);
+    photo(noHeading.id, 1, { lat: CC_EAST.lat, lng: CC_EAST.lng + 0.0001, heading: null });
+    const noPosition = mk(3);
+    photo(noPosition.id, 1, { lat: null, lng: null, heading: 45 });
+    const atCentre = mk(4);
+    photo(atCentre.id, 1, { lat: CC_EAST.lat, lng: CC_EAST.lng, heading: null });
+    const none = mk(5);
+
+    const byId = new Map((await w.green.wrap()).map((r) => [r.id, r.beforeSpot]));
+    expect(byId.get(spotted.id)).toEqual({ lat: CC_EAST.lat + 0.0001, lng: CC_EAST.lng, heading: 90 });
+    expect(byId.get(noHeading.id)).toEqual({ lat: CC_EAST.lat, lng: CC_EAST.lng + 0.0001, heading: null });
+    expect(byId.get(noPosition.id)).toBeNull();
+    expect(byId.get(atCentre.id)).toBeNull();
+    expect(byId.get(none.id)).toBeNull();
+  });
+
   test("roles: admin with a CC, never driver, crew or signed out", async () => {
     const w = world();
     expect(await callerFor(mkAdmin(), w.east.id).wrap()).toEqual([]);

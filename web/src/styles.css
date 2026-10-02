@@ -632,3 +632,16 @@
   fill: #2f80ed;
   fill-opacity: 0.18;
 }
+/* Wrap up strip (SPEC 28): where the phone stood for the picked lot's Before, a yellow pin and its facing cone. */
+.lrb-wrap-spot {
+  stroke: #0e3038;
+  stroke-width: 2px;
+  fill: #fddd08;
+  fill-opacity: 1;
+}
+.lrb-wrap-spot-cone {
+  stroke: #fddd08;
+  stroke-opacity: 0.95;
+  fill: #fddd08;
+  fill-opacity: 0.28;
+}

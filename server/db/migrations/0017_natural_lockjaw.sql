@@ -1,0 +1,1 @@
+ALTER TABLE `lot_photos` ADD `heading` real;

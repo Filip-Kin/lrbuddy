@@ -81,7 +81,7 @@ beforeEach(() => {
 const upload = async (
   session: { id: string } | null,
   lotId: number,
-  opts: { kind?: string; photo?: Uint8Array; thumb?: Uint8Array; now?: number } = {},
+  opts: { kind?: string; photo?: Uint8Array; thumb?: Uint8Array; now?: number; heading?: string } = {},
 ): Promise<{ status: number; body: { ok: boolean; error?: string; photo?: { id: number } } }> => {
   const form = new FormData();
   form.set("lotId", String(lotId));
@@ -90,6 +90,7 @@ const upload = async (
   form.set("thumb", new Blob([opts.thumb ?? jpeg(32, 24)], { type: "image/jpeg" }), "thumb.jpg");
   form.set("lat", "42.38");
   form.set("lng", "-82.99");
+  if (opts.heading !== undefined) form.set("heading", opts.heading);
   const req = new Request("http://test/photos", { method: "POST", body: form, headers: session ? { cookie: `lrb_session=${session.id}` } : {} });
   const res = await photos.handlePhotoUpload(req, opts.now);
   return { status: res.status, body: (await res.json()) as { ok: boolean; error?: string; photo?: { id: number } } };
@@ -117,6 +118,18 @@ describe("upload authorisation", () => {
     expect(row.height).toBe(48);
     expect(existsSync(photos.photoPath(row.id))).toBe(true);
     expect(existsSync(photos.photoPath(row.id, true))).toBe(true);
+  });
+
+  test("heading: stored 0 to 360 when sent, null when not (the file input has none)", async () => {
+    const rowOf = (id: number) => db.select().from(s.lotPhotos).where(eq(s.lotPhotos.id, id)).get()!;
+    const a = await upload(w.crew, w.eastLot.id, { heading: "-30" });
+    expect(rowOf(a.body.photo!.id)).toMatchObject({ heading: 330, lat: 42.38, lng: -82.99 });
+    const b = await upload(w.crew, w.eastLot.id, { heading: "45.5" });
+    expect(rowOf(b.body.photo!.id).heading).toBe(45.5);
+    const c = await upload(w.crew, w.eastLot.id);
+    expect(rowOf(c.body.photo!.id).heading).toBeNull();
+    const d = await upload(w.crew, w.eastLot.id, { heading: "north" });
+    expect(rowOf(d.body.photo!.id).heading).toBeNull();
   });
 
   test("crew: a lot at another CC and far away is refused", async () => {

@@ -470,6 +470,8 @@ export const lotPhotos = sqliteTable(
     at: integer("at").notNull(),
     lat: real("lat"),
     lng: real("lng"),
+    /** Compass bearing of the back camera, degrees clockwise from north; in-app camera only (SPEC 15). */
+    heading: real("heading"),
     width: integer("width").notNull(),
     height: integer("height").notNull(),
     bytes: integer("bytes").notNull(),

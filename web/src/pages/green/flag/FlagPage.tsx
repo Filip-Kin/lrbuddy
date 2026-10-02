@@ -12,14 +12,13 @@ import { trpc } from "../../../lib/trpc.ts";
 import { compassPoint, pickParcel, type Candidate } from "./pick.ts";
 import { LensSwitch } from "./LensSwitch.tsx";
 import { grabFrame, useCamera, useCompass, useFix } from "./sensors.ts";
-import { storageGet, storageSet } from "../../../lib/safe.ts";
+import { CompassAsk, ExpandIcon, useExpanded, useNow, usePaintFollowsExpand } from "./screen.tsx";
 
 /** Undo stays on the last-flag card this long (SPEC 22). */
 export const UNDO_MS = 20_000;
 const RETRY_MS = [2000, 4000, 8000, 15_000] as const;
 /** The map strip's state for the session (SPEC 22, map strip). */
 const MAP_KEY = "lrb.flag.map";
-const readExpanded = (): boolean => storageGet("session", MAP_KEY) === "full";
 
 // #region types
 interface Target extends Candidate {
@@ -38,6 +37,9 @@ interface Flag {
   target: Target;
   status: FlagStatus;
   photo: { photo: Blob; thumb: Blob } | null;
+  /** Where the phone stood and which way the camera faced at the shot (SPEC 15). */
+  shotFrom: { lat: number; lng: number } | null;
+  shotHeading: number | null;
   at: number;
   phase: "queued" | "sending" | "done" | "failed" | "undone";
   /** Server answer once sent. */
@@ -66,12 +68,6 @@ const since = (at: number, now: number): string => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-const ExpandIcon = ({ up }: { up: boolean }) => (
-  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {up ? <path d="M6 15l6-6 6 6" /> : <path d="M6 9l6 6 6-6" />}
-  </svg>
-);
-
 const isRefusal = (e: unknown): boolean => {
   if (typeof e !== "object" || e === null || !("data" in e)) return false;
   const d: unknown = (e as { data: unknown }).data;
@@ -97,16 +93,12 @@ export const FlagPage = () => {
   const parcels = trpc.green.parcels.useQuery(undefined, { refetchInterval: 120_000 });
   const plan = trpc.green.plan.useQuery(undefined, { refetchInterval: 120_000 });
   // Full-screen map: the camera pauses and the map is Paint. Kept for the session.
-  const [expanded, setExpandedState] = useState(readExpanded);
+  const [expanded, setExpandedState] = useExpanded(MAP_KEY);
   const camera = useCamera(expanded);
   const { fix, state: fixState } = useFix();
   const compass = useCompass();
   useWakeLock(true);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(t);
-  }, []);
+  const now = useNow();
 
   // The back camera's bearing from the orientation sensors only; never the GPS course.
   const heading = compass.heading;
@@ -154,11 +146,10 @@ export const FlagPage = () => {
   const tappedTarget = tapped ? (targets.find((t) => t.key === tapped) ?? null) : null;
   const picked = !expanded && tappedTarget ? tappedTarget : aimed;
   const onStripPick = useCallback((key: string): void => setTapped((k) => (k === key ? null : key)), []);
-  const setExpandedRaw = useCallback((on: boolean): void => {
+  const setExpandedRaw = (on: boolean): void => {
     setExpandedState(on);
     setTapped(null);
-    storageSet("session", MAP_KEY, on ? "full" : "strip");
-  }, []);
+  };
   // #endregion
 
   // #region queue
@@ -188,11 +179,11 @@ export const FlagPage = () => {
         const form = new FormData();
         form.set("lotId", String(lotId));
         form.set("kind", "before");
-        const at = flagsRef.current.find((x) => x.id === f.id)?.target;
-        if (at) {
-          form.set("lat", String(at.lat));
-          form.set("lng", String(at.lng));
+        if (f.shotFrom) {
+          form.set("lat", String(f.shotFrom.lat));
+          form.set("lng", String(f.shotFrom.lng));
         }
+        if (f.photo && f.shotHeading !== null) form.set("heading", String(f.shotHeading));
         form.set("photo", f.photo.photo, "photo.jpg");
         form.set("thumb", f.photo.thumb, "thumb.jpg");
         const r = await postPhoto(form, () => undefined);
@@ -243,10 +234,27 @@ export const FlagPage = () => {
   const { state: cameraState, video: cameraVideo } = camera;
   const grab = useCallback(() => grabFrame({ state: cameraState, video: cameraVideo }), [cameraState, cameraVideo]);
 
+  // The phone's fix and the camera's heading at the press, read through refs so the shutter keeps one identity.
+  const shotRef = useRef({ fix, heading });
+  shotRef.current = { fix, heading };
   const flag = useCallback(
     async (target: Target, status: FlagStatus): Promise<void> => {
+      const { fix: from, heading: facing } = shotRef.current;
       const photo = await grab();
-      const f: Flag = { id: nextId.current++, target, status, photo, at: Date.now(), phase: "queued", lotId: null, photoId: null, message: null, tries: 0 };
+      const f: Flag = {
+        id: nextId.current++,
+        target,
+        status,
+        photo,
+        shotFrom: from ? { lat: from.lat, lng: from.lng } : null,
+        shotHeading: facing,
+        at: Date.now(),
+        phase: "queued",
+        lotId: null,
+        photoId: null,
+        message: null,
+        tries: 0,
+      };
       flagsRef.current = [...flagsRef.current, f];
       setFlags(flagsRef.current);
       setTapped(null);
@@ -308,13 +316,7 @@ export const FlagPage = () => {
   const paint = usePaint(leaflet, { kind: "green" }, paintTargets);
   const mapPending = useMemo(() => (paint.pending.size === 0 ? pending : new Map([...pending, ...paint.pending])), [pending, paint.pending]);
   // Paint follows the map: on with the toggle brush when expanded (a reload too), off on Collapse.
-  const paintRef = useRef(paint);
-  paintRef.current = paint;
-  useEffect(() => {
-    const p = paintRef.current;
-    if (expanded && !p.on) p.open("toggle");
-    else if (!expanded && p.on) p.close();
-  }, [expanded]);
+  usePaintFollowsExpand(paint, expanded, "toggle");
   const cc = useMemo(() => {
     const c = overview.data?.cc;
     return c ? { lat: c.lat, lng: c.lng, name: c.name, letter: c.letter } : null;
@@ -369,19 +371,7 @@ export const FlagPage = () => {
         <video ref={camera.video} muted playsInline autoPlay className="absolute inset-0 h-full w-full object-cover" aria-label="Camera" />
         {camera.state !== "on" && <div aria-hidden="true" className="absolute inset-0 bg-[#0e3038]" />}
         {!expanded && lastCard}
-        {/* iOS reads the compass only after a tap: one big button over the camera until then. */}
-        {compass.needsAsk && !compass.denied && !expanded && (
-          <div className="absolute inset-0 z-[1002] grid place-items-center bg-black/55 p-6">
-            <button
-              type="button"
-              onClick={() => void compass.ask()}
-              className="min-h-16 w-full max-w-xs rounded-2xl bg-[#fddd08] px-6 text-xl font-extrabold text-[#0e3038] shadow-2xl ring-4 ring-white/80"
-              data-flag-compass-ask
-            >
-              Turn on compass
-            </button>
-          </div>
-        )}
+        {!expanded && <CompassAsk compass={compass} />}
       </div>
 
       <div className={`relative isolate shrink-0 overflow-hidden border-t-2 border-black ${expanded ? "min-h-0 flex-1" : "h-[28%]"}`} data-flag-strip>

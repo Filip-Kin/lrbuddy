@@ -515,8 +515,11 @@ Data
 ```
 lot_photos   id, lot_id, kind ('before'|'after'), session_id, taken_by (display name), role,
              crew_id (nullable), truck_id (nullable), cc_id, day_id, at, lat, lng (nullable),
-             width, height, bytes, deleted_at (nullable)
+             heading (nullable), width, height, bytes, deleted_at (nullable)
 ```
+`lat`, `lng` are where the phone stood; `heading` is the back camera's compass bearing (degrees
+clockwise from north, kept 0 to 360) at the shot. Only the in-app camera (Flag, Wrap up) sends a
+heading; the file input sends none. Migration `0017` adds the column on boot; older rows stay null.
 Files live at `$DATA_DIR/photos/<id>.jpg` and `$DATA_DIR/photos/<id>.thumb.jpg`. The volume at
 `/data` already persists them in production. Never store photos in SQLite.
 
@@ -524,7 +527,7 @@ Capture and upload
 - `<input type="file" accept="image/*" capture="environment">` behind a **Before** or **After** camera
   button. The client resizes on a canvas to a 1600 px long edge, JPEG quality 0.82, and a 320 px thumb,
   which also strips EXIF. It posts both as multipart to `POST /photos` (plain route, not tRPC) with
-  `lotId`, `kind`, and the device position if known. Shows a progress bar during upload and the thumb
+  `lotId`, `kind`, the device position if known, and `heading` from the in-app camera. Shows a progress bar during upload and the thumb
   in place when done. Upload failures keep the photo in the control with a **Retry** button.
 - Server: any session. Crew may photograph lots at its CC or within 400 m of its last position;
   driver and green any lot at their CC; admin any lot. Validates JPEG magic bytes, 6 MB cap per file,
@@ -962,7 +965,8 @@ foot or from the truck window. Not red shirts.
   updates, the ray pick pauses) and the shutter photographs that parcel. **Clear** on the strip's top
   left, a second tap on the same parcel, a flag, or Expand returns to the ray pick. The strip still
   takes no pan or zoom gestures.
-- One big **Todo** shutter: takes the photo, saves it as that lot's Before (section 15), creates or
+- One big **Todo** shutter: takes the photo, saves it as that lot's Before (section 15) with the
+  phone's fix and the camera heading at the press (until 2026-10-02 it sent the parcel's centre), creates or
   updates the lot as Todo with the crew whose rectangle contains it, and shows the last-flag card
   ("Last: 3998 St Clair · Todo · 00:12 ago") with **Undo** for 20 s (undo deletes the photo and
   reverts the status). One side button: **Do not touch** (same, status do_not_touch, photo kept).
@@ -1159,31 +1163,45 @@ lots Todo.
   sheets; an area's Done or Do not touch moves it like the other unfinished lots. Stored as text like
   the other statuses: no migration, existing rows unchanged. Same role rules as Done.
 - Server `green.wrap`: every lot at the CC's site on the day that is Todo, In progress, Done or Not done, with
-  address, position, status, crew name, `hasBefore`, `hasAfter` and the newest thumb id of each.
-- Screen: a map (56% of the height: lots, camera badges, blue dot, **Recenter**, **Paint**) over a compact list sorted by distance
-  from the phone, by address with no position. Tabs with counts: **Needs After** (a Before, no After,
-  not Not done; the default), **Not done** (everything not Done: Todo, In progress, Not done), **All**.
-  A row: address, status, crew, Before and After marks (the thumb when taken, a hollow camera when
-  missing), distance.
-- **Tap flow** (Filip: "if I have to do extra button presses that's annoying"). A tap on a row or a
-  work lot on the map opens a chooser: the address as the heading, two big buttons **Done** and
-  **Not done**, and a small **Details** that opens the full lot sheet (photos, all statuses). Scrim,
-  Escape and the phone's Back close it with nothing written. A tap writes the status at once
-  (optimistic, `green.setLotStatus` through `useSetLot`).
-  - **Done** on a lot with a Before and no After opens the Flag screen's in-app camera full screen
-    (same camera, same Wide/Normal lens switch), headed with the address. One press of the **After**
-    shutter queues the photo as that lot's After and returns to the list at once; the upload runs
-    behind it with the Flag queue's behaviour (in order, retry 2/4/8/15 s and on `online`, a refusal
-    stops it with the reason). The row shows the local thumb while it uploads. **Close** returns
-    with no photo.
-  - **Not done** never opens the camera (Filip: "I don't care to take pictures of lots that we didn't
-    touch because there's no difference"): status, then straight back to the list. A Not done lot
-    needs no After: it leaves Needs After and its badge goes.
-  - Done on a lot with no Before, or with an After already: status only, back to the list.
-  - A lot on the strip that is not a work lot (Not todo, Do not touch) opens its lot sheet.
-- **Paint** (Filip: "any map where I'm changing status of things I need the paintbrush"): the green
-  map's Paint on the Wrap up map, same PaintBar, brushes and stroke handling (one finger paints, two
-  pan and pinch). While painting a tap paints and opens no chooser.
+  address, position, status, crew name, `hasBefore`, `hasAfter`, the newest thumb id of each, and
+  `beforeSpot` (lat, lng, heading of the newest Before; null when it has no position, or when the
+  position is the lot's own centre, which is what Flag sent before 2026-10-02).
+- **Screen** (Filip, 2026-10-02, in the field: "make the Wrap up UI match the flagging UI so you have the
+  camera there and the map at the bottom"; mockup option C "Peek"). The Flag screen's layout and
+  pieces (camera, lens switch, strip map, Expand to Paint, compass, `FlagMap`, `flag/screen.tsx`):
+  - Camera full width on top; the strip map at the bottom, 28% of the height, as on Flag.
+  - Top card over the camera: address, status pill, crew and **Details** (the full lot sheet). Right
+    of it a chip **Before spot N m**, the phone's distance to the newest Before's spot, to the metre;
+    green under 3 m, dark otherwise; hidden with no Before spot or no fix. Chips for No camera,
+    No location, Finding location and "N not sent".
+  - **Peek**: the newest Before as a 112x150 thumb in the camera's lower left, yellow border, label
+    **Hold**. Press and hold anywhere on it: the whole camera area shows the Before full size
+    (object-fit cover, the same crop as the camera); let go: the camera again. Nothing with no Before.
+  - Bottom bar over the camera: **Not done** (plum, left) sets Not done with no photo (Filip: "I don't
+    care to take pictures of lots that we didn't touch because there's no difference"); the **Done**
+    shutter (middle, 88 px) sets Done and queues the frame as the lot's After with the phone's fix
+    and heading; **Expand** (right). The Wide/Normal lens switch sits above the bar on the right.
+  - After a shot or Not done the next lot is picked by itself: the nearest Needs After lot to the
+    phone (a Before, no After, not Not done), held as a tap holds it.
+  - Which lot: a lot tapped on the strip, picked from List, or moved on to after a shot holds until
+    **Clear** (strip top left), a second tap on it, or Expand. Otherwise Flag's ray along the camera
+    bearing among the work lots (4 to 30 m), falling back to the nearest Needs After lot within
+    40 m. The picked lot is outlined yellow on the strip. A tap on a lot that is not a work lot
+    (Not todo, Do not touch) opens its lot sheet.
+  - Strip: lots, camera badges on Needs After lots, the blue dot and the phone's heading cone, and
+    the picked lot's Before spot as a yellow pin with a yellow facing cone when the Before has a
+    heading. **List** (strip top right) opens the lots as a sheet: tabs with counts **Needs After**
+    (the default), **Not done** (Todo, In progress, Not done), **All**; a row is address, status,
+    crew, Before and After marks (thumb, local thumb while uploading, hollow camera when missing,
+    "Not sent" when refused), distance; nearest first, by address with no fix. A row tap picks its
+    lot, closes the sheet and centres the strip on the lot; **Recenter** (strip bottom right) goes
+    back to the phone. Escape, the scrim and the phone's Back close the sheet.
+  - The upload runs behind the screen with the Flag queue's behaviour (in order, retry 2/4/8/15 s and on
+    `online`, a refusal stops it with the reason); a queued count shows on the shutter.
+- **Expand** is the full-screen map and is Paint (Filip: "any map where I'm changing status of things I
+  need the paintbrush"): the green map's PaintBar with the six status brushes and Crew, the same
+  stroke handling (one finger paints, two pan and pinch). The bar's Done, or the collapse arrow on
+  the map's top right, returns to the camera. Kept for the session, as on Flag.
 - Camera badge (an ink camera in a 16 px white circle) only where photos get taken (Filip,
   2026-10-02: the day maps are not for photos):
   - Flag strip and Paint map, the morning round: a Todo or In progress lot with no Before
@@ -1192,10 +1210,11 @@ lots Todo.
     (`needsAfter` on `green.overview`).
   - Never on the green map or the driver map.
   A photo upload emits lot.changed, so badges and the list follow live.
-- Gate: `/wrap` in the green routes; `tests/e2e/specs/wrap.e2e.ts` sees the badge on the Flag strip,
-  takes a Before through the chooser's Details, sees the lot under Needs After with its badge on the
-  Wrap up strip and none on the green map or the Flag strip; Escape closes the chooser with nothing
-  written; Not done sets the status with no camera and moves the lot from Needs After to Not done;
-  Done opens the camera (fake camera), Close returns with no photo, Done again and one shutter press
-  returns to the list and the After reaches the server; Done on a lot with an After opens no camera.
-  Paint on the Wrap up map shows all six status brushes and Crew, chips 44 px, overflow 0.
+- Gate: `/wrap` in the green routes; `tests/e2e/specs/wrap.e2e.ts` sees the badge on the Flag strip
+  before the Before, posts a Before with a spot and heading, sees no badge on the green map and the
+  badge on the Wrap up strip; a strip tap picks the lot (yellow outline, Clear, "Before spot 1 m" in
+  green, the pin and cone); holding the Peek corner shows the Before over the whole camera and
+  letting go hides it; Details opens the lot sheet; the shutter makes the lot Done with an After on
+  the server and moves to another lot; a List row picks the lot and Recenter appears; Not done sets
+  the status with no photo and moves on; the Not done tab lists it. Expand shows the PaintBar with
+  all six status brushes and Crew, chips 44 px, overflow 0, and its Done collapses.

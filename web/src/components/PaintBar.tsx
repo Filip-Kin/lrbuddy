@@ -218,8 +218,11 @@ export const PaintBar = ({
   paint,
   crews,
   extra,
+  onDone,
 }: {
   paint: PaintState;
+  /** Done does this instead of closing Paint (Wrap up's full-screen map collapses). */
+  onDone?: () => void;
   /** Crews for the Crew brush; leave out for no Crew brush. */
   crews?: ReadonlyArray<{ id: number; name: string }>;
   extra?: ReactNode;
@@ -253,7 +256,7 @@ export const PaintBar = ({
             </>
           )}
         </div>
-        <Button size="md" data-paint-exit onClick={paint.close}>
+        <Button size="md" data-paint-exit onClick={onDone ?? paint.close}>
           Done
         </Button>
       </div>

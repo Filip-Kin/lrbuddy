@@ -24,7 +24,7 @@ import { bareParcelsFor, setLot, type Actor } from "../parcel-status.ts";
 import { buildCrewsFor } from "./plan/assignments.ts";
 import { areaInput } from "./plan/common.ts";
 import { emitLot } from "../lots-import.ts";
-import { filterPairs, pairState, pairsZip, photoCounts, photoPairs, photoSummary, sitePhotos, withPhotoState } from "../photos.ts";
+import { beforeSpots, filterPairs, pairState, pairsZip, photoCounts, photoPairs, photoSummary, sitePhotos, withPhotoState } from "../photos.ts";
 import { pushToCc } from "../push.ts";
 import { catalogFor, latestPositions, lotsAt, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
 import { greenProcedure, router } from "../trpc.ts";
@@ -212,30 +212,32 @@ export const greenRouter = router({
 
   /**
    * Wrap up: every work lot at this CC's site on the day (Todo, In progress, Done, Not done) with its crew and
-   * whether it has a Before and an After, newest thumb of each. The list behind the After photo round.
+   * whether it has a Before and an After, newest thumb of each, and the newest Before's spot (where the
+   * phone stood, which way it faced). The list behind the After photo round.
    */
   wrap: greenProcedure.query(({ ctx }) => {
     const summary = photoSummary(ctx.event.id);
     const crewNames = new Map(crewsAt(ctx.cc.id, ctx.day.id).map((c) => [c.id, c.name]));
-    return lotsAt(ctx.cc.id, ctx.day.id)
-      .filter((l) => l.status === "open" || l.status === "in_progress" || l.status === "done" || l.status === "not_done")
-      .map((l) => {
-        const p = summary.get(l.id);
-        return {
-          id: l.id,
-          parcelId: l.parcelId,
-          address: l.address,
-          lat: l.lat,
-          lng: l.lng,
-          status: l.status,
-          crewId: l.crewId,
-          crewName: l.crewId !== null ? (crewNames.get(l.crewId) ?? null) : null,
-          hasBefore: (p?.before ?? null) !== null,
-          hasAfter: (p?.after ?? null) !== null,
-          beforeThumb: p?.before ?? null,
-          afterThumb: p?.after ?? null,
-        };
-      });
+    const work = lotsAt(ctx.cc.id, ctx.day.id).filter((l) => l.status === "open" || l.status === "in_progress" || l.status === "done" || l.status === "not_done");
+    const spots = beforeSpots(work.flatMap((l) => summary.get(l.id)?.before ?? []));
+    return work.map((l) => {
+      const p = summary.get(l.id);
+      return {
+        id: l.id,
+        parcelId: l.parcelId,
+        address: l.address,
+        lat: l.lat,
+        lng: l.lng,
+        status: l.status,
+        crewId: l.crewId,
+        crewName: l.crewId !== null ? (crewNames.get(l.crewId) ?? null) : null,
+        hasBefore: (p?.before ?? null) !== null,
+        hasAfter: (p?.after ?? null) !== null,
+        beforeThumb: p?.before ?? null,
+        afterThumb: p?.after ?? null,
+        beforeSpot: p?.before != null ? (spots.get(p.before) ?? null) : null,
+      };
+    });
   }),
 
   assignLots: greenProcedure

@@ -29,6 +29,7 @@ interface Entry extends QueuedAfter {
   thumb: Blob | null;
   lat: number | null;
   lng: number | null;
+  heading: number | null;
 }
 
 let entries: Entry[] = [];
@@ -59,6 +60,7 @@ const send = async (e: Entry): Promise<void> => {
     form.set("lat", String(e.lat));
     form.set("lng", String(e.lng));
   }
+  if (e.heading !== null) form.set("heading", String(e.heading));
   form.set("photo", e.photo, "photo.jpg");
   form.set("thumb", e.thumb, "thumb.jpg");
   const r = await postPhoto(form, () => undefined);
@@ -99,8 +101,8 @@ const pump = async (): Promise<void> => {
 
 if (typeof window !== "undefined") window.addEventListener("online", () => void pump());
 
-/** Queues the After of a lot and starts sending it; `at` is where the phone stood, when known. */
-export const queueAfter = (lotId: number, blobs: { photo: Blob; thumb: Blob }, at: { lat: number; lng: number } | null): void => {
+/** Queues the After of a lot and starts sending it; `at` is where the phone stood and `heading` where the camera faced, when known. */
+export const queueAfter = (lotId: number, blobs: { photo: Blob; thumb: Blob }, at: { lat: number; lng: number } | null, heading: number | null): void => {
   const fix = at ?? currentFix();
   entries = [
     ...entries,
@@ -116,6 +118,7 @@ export const queueAfter = (lotId: number, blobs: { photo: Blob; thumb: Blob }, a
       thumb: blobs.thumb,
       lat: fix?.lat ?? null,
       lng: fix?.lng ?? null,
+      heading,
     },
   ];
   publish();

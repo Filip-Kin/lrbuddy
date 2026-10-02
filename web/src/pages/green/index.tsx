@@ -11,10 +11,10 @@ import { PhotosPage } from "./PhotosPage.tsx";
 import { RequestsPage } from "./RequestsPage.tsx";
 import { StatsPage } from "./StatsPage.tsx";
 import { TrucksPage } from "./TrucksPage.tsx";
-import { WrapPage } from "./WrapPage.tsx";
 
-/** The camera screen is its own chunk: the green map does not wait for it, and a crash there stays there. */
+/** The camera screens are their own chunks: the green map does not wait for them, and a crash there stays there. */
 const FlagPage = lazy(() => import("./flag/FlagPage.tsx").then((m) => ({ default: m.FlagPage })));
+const WrapPage = lazy(() => import("./WrapPage.tsx").then((m) => ({ default: m.WrapPage })));
 
 const Flag = () => (
   <ErrorBoundary>
@@ -24,10 +24,18 @@ const Flag = () => (
   </ErrorBoundary>
 );
 
+const Wrap = () => (
+  <ErrorBoundary>
+    <Suspense fallback={<ScreenLoading dark />}>
+      <WrapPage />
+    </Suspense>
+  </ErrorBoundary>
+);
+
 export const GreenRoutes = () => (
   <Switch>
     <Route path="/" component={MapPage} />
-    <Route path="/wrap" component={WrapPage} />
+    <Route path="/wrap" component={Wrap} />
     <Route path="/flag" component={Flag} />
     <Route path="/requests" component={RequestsPage} />
     <Route path="/photos" component={PhotosPage} />

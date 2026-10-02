@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { prepareFrame } from "../../../lib/photos.ts";
 import { finite, geolocation, storageGet, storageSet } from "../../../lib/safe.ts";
 import { cameraBearing, circularMean, norm360 } from "./bearing.ts";
 import { wideCameraId, zoomRangeOf, type Lens } from "./lens.ts";
@@ -156,6 +157,18 @@ export const useCamera = (paused = false) => {
   );
 
   return { video, state, lens, canSwitch: way !== null, setLens };
+};
+export type Camera = ReturnType<typeof useCamera>;
+
+/** The frame on screen as the 1600 px photo and its thumb, or null with no picture yet. Flag and Wrap up's shutters. */
+export const grabFrame = async (camera: Pick<Camera, "state" | "video">): Promise<{ photo: Blob; thumb: Blob } | null> => {
+  const v = camera.video.current;
+  if (camera.state !== "on" || !v || v.videoWidth === 0) return null;
+  try {
+    return await prepareFrame(v, v.videoWidth, v.videoHeight);
+  } catch {
+    return null;
+  }
 };
 // #endregion
 

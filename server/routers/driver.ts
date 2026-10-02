@@ -303,7 +303,7 @@ export const driverRouter = router({
 
   /**
    * Status of a lot at the truck's CC site, or a parcel in the CC's day area
-   * (SPEC 21): Todo, In progress, Done, Not todo. Sets no crew in
+   * (SPEC 21, 28): Todo, In progress, Done, Not done, Not todo. Sets no crew in
    * `status_by_crew_id`: the driver made the call. Do not touch is for greens:
    * a driver whose user holds green at this CC acts as one (SPEC 27).
    */

@@ -44,6 +44,7 @@ const Bars = ({ rows, tone, empty }: { rows: ReadonlyArray<{ key: string; label:
 const LOT_SEGMENTS = [
   { key: "done", label: "Done", cls: "bg-brand-green" },
   { key: "in_progress", label: "In progress", cls: "bg-brand" },
+  { key: "not_done", label: "Not done", cls: "bg-not-done" },
   { key: "do_not_touch", label: "Do not touch", cls: "bg-warn" },
   { key: "open", label: "Todo", cls: "bg-crew" },
 ] as const;
@@ -107,7 +108,7 @@ export const StatsPage = () => {
                     return n > 0 ? <span key={seg.key} className={seg.cls} style={{ flexGrow: n, flexBasis: 0 }} /> : null;
                   })}
                 </div>
-                <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                   {LOT_SEGMENTS.map((seg) => (
                     <li key={seg.key} className="flex items-center gap-2 text-sm">
                       <span aria-hidden="true" className={`h-3 w-3 shrink-0 rounded-sm ${seg.cls}`} />

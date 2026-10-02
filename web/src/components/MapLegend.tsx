@@ -8,18 +8,19 @@ const Swatch = ({ status }: { status: LotStatus }) => {
     open: { stroke: "var(--crew)", fill: "var(--crew)", opacity: 0.3, width: 2 },
     in_progress: { stroke: "var(--brand)", fill: "var(--brand)", opacity: 0.3, width: 2 },
     done: { stroke: "var(--brand-green)", fill: "var(--brand-green)", opacity: 0.3, width: 2 },
+    not_done: { stroke: "var(--not-done)", fill: "var(--not-done)", opacity: 0.3, width: 2 },
     do_not_touch: { stroke: "var(--warn)", fill: "var(--warn)", opacity: 0.12, width: 2 },
   };
   const s = style[status];
   return (
     <svg viewBox="0 0 18 12" width="18" height="12" aria-hidden="true" className="shrink-0">
-      <rect x="1" y="1" width="16" height="10" fill={s.fill} fillOpacity={s.opacity} stroke={s.stroke} strokeWidth={s.width} />
+      <rect x="1" y="1" width="16" height="10" fill={s.fill} fillOpacity={s.opacity} stroke={s.stroke} strokeWidth={s.width} strokeDasharray={status === "not_done" ? "3 2" : undefined} />
       {status === "do_not_touch" && <path d="M1 7l6-6M5 11l10-10M11 11l6-6" stroke="var(--warn)" strokeWidth="1.3" />}
     </svg>
   );
 };
 
-/** The five parcel statuses in their order (SPEC 21: one set of words everywhere), then one-way streets, and OSM alleys while shown. */
+/** The six parcel statuses in their order (SPEC 21: one set of words everywhere), then one-way streets, and OSM alleys while shown. */
 export const MapLegend = ({ className = "", osmAlleys = false }: { className?: string; osmAlleys?: boolean }) => (
   <ul aria-label="Legend" data-legend className={`pointer-events-none space-y-0.5 rounded-xl bg-surface/90 px-2 py-1.5 text-[11px] leading-tight font-semibold text-ink shadow ring-1 ring-line ${className}`}>
     {STATUS_ORDER.map((s) => (

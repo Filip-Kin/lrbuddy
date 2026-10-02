@@ -14,7 +14,7 @@ import { distance, mapsDirections } from "../../lib/format.ts";
 import { STATUS_LABEL } from "../../lib/lotStatus.ts";
 import { trpc } from "../../lib/trpc.ts";
 
-const COUNT_ORDER: LotStatus[] = ["open", "in_progress", "done", "do_not_touch"];
+const COUNT_ORDER: LotStatus[] = ["open", "in_progress", "done", "not_done", "do_not_touch"];
 
 const LotRow = ({
   lot,
@@ -72,7 +72,7 @@ export const LotsPage = () => {
   const status = useSetLot("crew");
   const lots = useMemo(() => (q.data ?? []).map((l) => ({ ...l, status: status.pending.get(`l:${l.id}`) ?? l.status })), [q.data, status.pending]);
   const counts = useMemo(() => {
-    const c: Record<LotStatus, number> = { open: 0, in_progress: 0, done: 0, do_not_touch: 0, not_todo: 0 };
+    const c: Record<LotStatus, number> = { open: 0, in_progress: 0, done: 0, not_done: 0, do_not_touch: 0, not_todo: 0 };
     for (const l of lots) c[l.status] += 1;
     return c;
   }, [lots]);

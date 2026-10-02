@@ -18,6 +18,7 @@ export const BRUSH_COLOR: Record<BrushKey, string> = {
   open: "var(--crew)",
   in_progress: "var(--brand)",
   done: "var(--brand-green)",
+  not_done: "var(--not-done)",
   do_not_touch: "var(--warn)",
   crew: "var(--ink)",
   toggle: "var(--crew)",
@@ -210,7 +211,7 @@ export const PaintFrame = ({ paint }: { paint: PaintState }) =>
 
 /**
  * The brush bar along the bottom of the map: Undo, the counter and Done, then
- * the five statuses (and Crew on the green map) as chips. `extra` holds a
+ * the six statuses (and Crew on the green map) as chips: two rows on a phone. `extra` holds a
  * picker the page needs (the admin map's CC).
  */
 export const PaintBar = ({
@@ -256,7 +257,7 @@ export const PaintBar = ({
           Done
         </Button>
       </div>
-      <div role="radiogroup" aria-label="Brush" className={`grid gap-1.5 ${crews ? "grid-cols-3 sm:grid-cols-6" : "grid-cols-3 sm:grid-cols-5"}`}>
+      <div role="radiogroup" aria-label="Brush" className={`grid gap-1.5 ${crews ? "grid-cols-4 sm:grid-cols-7" : "grid-cols-3 sm:grid-cols-6"}`}>
         {brushes.map((b) => {
           const active = paint.brush === b;
           return (

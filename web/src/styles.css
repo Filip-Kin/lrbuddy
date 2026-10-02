@@ -12,6 +12,8 @@
   --muted: #5b6b70;
   --crew: #e5484d;
   --warn: #e55b00;
+  /* Not done (SPEC 28): plum, apart from Todo red, In progress yellow and Do not touch orange. */
+  --not-done: #a21caf;
   /* Text on yellow is the teal in both schemes; light ink on yellow fails contrast. */
   --on-brand: #0e3038;
   --bar: #0e3038;
@@ -29,6 +31,7 @@
     --muted: #9fb3b8;
     --crew: #ff6b6b;
     --warn: #ff8a3d;
+    --not-done: #e879f9;
     --bar: #0a252c;
   }
 }
@@ -43,6 +46,7 @@
   --color-muted: var(--muted);
   --color-crew: var(--crew);
   --color-warn: var(--warn);
+  --color-not-done: var(--not-done);
   --color-on-brand: var(--on-brand);
   --color-bar: var(--bar);
   --color-bar-text: var(--bar-text);
@@ -237,7 +241,7 @@
   height: 9px;
   opacity: 0.75;
 }
-/* SPEC 21 colours: Todo --crew, In progress --brand, Done --brand-green, Do not touch --warn, Not todo an outline. */
+/* SPEC 21 colours: Todo --crew, In progress --brand, Done --brand-green, Not done --not-done, Do not touch --warn, Not todo an outline. */
 .lrb-lot-open span {
   background: var(--crew);
 }
@@ -251,6 +255,9 @@
 }
 .lrb-lot-done span {
   background: var(--brand-green);
+}
+.lrb-lot-not_done span {
+  background: var(--not-done);
 }
 .lrb-lot-do_not_touch span {
   background: repeating-linear-gradient(45deg, var(--warn) 0 2px, var(--surface) 2px 4px);
@@ -281,6 +288,13 @@
 .lrb-lot-shape-done {
   stroke: var(--brand-green);
   fill: var(--brand-green);
+}
+/* Not done: dashed, the outline of work left open. */
+.lrb-lot-shape-not_done {
+  stroke: var(--not-done);
+  fill: var(--not-done);
+  stroke-width: 2.5px;
+  stroke-dasharray: 5 3;
 }
 .lrb-lot-shape-do_not_touch {
   stroke: var(--warn);

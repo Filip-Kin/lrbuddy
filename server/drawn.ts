@@ -196,11 +196,12 @@ export const editDrawnShape = (actor: Actor, lotId: number, polygon: DrawnPolygo
 
 /**
  * A drawn lot with history: a photo, deleted ones too, a note, work on it
- * (In progress or Done), or a status a crew set. It can only go Not todo.
+ * (In progress, Done or Not done), or a status a crew set. It can only go Not todo.
  */
 export const hasHistory = (lot: Lot): boolean =>
   lot.status === "in_progress" ||
   lot.status === "done" ||
+  lot.status === "not_done" ||
   lot.statusByCrewId !== null ||
   !!lot.note?.trim() ||
   !!db.select({ id: lotPhotos.id }).from(lotPhotos).where(eq(lotPhotos.lotId, lot.id)).limit(1).get();

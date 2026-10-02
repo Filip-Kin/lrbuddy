@@ -7,10 +7,11 @@ import type { PaintTarget } from "../../../lib/map/paintHit.ts";
 import { STATUS_LABEL, type LotGrade, type LotStatus } from "../../../lib/lotStatus.ts";
 import { FlagMap } from "./FlagMap.tsx";
 import { FlagPaintBar } from "./FlagPaintBar.tsx";
-import { postPhoto, prepareFrame, useInvalidatePhotos } from "../../../lib/photos.ts";
+import { postPhoto, useInvalidatePhotos } from "../../../lib/photos.ts";
 import { trpc } from "../../../lib/trpc.ts";
 import { compassPoint, pickParcel, type Candidate } from "./pick.ts";
-import { useCamera, useCompass, useFix } from "./sensors.ts";
+import { LensSwitch } from "./LensSwitch.tsx";
+import { grabFrame, useCamera, useCompass, useFix } from "./sensors.ts";
 import { storageGet, storageSet } from "../../../lib/safe.ts";
 
 /** Undo stays on the last-flag card this long (SPEC 22). */
@@ -239,15 +240,8 @@ export const FlagPage = () => {
     };
   }, [pump]);
 
-  const grab = useCallback(async (): Promise<{ photo: Blob; thumb: Blob } | null> => {
-    const v = camera.video.current;
-    if (camera.state !== "on" || !v || v.videoWidth === 0) return null;
-    try {
-      return await prepareFrame(v, v.videoWidth, v.videoHeight);
-    } catch {
-      return null;
-    }
-  }, [camera.state, camera.video]);
+  const { state: cameraState, video: cameraVideo } = camera;
+  const grab = useCallback(() => grabFrame({ state: cameraState, video: cameraVideo }), [cameraState, cameraVideo]);
 
   const flag = useCallback(
     async (target: Target, status: FlagStatus): Promise<void> => {
@@ -448,24 +442,7 @@ export const FlagPage = () => {
             </span>
           )}
         </button>
-        {camera.canSwitch ? (
-          <div role="group" aria-label="Lens" className="flex w-28 shrink-0 rounded-full bg-white/10 p-1 ring-2 ring-white/70" data-flag-lens>
-            {(["wide", "normal"] as const).map((l) => (
-              <button
-                key={l}
-                type="button"
-                aria-pressed={camera.lens === l}
-                onClick={() => camera.setLens(l)}
-                className={`min-h-11 min-w-0 flex-1 rounded-full text-[13px] font-bold ${camera.lens === l ? "bg-white text-[#0e3038]" : "text-white"}`}
-                data-flag-lens-option={l}
-              >
-                {l === "wide" ? "Wide" : "Normal"}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <span aria-hidden="true" className="w-28 shrink-0" />
-        )}
+        <LensSwitch camera={camera} />
       </div>
     </div>
   );

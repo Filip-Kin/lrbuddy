@@ -1,14 +1,14 @@
 /**
- * One parcel status (SPEC 21): Not todo, Todo, In progress, Done, Do not touch,
+ * One parcel status (SPEC 21): Not todo, Todo, In progress, Done, Not done (SPEC 28), Do not touch,
  * for every parcel in a CC's day area, edited from every role's map.
  *
  * Not todo is the absence of a lot row, or `not_todo` on a lot that has
  * history. Todo on a bare parcel creates the lot for the CC, with the crew
  * whose rectangle holds it. Who may write what:
  * - green and admin: anything at the CC, Do not touch included;
- * - driver: Todo, In progress, Done and Not todo on any lot at the CC's site
+ * - driver: Todo, In progress, Done, Not done and Not todo on any lot at the CC's site
  *   and any parcel in the CC's day area;
- * - crew: the same four inside its own rectangle; a crew without a rectangle
+ * - crew: the same five inside its own rectangle; a crew without a rectangle
  *   keeps the old rule (its own lots, lots at its CC, loose lots within 400 m).
  */
 import { TRPCError } from "@trpc/server";
@@ -83,7 +83,7 @@ export const ccDayArea = (cc: CommandCenter, day: Day): Ring[] => {
   const work = db
     .select({ lat: lots.lat, lng: lots.lng })
     .from(lots)
-    .where(and(inArray(lots.ccId, siteCcIds(cc.id)), inArray(lots.status, ["open", "in_progress", "done", "do_not_touch"])))
+    .where(and(inArray(lots.ccId, siteCcIds(cc.id)), inArray(lots.status, ["open", "in_progress", "done", "not_done", "do_not_touch"])))
     .all();
   const box = bboxOf(work);
   if (!box) return [];

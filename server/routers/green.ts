@@ -199,7 +199,7 @@ export const greenRouter = router({
     const byCrew = new Map<number | null, Record<Lot["status"], number>>();
     for (const l of rows) {
       const k = l.crewId;
-      const c = byCrew.get(k) ?? { open: 0, in_progress: 0, done: 0, do_not_touch: 0, not_todo: 0 };
+      const c = byCrew.get(k) ?? { open: 0, in_progress: 0, done: 0, not_done: 0, do_not_touch: 0, not_todo: 0 };
       c[l.status]++;
       byCrew.set(k, c);
     }
@@ -211,14 +211,14 @@ export const greenRouter = router({
   }),
 
   /**
-   * Wrap up: every work lot at this CC's site on the day (Todo, In progress, Done) with its crew and
+   * Wrap up: every work lot at this CC's site on the day (Todo, In progress, Done, Not done) with its crew and
    * whether it has a Before and an After, newest thumb of each. The list behind the After photo round.
    */
   wrap: greenProcedure.query(({ ctx }) => {
     const summary = photoSummary(ctx.event.id);
     const crewNames = new Map(crewsAt(ctx.cc.id, ctx.day.id).map((c) => [c.id, c.name]));
     return lotsAt(ctx.cc.id, ctx.day.id)
-      .filter((l) => l.status === "open" || l.status === "in_progress" || l.status === "done")
+      .filter((l) => l.status === "open" || l.status === "in_progress" || l.status === "done" || l.status === "not_done")
       .map((l) => {
         const p = summary.get(l.id);
         return {
@@ -412,7 +412,7 @@ export const greenRouter = router({
     }
     const now = Date.now();
     const lotRows = lotsAt(ctx.cc.id, ctx.day.id);
-    const lotsByStatus: Record<Lot["status"], number> = { open: 0, in_progress: 0, done: 0, do_not_touch: 0, not_todo: 0 };
+    const lotsByStatus: Record<Lot["status"], number> = { open: 0, in_progress: 0, done: 0, not_done: 0, do_not_touch: 0, not_todo: 0 };
     for (const l of lotRows) lotsByStatus[l.status]++;
     const photographed = photoCounts(lotRows.map((l) => l.id), photoSummary(ctx.event.id));
     return {

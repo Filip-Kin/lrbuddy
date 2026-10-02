@@ -43,7 +43,7 @@ export const DriverLotSheet = ({
 export const AreaCard = ({ area, crews, onClose }: { area: DayOfArea | null; crews: readonly DriverCrew[]; onClose: () => void }) => {
   const members = area ? area.crewIds.map((id) => crews.find((c) => c.id === id)).filter((c): c is DriverCrew => !!c) : [];
   const c = area?.counts;
-  const total = c ? c.open + c.inProgress + c.done + c.doNotTouch : 0;
+  const total = c ? c.open + c.inProgress + c.done + c.notDone + c.doNotTouch : 0;
   return (
     <Sheet open={area !== null} onClose={onClose} title={area?.label ?? "Area"}>
       {area && c && (

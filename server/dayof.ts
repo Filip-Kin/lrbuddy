@@ -23,7 +23,8 @@ import { areaForCrews, dayAreas, joinNames, pruneAreas, splitSides, type AreaVie
 import type { Ring } from "./routers/plan/blocks.ts";
 
 export const DO_NOT_TOUCH = "Do not touch";
-const UNFINISHED: readonly LotStatus[] = ["open", "in_progress"];
+/** Lots an area's Done or Do not touch moves: Todo, In progress and Not done (SPEC 28). */
+const UNFINISHED: readonly LotStatus[] = ["open", "in_progress", "not_done"];
 
 export interface Scope {
   cc: CommandCenter;
@@ -34,17 +35,19 @@ export interface Counts {
   open: number;
   inProgress: number;
   done: number;
+  notDone: number;
   doNotTouch: number;
 }
 
 /** Counts of the work lots; Not todo lots are not work and are not counted. */
-const emptyCounts = (): Counts => ({ open: 0, inProgress: 0, done: 0, doNotTouch: 0 });
+const emptyCounts = (): Counts => ({ open: 0, inProgress: 0, done: 0, notDone: 0, doNotTouch: 0 });
 const count = (list: readonly Lot[]): Counts => {
   const c = emptyCounts();
   for (const l of list) {
     if (l.status === "open") c.open++;
     else if (l.status === "in_progress") c.inProgress++;
     else if (l.status === "done") c.done++;
+    else if (l.status === "not_done") c.notDone++;
     else if (l.status === "do_not_touch") c.doNotTouch++;
   }
   return c;

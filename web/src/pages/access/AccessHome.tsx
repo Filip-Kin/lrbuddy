@@ -10,6 +10,7 @@ import { StatusPill } from "../../components/StatusPill.tsx";
 import { dayDate, phoneText } from "../../components/admin/format.ts";
 import { errorText } from "../../lib/errors.ts";
 import { ago } from "../../lib/format.ts";
+import { useStreamRetry } from "../../lib/live.ts";
 import { trpc, type RouterOutputs } from "../../lib/trpc.ts";
 
 type Mine = RouterOutputs["access"]["mine"];
@@ -274,12 +275,18 @@ export const AccessHome = ({ name }: { name: string | null }) => {
   const options = trpc.access.options.useQuery();
   const [asking, setAsking] = useState(false);
 
+  const retry = useStreamRetry();
   trpc.access.onMine.useSubscription(undefined, {
+    enabled: retry.up,
+    onStarted: retry.started,
     onData: (d) => {
       void utils.access.mine.invalidate();
       if (d.status === "approved") void utils.shared.me.invalidate();
     },
-    onError: () => void utils.shared.me.invalidate(),
+    onError: () => {
+      void utils.shared.me.invalidate();
+      retry.failed();
+    },
   });
 
   if (mine.isLoading || options.isLoading) {

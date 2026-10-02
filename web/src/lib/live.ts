@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { idbStore } from "./idbStore.ts";
 import { cacheScope } from "./prefetch.ts";
 import { invalidateCached } from "./queryCache.ts";
@@ -119,6 +119,43 @@ const KIND: Record<string, Kind> = {
   "membership.changed": "access",
 };
 
+// #region retry
+const RETRY_FIRST_MS = 2000;
+const RETRY_MAX_MS = 30_000;
+
+/**
+ * Turns a stream back on after it fails. A reconnect that gets a non-200 answer (the
+ * front door's 502 while the app restarts) closes the EventSource for good, and tRPC
+ * does not subscribe again on its own, so the screen would stay without live updates
+ * until a reload. The stream is switched off and on again after 2, 4, 8 ... 30 s.
+ */
+export const useStreamRetry = (): { up: boolean; started: () => void; failed: () => void } => {
+  const [up, setUp] = useState(true);
+  const tries = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const started = useCallback(() => {
+    tries.current = 0;
+  }, []);
+  const failed = useCallback(() => {
+    if (timer.current !== null) return;
+    setUp(false);
+    const wait = Math.min(RETRY_MAX_MS, RETRY_FIRST_MS * 2 ** tries.current);
+    tries.current += 1;
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      setUp(true);
+    }, wait);
+  }, []);
+  return { up, started, failed };
+};
+// #endregion
+
 /**
  * One `shared.onCc` stream per signed-in CC role. Each event marks the
  * matching queries stale, coalesced to one refetch per kind every 1.5 s. A
@@ -128,10 +165,19 @@ export const useLiveInvalidation = (role: Role, enabled: boolean): void => {
   const utils = trpc.useUtils();
   const timers = useRef(new Map<Kind, ReturnType<typeof setTimeout>>());
   const settled = useSettled();
-  const on = settled && enabled && (role === "crew" || role === "driver" || role === "green" || role === "admin");
+  const retry = useStreamRetry();
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      for (const x of pending.values()) clearTimeout(x);
+      pending.clear();
+    };
+  }, []);
+  const on = settled && enabled && retry.up && (role === "crew" || role === "driver" || role === "green" || role === "admin");
   trpc.shared.onCc.useSubscription(undefined, {
     enabled: on,
     onStarted: () => {
+      retry.started();
       void utils.invalidate();
     },
     onData: (msg) => {
@@ -155,8 +201,10 @@ export const useLiveInvalidation = (role: Role, enabled: boolean): void => {
       );
     },
     // The server ends the stream when the session is revoked; `me` then reads anon and the app shows the login.
+    // Any other failure (a 502 during a restart) opens the stream again after a wait.
     onError: () => {
       void utils.shared.me.invalidate();
+      retry.failed();
     },
   });
 };

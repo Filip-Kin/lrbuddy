@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useSettled } from "../../lib/live.ts";
+import { useSettled, useStreamRetry } from "../../lib/live.ts";
 import { trpc } from "../../lib/trpc.ts";
 
 type Utils = ReturnType<typeof trpc.useUtils>;
@@ -61,9 +61,11 @@ export const useAdminLive = (): void => {
       pending.clear();
     };
   }, []);
+  const retry = useStreamRetry();
   trpc.admin.onEvent.useSubscription(undefined, {
-    enabled: settled,
+    enabled: settled && retry.up,
     onStarted: () => {
+      retry.started();
       void utils.admin.invalidate();
     },
     onData: (msg) => {
@@ -80,6 +82,7 @@ export const useAdminLive = (): void => {
     // A signed-out admin session ends the stream; `me` then reads anon.
     onError: () => {
       void utils.shared.me.invalidate();
+      retry.failed();
     },
   });
 };

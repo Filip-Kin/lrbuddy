@@ -81,7 +81,14 @@ interface Box {
   w: number;
   h: number;
 }
-const overlaps = (a: Box, b: Box): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+/**
+ * Boxes closer than 1 px count as overlapping. Leaflet rounds each marker to a whole pixel,
+ * which moves two labels up to 1 px towards each other; boxes placed edge to edge at
+ * fractional positions then overlapped by a pixel on the page.
+ */
+const GAP_PX = 1;
+const overlaps = (a: Box, b: Box): boolean =>
+  a.x < b.x + b.w + GAP_PX && b.x < a.x + a.w + GAP_PX && a.y < b.y + b.h + GAP_PX && b.y < a.y + a.h + GAP_PX;
 const inside = (b: Box, size: L.Point, m: number): boolean => b.x >= m && b.y >= m && b.x + b.w <= size.x - m && b.y + b.h <= size.y - m;
 
 /**

@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { and, between, eq } from "drizzle-orm";
 import { z } from "zod";
+import { holdsGreen } from "../auth.ts";
 import { bus } from "../bus.ts";
 import { db } from "../db/index.ts";
 import { companies, crews, LOT_GRADES, LOT_STATUSES, lots, routes, sessions, trucks, truckStock, type CommandCenter, type Manoeuvre, type Route, type Truck } from "../db/schema.ts";
@@ -259,7 +260,8 @@ export const driverRouter = router({
    * Drivers see lots only (SPEC 21): no bare parcels and no Not todo lots.
    */
   lots: driverProcedure.query(({ ctx }) => ({
-    lots: lotsAt(ctx.cc.id, ctx.day.id).filter((l) => l.status !== "not_todo").map((l) => ({
+    // A driver who also holds green here sees Not todo lots too, as the green map does (SPEC 27).
+    lots: lotsAt(ctx.cc.id, ctx.day.id).filter((l) => l.status !== "not_todo" || holdsGreen(ctx.session.userId, ctx.cc.id)).map((l) => ({
       id: l.id,
       lat: l.lat,
       lng: l.lng,
@@ -302,13 +304,14 @@ export const driverRouter = router({
   /**
    * Status of a lot at the truck's CC site, or a parcel in the CC's day area
    * (SPEC 21): Todo, In progress, Done, Not todo. Sets no crew in
-   * `status_by_crew_id`: the driver made the call. Do not touch is for greens.
+   * `status_by_crew_id`: the driver made the call. Do not touch is for greens:
+   * a driver whose user holds green at this CC acts as one (SPEC 27).
    */
   setLotStatus: driverProcedure
     .input(z.object({ lotId: z.number().int().nullish(), parcelId: z.string().min(1).max(40).nullish(), status: z.enum(LOT_STATUSES).optional(), grade: z.enum(LOT_GRADES).nullish() }))
     .mutation(({ ctx, input }) =>
       setLot(
-        { role: "driver", cc: ctx.cc, day: ctx.day, event: ctx.event, crew: null },
+        { role: holdsGreen(ctx.session.userId, ctx.cc.id) ? "green" : "driver", cc: ctx.cc, day: ctx.day, event: ctx.event, crew: null },
         { lotId: input.lotId, parcelId: input.parcelId, status: input.status, grade: input.grade },
         ctx.session.displayName,
       ),

@@ -1422,9 +1422,240 @@ def crash_checks() -> None:
         browser.close()
 
 
+# region Switch (SPEC 27)
+# The scope chip opens Switch: a bottom sheet at 390, a popover under the chip at 1440, light and dark,
+# with screenshots. CC Webb's green shirt (Day 4) takes Driver for Truck B1 from the chip and comes back
+# with no reload; the same person paints three bare parcels Todo on the driver map and Undo takes them
+# back; Sign out lands on /login and stays there; the admin switches to Day 1 CC East green, then Day 4
+# Truck B1, then back to Admin.
+
+SWITCH_JS = """() => {
+  const d = [...document.querySelectorAll('[role=dialog]')].find((e) => (e.getAttribute('aria-label') || e.innerText).includes('Switch'));
+  const chip = document.querySelector('[data-scope-chip]');
+  if (!d || !chip) return null;
+  const r = d.getBoundingClientRect(), c = chip.getBoundingClientRect();
+  const rows = [...d.querySelectorAll('[data-switch-role], [data-switch-admin], [data-switch] button')].map((b) => b.getBoundingClientRect().height);
+  return { top: r.top, bottom: r.bottom, w: r.width, chipBottom: c.bottom, vh: innerHeight, popover: !!document.querySelector('[data-switch-popover]'),
+    rows, over: document.documentElement.scrollWidth - document.documentElement.clientWidth, text: d.innerText };
+}"""
+
+
+def open_switch(page, tag: str) -> dict | None:
+    page.locator("[data-scope-chip]").click()
+    try:
+        page.wait_for_selector("[data-switch]", timeout=15000)
+    except Exception:  # noqa: BLE001
+        fail(f"{tag}: the scope chip opened no Switch")
+        return None
+    page.wait_for_timeout(400)
+    return page.evaluate(SWITCH_JS)
+
+
+def pick_role(page, name: str, day: str | None = None, cc: str | None = None) -> None:
+    panel = page.get_by_role("dialog", name="Switch")
+    if day:
+        panel.get_by_role("radiogroup", name="Day").get_by_role("radio", name=re.compile(rf"^{re.escape(day)}\b")).click()
+    if cc:
+        panel.get_by_role("radiogroup", name="Command center").get_by_role("radio", name=cc, exact=True).click()
+    panel.locator("[data-switch-role]").filter(has_text=re.compile(rf"^{re.escape(name)}")).first.click()
+    page.wait_for_timeout(1200)
+
+
+def chip_text(page) -> str:
+    return page.locator("[data-scope-chip]").inner_text().strip()
+
+
+def switch_checks() -> None:
+    only = {r for r in os.environ.get("GATE_ROLES", "").split(",") if r}
+    if only and "green" not in only:
+        return
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
+        # The panel at both sizes and both schemes.
+        for scheme in ("light", "dark"):
+            for size, (w, h) in SIZES.items():
+                tag = f"switch {size} {scheme}"
+                phone = size == "phone"
+                ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=1, color_scheme=scheme, is_mobile=phone, has_touch=phone)
+                if seedcodes.sign_in(ctx, BASE, PAINT_GREEN) != 200:
+                    fail(f"{tag}: CC Webb login failed")
+                    ctx.close()
+                    continue
+                page = ctx.new_page()
+                try:
+                    page.goto(BASE + "/", wait_until="networkidle", timeout=45000)
+                    page.wait_for_timeout(600)
+                    st = open_switch(page, tag)
+                    if not st:
+                        continue
+                    page.screenshot(path=str(OUT / f"switch-{size}-{scheme}.png"))
+                    if phone and abs(st["bottom"] - st["vh"]) > 1:
+                        fail(f"{tag}: the sheet does not sit on the bottom edge ({st['bottom']:.0f} of {st['vh']})")
+                    if not phone and (not st["popover"] or st["top"] < st["chipBottom"] or st["top"] > st["chipBottom"] + 24 or st["w"] > 500):
+                        fail(f"{tag}: not a popover under the chip (top {st['top']:.0f}, chip bottom {st['chipBottom']:.0f}, width {st['w']:.0f})")
+                    small = [round(x) for x in st["rows"] if x < 40]
+                    if small:
+                        fail(f"{tag}: Switch controls under 40 px: {small}")
+                    if st["over"] != 0:
+                        fail(f"{tag}: horizontal overflow {st['over']}px")
+                    for word in ("Day", "Command center", "Green shirt", "Truck B1", "Sign out"):
+                        if word not in st["text"]:
+                            fail(f"{tag}: '{word}' missing from the Switch")
+                    if "—" in st["text"]:
+                        fail(f"{tag}: em dash in the Switch")
+                except Exception as e:  # noqa: BLE001
+                    fail(f"{tag}: {type(e).__name__} {str(e)[:160]}")
+                finally:
+                    ctx.close()
+
+        # Green Day 4 to Truck B1 and back, then paint on the driver map, then Sign out.
+        tag = "switch green to driver"
+        ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=1, color_scheme="light", is_mobile=True, has_touch=True)
+        painted: list[str] = []
+        try:
+            if seedcodes.sign_in(ctx, BASE, PAINT_GREEN) != 200:
+                raise RuntimeError("CC Webb login failed")
+            bare = trpc_get(ctx, "green.parcels")
+            mid_lat = sum(p["lat"] for p in bare) / len(bare)
+            mid_lng = sum(p["lng"] for p in bare) / len(bare)
+            stand = min(bare, key=lambda p: (p["lat"] - mid_lat) ** 2 + (p["lng"] - mid_lng) ** 2)
+            ctx.grant_permissions(["geolocation"], origin=BASE)
+            ctx.set_geolocation({"latitude": stand["lat"], "longitude": stand["lng"], "accuracy": 5})
+            page = ctx.new_page()
+            page.goto(BASE + "/", wait_until="networkidle", timeout=45000)
+            page.wait_for_timeout(600)
+            page.evaluate("() => { window.lrbNoReload = 1; }")
+            if not open_switch(page, tag):
+                raise RuntimeError("no Switch")
+            pick_role(page, "Truck B1")
+            page.wait_for_selector("[aria-label='Route map']", timeout=15000)
+            if "Truck B1" not in chip_text(page):
+                fail(f"{tag}: chip reads '{chip_text(page)}' after taking Truck B1")
+            if page.evaluate("() => window.lrbNoReload") != 1:
+                fail(f"{tag}: the app reloaded on Switch")
+            page.wait_for_timeout(1500)
+            page.screenshot(path=str(OUT / "switch-driver-map-green-phone-light.png"))
+
+            # Paint on the driver map (a green shirt driving).
+            ptag = "driver map paint (green and driver)"
+            if page.locator("[data-paint]").count() == 0:
+                fail(f"{ptag}: no Paint on the driver map")
+            else:
+                page.locator("[data-paint]").click()
+                page.wait_for_timeout(700)
+                if page.locator("[data-paint-bar]").count() == 0:
+                    fail(f"{ptag}: Paint opened no bar")
+                if page.locator("[data-flag-dnt-brush]").count() == 0:
+                    fail(f"{ptag}: no Do not touch switch in the bar")
+                tri = page.evaluate(PAINT_TRIPLE_JS)
+                if not tri:
+                    fail(f"{ptag}: no three neighbouring bare parcels on the driver map")
+                else:
+                    p, q, rr = tri
+                    page.mouse.move(p["x"], p["y"])
+                    page.mouse.down()
+                    page.mouse.move(q["x"], q["y"], steps=8)
+                    page.mouse.move(rr["x"], rr["y"], steps=8)
+                    page.mouse.up()
+                    painted = [t["pid"] for t in tri]
+                    ok = False
+                    for _ in range(20):
+                        page.wait_for_timeout(300)
+                        reds = [page.evaluate(LOT_FILL_JS, pid) for pid in painted]
+                        if all(x and "lrb-lot-shape-open" in x["cls"] and x["fill"] == RED for x in reds):
+                            ok = True
+                            break
+                    page.screenshot(path=str(OUT / "switch-driver-paint-phone-light.png"))
+                    if not ok:
+                        fail(f"{ptag}: the three painted parcels did not turn red Todo")
+                    cnt = page.evaluate(PAINT_STATE_JS)["count"].strip()
+                    if cnt != "3 lots":
+                        fail(f"{ptag}: counter reads '{cnt}', expected '3 lots'")
+                    page.locator("[data-paint-undo]").click()
+                    back = False
+                    for _ in range(20):
+                        page.wait_for_timeout(300)
+                        if all(page.locator(f'[data-parcel="{pid}"]').count() > 0 for pid in painted):
+                            back = True
+                            break
+                    if not back:
+                        fail(f"{ptag}: Undo did not return the three parcels")
+                    else:
+                        painted = []
+                over = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+                if over:
+                    fail(f"{ptag}: horizontal overflow {over}px")
+                page.locator("[data-paint-exit]").click()
+                page.wait_for_timeout(300)
+
+            if not open_switch(page, tag):
+                raise RuntimeError("no Switch from the driver map")
+            pick_role(page, "Green shirt")
+            page.wait_for_selector("[aria-label='Command center map']", timeout=15000)
+            if "CC Webb, Day 4" not in chip_text(page):
+                fail(f"{tag}: chip reads '{chip_text(page)}' after Green shirt")
+            if page.evaluate("() => window.lrbNoReload") != 1:
+                fail(f"{tag}: the app reloaded on the way back")
+
+            # Sign out lands on /login and stays there.
+            stag = "sign out"
+            open_switch(page, stag)
+            page.locator("[data-switch-sign-out]").click()
+            page.wait_for_url("**/login", timeout=15000)
+            page.wait_for_timeout(2500)
+            if page.evaluate("location.pathname") != "/login":
+                fail(f"{stag}: landed on {page.evaluate('location.pathname')}, expected /login")
+            if trpc_get(ctx, "shared.me").get("role") != "anon":
+                fail(f"{stag}: still signed in after Sign out")
+        except Exception as e:  # noqa: BLE001
+            fail(f"{tag}: {type(e).__name__} {str(e)[:160]}")
+        finally:
+            if painted:
+                green = browser.new_context()
+                if seedcodes.sign_in(green, BASE, PAINT_GREEN) == 200:
+                    for pid in painted:
+                        green.request.post(f"{BASE}/trpc/green.setLotStatus", data=json.dumps({"json": {"parcelId": pid, "status": "not_todo"}}),
+                                           headers={"content-type": "application/json"})
+                green.close()
+            ctx.close()
+
+        # The admin: any day, any CC, any role, and back.
+        tag = "switch admin"
+        ctx = browser.new_context(viewport={"width": 1440, "height": 900}, device_scale_factor=1, color_scheme="light")
+        try:
+            if seedcodes.sign_in(ctx, BASE, {"admin": True}) != 200:
+                raise RuntimeError("admin login failed")
+            page = ctx.new_page()
+            page.goto(BASE + "/admin", wait_until="networkidle", timeout=45000)
+            page.wait_for_timeout(500)
+            st = open_switch(page, tag)
+            if st and ("Day 1" not in st["text"] or "Day 4" not in st["text"] or "Admin" not in st["text"]):
+                fail(f"{tag}: Switch lacks Admin, Day 1 or Day 4")
+            page.screenshot(path=str(OUT / "switch-admin-laptop-light.png"))
+            pick_role(page, "Green shirt", "Day 1", "CC East")
+            page.wait_for_selector("[aria-label='Command center map']", timeout=15000)
+            if "CC East, Day 1" not in chip_text(page):
+                fail(f"{tag}: chip reads '{chip_text(page)}' after Day 1 CC East green")
+            open_switch(page, tag)
+            pick_role(page, "Truck B1", "Day 4", "CC Webb")
+            page.wait_for_selector("[aria-label='Route map']", timeout=15000)
+            if "Truck B1" not in chip_text(page):
+                fail(f"{tag}: chip reads '{chip_text(page)}' after Day 4 Truck B1")
+            open_switch(page, tag)
+            page.locator("[data-switch-admin]").click()
+            page.wait_for_url("**/admin", timeout=15000)
+            if trpc_get(ctx, "shared.me").get("role") != "admin":
+                fail(f"{tag}: not back in admin")
+        except Exception as e:  # noqa: BLE001
+            fail(f"{tag}: {type(e).__name__} {str(e)[:160]}")
+        finally:
+            ctx.close()
+        browser.close()
+
+
 # endregion
 
-CHECKS = [static_checks, bundle_checks, crash_checks, dynamic_checks, stock_expected_checks, parcel_status_checks, flag_checks, paint_checks, flag_paint_checks, draw_lot_checks]
+CHECKS = [static_checks, bundle_checks, crash_checks, dynamic_checks, stock_expected_checks, parcel_status_checks, flag_checks, paint_checks, flag_paint_checks, draw_lot_checks, switch_checks]
 # GATE_ONLY=paint_checks,flag_checks runs just those groups while working on one screen; the release gate runs all.
 _only = {c for c in os.environ.get("GATE_ONLY", "").split(",") if c}
 for check in CHECKS:

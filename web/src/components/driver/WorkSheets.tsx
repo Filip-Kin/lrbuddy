@@ -2,7 +2,7 @@ import { ContactButtons } from "../green/Contact.tsx";
 import { Fact } from "../green/ui.tsx";
 import type { DayOfArea } from "../green/dayOfLayer.ts";
 import type { useSetLot } from "../LotStatusControl.tsx";
-import { ParcelSheet } from "../ParcelSheet.tsx";
+import { ParcelSheet, type ParcelView } from "../ParcelSheet.tsx";
 import { Sheet } from "../Sheet.tsx";
 import type { RouterOutputs } from "../../lib/trpc.ts";
 
@@ -11,17 +11,31 @@ export type DriverCrew = RouterOutputs["driver"]["crews"][number];
 
 /**
  * The shared lot sheet for a driver (SPEC 21): Not todo, Todo, In progress,
- * Done; Do not touch shows but is for green shirts.
+ * Done; Do not touch shows but is for green shirts. A driver who holds green
+ * at the CC (`canDnt`, SPEC 27) gets all five, and bare parcels open it too.
  */
-export const DriverLotSheet = ({ lot, crew, lots, onClose }: { lot: DriverLot | null; crew: DriverCrew | null; lots: ReturnType<typeof useSetLot>; onClose: () => void }) => (
+export const DriverLotSheet = ({
+  parcel,
+  crew,
+  lots,
+  canDnt = false,
+  onClose,
+}: {
+  parcel: ParcelView | null;
+  crew: DriverCrew | null;
+  lots: ReturnType<typeof useSetLot>;
+  canDnt?: boolean;
+  onClose: () => void;
+}) => (
   <ParcelSheet
-    parcel={lot ? { lotId: lot.id, parcelId: lot.parcelId, address: lot.address, status: lots.pending.get(`l:${lot.id}`) ?? lot.status, grade: lot.grade, note: lot.note } : null}
+    parcel={parcel}
     onClose={onClose}
     onSet={lots.set}
     ensureLot={lots.ensure}
+    canDnt={canDnt}
     error={lots.error}
     errorFor={lots.errorFor}
-    crew={lot && <p className="text-sm text-muted">{crew ? [crew.name, crew.companyName].filter(Boolean).join(", ") : "No crew"}</p>}
+    crew={parcel && parcel.lotId !== null && <p className="text-sm text-muted">{crew ? [crew.name, crew.companyName].filter(Boolean).join(", ") : "No crew"}</p>}
   />
 );
 

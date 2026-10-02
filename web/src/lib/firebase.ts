@@ -85,8 +85,14 @@ export const googleSignIn = async (): Promise<string> => {
   return cred.user.getIdToken();
 };
 
+/**
+ * Signs out of Firebase on this phone. Waits for the kept user to load first: sign-out runs on a
+ * fresh page, and a sign-out before the stored user has loaded can leave that user behind.
+ */
 export const firebaseSignOut = async (): Promise<void> => {
-  await signOut(getFirebaseAuth()).catch(() => undefined);
+  const a = getFirebaseAuth();
+  await a.authStateReady().catch(() => undefined);
+  await signOut(a).catch(() => undefined);
 };
 
 /** Firebase error code (`auth/invalid-verification-code`), or null. */

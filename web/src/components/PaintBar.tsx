@@ -58,7 +58,8 @@ export const usePaint = (map: LeafletMap | null, scope: PaintScope, targets: rea
   const strokes = strokesOverride ?? (scope.kind === "green" ? greenState.data?.strokes : adminState.data?.strokes) ?? 0;
 
   const refetch = useCallback(async (): Promise<void> => {
-    if (scope.kind === "green") await utils.green.invalidate();
+    // The driver map of a green shirt driving (SPEC 27) paints through green and draws from driver.lots.
+    if (scope.kind === "green") await Promise.all([utils.green.invalidate(), utils.driver.lots.invalidate()]);
     else await Promise.all([utils.admin.lots.invalidate(), utils.admin.overview.invalidate()]);
   }, [scope.kind, utils]);
 

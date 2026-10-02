@@ -4,12 +4,29 @@ import { plural, UndoIcon, type PaintState } from "../../../components/PaintBar.
 /**
  * The Flag map's paint bar (SPEC 22): Undo, the stroke counter and one
  * Do not touch switch. Off, the brush is the toggle (Todo and Not todo swap);
- * on, it paints Do not touch. No Done: Collapse ends paint.
+ * on, it paints Do not touch. No Done on the Flag map: Collapse ends paint.
+ * The driver map (SPEC 27) passes `onDone`: Done sits beside the counter and
+ * the switch takes a row of its own.
  */
-export const FlagPaintBar = ({ paint }: { paint: PaintState }) => {
+export const FlagPaintBar = ({ paint, onDone }: { paint: PaintState; onDone?: () => void }) => {
   if (!paint.on) return null;
   const dnt = paint.brush === "do_not_touch";
   const off = !paint.zoomOk;
+  const dntSwitch = (
+    <button
+      type="button"
+      aria-pressed={dnt}
+      disabled={off}
+      onClick={() => paint.setBrush(dnt ? "toggle" : "do_not_touch")}
+      className={`flex min-h-11 shrink-0 touch-manipulation items-center justify-center gap-1.5 rounded-xl px-3 text-sm leading-tight font-semibold text-ink ring-inset transition-colors disabled:opacity-45 ${
+        dnt ? "bg-surface-2 ring-[3px] ring-warn" : "bg-surface ring-1 ring-line"
+      } ${onDone ? "w-full" : ""}`}
+      data-flag-dnt-brush
+    >
+      <span aria-hidden="true" className="h-3.5 w-3.5 shrink-0 rounded-[3px] ring-2 ring-inset ring-warn" style={{ background: "color-mix(in srgb, var(--warn) 35%, transparent)" }} />
+      Do not touch
+    </button>
+  );
   return (
     <div
       data-paint-bar
@@ -36,20 +53,15 @@ export const FlagPaintBar = ({ paint }: { paint: PaintState }) => {
             </>
           )}
         </div>
-        <button
-          type="button"
-          aria-pressed={dnt}
-          disabled={off}
-          onClick={() => paint.setBrush(dnt ? "toggle" : "do_not_touch")}
-          className={`flex min-h-11 shrink-0 touch-manipulation items-center gap-1.5 rounded-xl px-3 text-sm leading-tight font-semibold text-ink ring-inset transition-colors disabled:opacity-45 ${
-            dnt ? "bg-surface-2 ring-[3px] ring-warn" : "bg-surface ring-1 ring-line"
-          }`}
-          data-flag-dnt-brush
-        >
-          <span aria-hidden="true" className="h-3.5 w-3.5 shrink-0 rounded-[3px] ring-2 ring-inset ring-warn" style={{ background: "color-mix(in srgb, var(--warn) 35%, transparent)" }} />
-          Do not touch
-        </button>
+        {onDone ? (
+          <Button size="md" data-paint-exit onClick={onDone}>
+            Done
+          </Button>
+        ) : (
+          dntSwitch
+        )}
       </div>
+      {onDone && dntSwitch}
       {paint.error && (
         <p role="alert" className="text-center text-sm font-semibold">
           {paint.error}

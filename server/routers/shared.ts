@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { holdsGreen } from "../auth.ts";
 import { bus, type BusMessage } from "../bus.ts";
 import { db } from "../db/index.ts";
 import {
@@ -36,8 +37,10 @@ export type Me =
   | {
       role: Role;
       displayName: string | null;
-      /** True when the session belongs to a signed-in user, who leaves a role without signing out. */
+      /** True when the session belongs to a signed-in user, who leaves a role without signing out and switches from the scope chip (SPEC 27). */
       user: boolean;
+      /** What the person may do here beyond the session's role (SPEC 27): green shirt powers at this CC. */
+      can: { green: boolean };
       /** Scope line for the top bar, e.g. "Crew 7, Ford, CC East". */
       scope: string;
       /** The same line for a phone's bar: "Crew 7, CC East". The CC outranks the company. */
@@ -120,6 +123,7 @@ export const sharedRouter = router({
         user,
         scope: override?.cc ? `Admin, CC ${override.cc.name}` : "Admin",
         scopeShort: override?.cc ? `Admin, CC ${override.cc.name}` : "Admin",
+        can: { green: true },
         crew: null,
         truck: null,
         ...(override ?? { cc: null, day: null, event: activeEvent() ?? null }),
@@ -143,6 +147,7 @@ export const sharedRouter = router({
         user,
         scope: parts.join(", "),
         scopeShort: short.join(", "),
+        can: { green: holdsGreen(s.userId, row.crew.ccId) },
         crew: { ...crew, company: row.company },
         truck: null,
         ...scope,
@@ -153,13 +158,23 @@ export const sharedRouter = router({
       if (!truck) return { role: "anon" };
       const scope = ccScope(truck.ccId);
       const parts = [truck.name, scope.cc ? `CC ${scope.cc.name}` : null].filter(Boolean);
-      return { role: "driver", displayName: s.displayName ?? truck.driverName, user, scope: parts.join(", "), scopeShort: parts.join(", "), crew: null, truck, ...scope };
+      return {
+        role: "driver",
+        displayName: s.displayName ?? truck.driverName,
+        user,
+        scope: parts.join(", "),
+        scopeShort: parts.join(", "),
+        can: { green: holdsGreen(s.userId, truck.ccId) },
+        crew: null,
+        truck,
+        ...scope,
+      };
     }
     if (s.role === "green") {
       const scope = ccScope(s.ccId);
       if (!scope.cc) return { role: "anon" };
       const parts = [`CC ${scope.cc.name}`, scope.day?.label].filter(Boolean);
-      return { role: "green", displayName: s.displayName, user, scope: parts.join(", "), scopeShort: parts.join(", "), crew: null, truck: null, ...scope };
+      return { role: "green", displayName: s.displayName, user, scope: parts.join(", "), scopeShort: parts.join(", "), can: { green: true }, crew: null, truck: null, ...scope };
     }
     return { role: "anon" };
   }),

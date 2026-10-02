@@ -11,7 +11,9 @@
  * no open, assigned or en route request (delivering would close the seed's request too).
  *
  * The green map tests that make and delete lots (green-map.e2e) run at Day 4's CC Webb, which no
- * other spec reads, each lane inside its own rectangles of the middle column. The admin Land Bank
+ * other spec reads, each lane inside its own rectangles of the middle column. The driver map paint
+ * test (switch.e2e) paints in other rectangles of its lane (driverAreas), since the two files run
+ * at the same time. The admin Land Bank
  * import draws its rectangle over another rectangle of the east column.
  *
  * The seed generates every code and token (SPEC 11) and writes them to `$DATA_DIR/seed-codes.json`;
@@ -66,6 +68,8 @@ export interface Lane {
   phone: string;
   /** CC Webb rectangles (by label) the lane's green map tests work in. */
   webbAreas: readonly string[];
+  /** CC Webb rectangles the lane's driver map paint test (switch.e2e) works in, apart from webbAreas so the two files run side by side. */
+  driverAreas: readonly string[];
   /** CC Webb rectangle the lane's admin Land Bank import is drawn over. */
   importArea: string;
 }
@@ -77,6 +81,7 @@ interface LaneShape {
   freeDay: number;
   phone: string;
   webbAreas: readonly string[];
+  driverAreas: readonly string[];
   importArea: string;
 }
 
@@ -88,6 +93,7 @@ const SHAPES: Record<LaneId, LaneShape> = {
     freeDay: 2,
     phone: "+1313555071",
     webbAreas: ["GM 3", "GM 5"],
+    driverAreas: ["GM 2"],
     importArea: "GM 1",
   },
   b: {
@@ -97,6 +103,7 @@ const SHAPES: Record<LaneId, LaneShape> = {
     freeDay: 6,
     phone: "+1313555072",
     webbAreas: ["GM 7", "GM 12 & GM 13"],
+    driverAreas: ["GM 4"],
     importArea: "GM 14",
   },
 };
@@ -148,6 +155,7 @@ export const laneFrom = (id: LaneId, codes: readonly SeedCode[]): Lane => {
     freeDay: s.freeDay,
     phone: s.phone,
     webbAreas: s.webbAreas,
+    driverAreas: s.driverAreas,
     importArea: s.importArea,
   };
 };

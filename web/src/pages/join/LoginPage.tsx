@@ -4,7 +4,7 @@ import { useSearch } from "wouter";
 import { Button } from "../../components/Button.tsx";
 import { Field } from "../../components/Field.tsx";
 import { googleEnabled } from "../../lib/firebaseConfig.ts";
-import { signInWithIdToken } from "../../lib/session.ts";
+import { clearSignedOut, signedOut, signInWithIdToken } from "../../lib/session.ts";
 import { trpc } from "../../lib/trpc.ts";
 
 // #region helpers
@@ -66,6 +66,7 @@ export const LoginPage = () => {
   const finish = async (idToken: string, typedName?: string): Promise<void> => {
     const res = await signInWithIdToken(idToken, typedName).catch(() => ({ ok: false as const, status: 0, error: "No connection" }));
     if (res.ok) {
+      clearSignedOut();
       window.location.assign("/");
       return;
     }
@@ -80,6 +81,11 @@ export const LoginPage = () => {
     void (async () => {
       try {
         const fb = await import("../../lib/firebase.ts");
+        // After Sign out the person signs in again on the form; a kept Firebase user never goes straight back in (SPEC 27).
+        if (signedOut()) {
+          await fb.firebaseSignOut();
+          return;
+        }
         const token = await fb.currentIdToken().catch(() => null);
         if (!live || !token) return;
         const res = await signInWithIdToken(token).catch(() => null);
@@ -153,6 +159,8 @@ export const LoginPage = () => {
   const google = async (): Promise<void> => {
     setBusy("google");
     setError(null);
+    // The redirect flow comes back to this page, which must then finish the sign-in.
+    clearSignedOut();
     try {
       const fb = await import("../../lib/firebase.ts");
       await finish(await fb.googleSignIn(), name || undefined);

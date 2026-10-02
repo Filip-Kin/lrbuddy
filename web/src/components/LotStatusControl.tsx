@@ -106,7 +106,8 @@ export const useSetLot = (role: LotRole) => {
 
   const refetch = useCallback(async (): Promise<void> => {
     if (role === "crew") await Promise.all([utils.crew.lots.invalidate(), utils.crew.map.invalidate()]);
-    else if (role === "driver") await utils.driver.lots.invalidate();
+    // A driver who holds green also draws bare parcels (SPEC 27); a Todo takes one off that list.
+    else if (role === "driver") await Promise.all([utils.driver.lots.invalidate(), utils.green.parcels.invalidate()]);
     else await utils.green.invalidate();
   }, [role, utils]);
 

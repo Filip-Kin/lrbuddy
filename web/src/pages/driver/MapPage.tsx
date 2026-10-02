@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { Map as LeafletMap } from "leaflet";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "wouter";
 import { Button, ButtonLink } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
@@ -12,6 +13,11 @@ import { useDistanceFrom, useDriverActions, useNewStopBuzz, useNow, useWakeLock,
 import { ArrowIcon, FlagIcon, LayersIcon, ListIcon, NavigateIcon, PhoneIcon, PinIcon, RecenterIcon, TruckIcon } from "../../components/driver/icons.tsx";
 import { AreaCard, DriverLotSheet } from "../../components/driver/WorkSheets.tsx";
 import { useSetLot } from "../../components/LotStatusControl.tsx";
+import { PaintFrame, PaintIcon, usePaint } from "../../components/PaintBar.tsx";
+import type { ParcelView } from "../../components/ParcelSheet.tsx";
+import type { PaintTarget } from "../../lib/map/paintHit.ts";
+import { useMe } from "../../lib/session.ts";
+import { FlagPaintBar } from "../green/flag/FlagPaintBar.tsx";
 import { CcStopCard, ErrorLine, NewPill, StopDetails, StopRow, isNew, stopEta, useArmed } from "../../components/driver/StopCard.tsx";
 import { distance, duration, lotTitle, telHref } from "../../lib/format.ts";
 import { useMyFix } from "../../lib/position.ts";
@@ -39,6 +45,7 @@ const useHeading = (): { at: LatLng | null; heading: number | null } => {
   return { at: fix ? { lat: fix.lat, lng: fix.lng } : null, heading };
 };
 // #endregion
+
 
 // #region next stop card
 const Card = ({ children, label }: { children: ReactNode; label: string }) => (
@@ -276,9 +283,28 @@ export const MapPage = () => {
   const work = trpc.driver.lots.useQuery(undefined, { refetchInterval: 60_000 });
   const crewList = trpc.driver.crews.useQuery(undefined, { refetchInterval: 30_000 });
   const [showLots, setShowLots] = useState(true);
-  const [lotId, setLotId] = useState<number | null>(null);
+  const [sel, setSel] = useState<{ lotId: number } | { parcelId: string } | null>(null);
   const lotWrites = useSetLot("driver");
   const [areaId, setAreaId] = useState<number | null>(null);
+  // A green shirt driving (SPEC 27): bare parcels, Paint and all five statuses on this map.
+  const me = useMe();
+  const greenHere = me.data?.role === "driver" && me.data.can.green;
+  const parcels = trpc.green.parcels.useQuery(undefined, { enabled: greenHere, refetchInterval: 120_000 });
+  const [leaflet, setLeaflet] = useState<LeafletMap | null>(null);
+  const paintTargets = useMemo<PaintTarget[]>(() => {
+    if (!greenHere) return [];
+    const out: PaintTarget[] = [];
+    for (const l of work.data?.lots ?? []) {
+      out.push({ key: `l:${l.id}`, lotId: l.id, parcelId: l.parcelId, status: lotWrites.pending.get(`l:${l.id}`) ?? l.status, crewId: l.crewId, lat: l.lat, lng: l.lng, geometry: l.geometry });
+    }
+    for (const p of parcels.data ?? []) {
+      out.push({ key: `p:${p.parcelId}`, lotId: null, parcelId: p.parcelId, status: lotWrites.pending.get(`p:${p.parcelId}`) ?? null, crewId: null, lat: p.lat, lng: p.lng, geometry: p.geometry });
+    }
+    return out;
+  }, [greenHere, work.data?.lots, parcels.data, lotWrites.pending]);
+  const paint = usePaint(leaflet, { kind: "green" }, paintTargets);
+  const pending = useMemo(() => (paint.pending.size === 0 ? lotWrites.pending : new Map([...lotWrites.pending, ...paint.pending])), [lotWrites.pending, paint.pending]);
+  const onParcel = useCallback((parcelId: string) => setSel({ parcelId }), []);
 
   const stops = q?.stops ?? [];
   const next = stops[0] ?? null;
@@ -297,15 +323,24 @@ export const MapPage = () => {
 
   const mapLots = useMemo<DriverMapLot[]>(
     () =>
-      (work.data?.lots ?? []).map((l) => ({ id: l.id, lat: l.lat, lng: l.lng, status: lotWrites.pending.get(`l:${l.id}`) ?? l.status, geometry: l.geometry, title: lotTitle(l) })),
-    [work.data, lotWrites.pending],
+      (work.data?.lots ?? []).map((l) => ({ id: l.id, parcelId: l.parcelId, lat: l.lat, lng: l.lng, status: pending.get(`l:${l.id}`) ?? l.status, geometry: l.geometry, title: lotTitle(l) })),
+    [work.data, pending],
   );
   const mapCrews = useMemo<DriverMapCrew[]>(
     () => (crewList.data ?? []).flatMap((c) => (c.position ? [{ id: c.id, lat: c.position.lat, lng: c.position.lng, label: c.name }] : [])),
     [crewList.data],
   );
   const crewsAll = crewList.data ?? [];
-  const selLot = work.data?.lots.find((l) => l.id === lotId) ?? null;
+  const lotsAll = work.data?.lots ?? [];
+  const selLot =
+    sel === null ? null : "lotId" in sel ? (lotsAll.find((l) => l.id === sel.lotId) ?? null) : (lotsAll.find((l) => l.parcelId === sel.parcelId) ?? null);
+  const selBare = sel !== null && "parcelId" in sel && !selLot ? (parcels.data?.find((p) => p.parcelId === sel.parcelId) ?? null) : null;
+  const sheetParcel: ParcelView | null = selLot
+    ? { lotId: selLot.id, parcelId: selLot.parcelId, address: selLot.address, status: pending.get(`l:${selLot.id}`) ?? selLot.status, grade: selLot.grade, note: selLot.note }
+    : selBare
+      ? { lotId: null, parcelId: selBare.parcelId, address: selBare.address, status: pending.get(`p:${selBare.parcelId}`) ?? null, grade: null, note: null }
+      : null;
+  const painting = paint.on;
   const selArea = work.data?.areas.find((a) => a.id === areaId) ?? null;
 
   const target: Target | null = next
@@ -332,9 +367,16 @@ export const MapPage = () => {
         areas={work.data?.areas}
         crews={mapCrews}
         showLots={showLots}
-        onLot={setLotId}
+        onLot={(id) => setSel({ lotId: id })}
         onArea={setAreaId}
+        parcels={greenHere ? parcels.data : undefined}
+        onParcel={onParcel}
+        pending={pending}
+        painting={painting}
+        onMap={setLeaflet}
       />
+      <PaintFrame paint={paint} />
+      <FlagPaintBar paint={paint} onDone={paint.close} />
 
       <div className="pointer-events-none absolute inset-x-2 top-2 z-[1000] mx-auto max-w-lg space-y-2">
         {q &&
@@ -363,7 +405,25 @@ export const MapPage = () => {
         {target && at && <GuidanceBanner target={target} at={at} heading={follow ? heading : null} line={line} steps={steps} />}
       </div>
 
+      {!painting && (
       <div className="pointer-events-none absolute bottom-[max(2.25rem,env(safe-area-inset-bottom))] left-3 z-[1000] flex flex-col items-start gap-2">
+        {greenHere && (
+          <Button
+            data-paint
+            variant="secondary"
+            size="lg"
+            className="pointer-events-auto bg-surface! px-4 shadow-lg"
+            disabled={!leaflet || !work.data}
+            onClick={() => {
+              setSel(null);
+              setFollow(false);
+              paint.open("toggle");
+            }}
+          >
+            <PaintIcon />
+            Paint
+          </Button>
+        )}
         <Button
           data-lots-toggle
           variant="secondary"
@@ -383,6 +443,9 @@ export const MapPage = () => {
         )}
       </div>
 
+      )}
+
+      {!painting && (
       <div className="pointer-events-none absolute right-4 bottom-[max(2.25rem,env(safe-area-inset-bottom))] z-[1000]">
         <Button data-queue-button size="lg" className="pointer-events-auto min-h-16 min-w-16 px-6 text-xl shadow-lg" onClick={() => setQueueOpen(true)} aria-label={`Queue, ${stops.length} ${stops.length === 1 ? "stop" : "stops"}`}>
           <ListIcon size={24} />
@@ -390,6 +453,7 @@ export const MapPage = () => {
           {stops.length > 0 && <span className="grid h-7 min-w-7 place-items-center rounded-full bg-ink px-1.5 text-base font-extrabold text-surface tabular-nums">{stops.length}</span>}
         </Button>
       </div>
+      )}
 
       <p className="pointer-events-none absolute bottom-0 left-0 z-[1000] rounded-tr-md bg-surface/80 px-1.5 py-0.5 text-[10px] text-muted">© OpenStreetMap contributors, © Esri</p>
 
@@ -412,7 +476,7 @@ export const MapPage = () => {
           </div>
         )}
       </Sheet>
-      <DriverLotSheet lot={selLot} crew={crewsAll.find((c) => c.id === selLot?.crewId) ?? null} lots={lotWrites} onClose={() => setLotId(null)} />
+      <DriverLotSheet parcel={sheetParcel} crew={crewsAll.find((c) => c.id === selLot?.crewId) ?? null} lots={lotWrites} canDnt={greenHere} onClose={() => setSel(null)} />
       <AreaCard area={selArea} crews={crewsAll} onClose={() => setAreaId(null)} />
       <CancelSheet stop={cancelStop} actions={actions} onClose={() => setCancelKey(null)} />
     </div>

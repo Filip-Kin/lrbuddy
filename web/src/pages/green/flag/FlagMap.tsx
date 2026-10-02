@@ -93,8 +93,8 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
     if (tapPicksRef.current) pickRef.current(`p:${parcelId}`);
   }, []);
   useParcelLayer(map, parcels, true, onBare, pending, expanded);
-  const noArea = useCallback(() => undefined, []);
-  useDayOfLayer(map, plan, true, noArea);
+  // Rectangle names take no tap on this map.
+  useDayOfLayer(map, plan, true, undefined);
 
   // Cone and yellow outline in their own pane over the lots (400) and rectangles (405).
   const overlay = useRef<{ group: L.LayerGroup; renderer: L.Renderer } | null>(null);

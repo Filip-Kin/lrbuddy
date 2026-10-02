@@ -1,6 +1,7 @@
 import L from "leaflet";
 import { useEffect, useRef, useState } from "react";
-import { attachLabelDeclutter, largestAreaIds, pillClass } from "../../../lib/map/declutter.ts";
+import { useAreaNames } from "../../../lib/map/areaNames.ts";
+import { attachLabelDeclutter } from "../../../lib/map/declutter.ts";
 import { hatchLines } from "../../../lib/map/hatch.ts";
 import type { RouterOutputs } from "../../../lib/trpc.ts";
 
@@ -103,7 +104,7 @@ export interface DrawnArea {
   doNotTouch?: boolean;
 }
 
-/** Crew areas as thin dashed outlines with the crew's name in the middle. Not clickable. */
+/** Crew areas as thin dashed outlines with the name small along the top edge (`useAreaNames`). Not clickable. */
 export const useAreasLayer = (map: L.Map | null, areas: readonly DrawnArea[]): void => {
   const group = useRef<L.LayerGroup | null>(null);
   useEffect(() => {
@@ -121,22 +122,17 @@ export const useAreasLayer = (map: L.Map | null, areas: readonly DrawnArea[]): v
     const g = group.current;
     if (!g) return;
     g.clearLayers();
-    // SPEC 20: from zoom 14 to 16 only the six largest areas keep their label.
-    const big = largestAreaIds(areas);
     for (const a of areas) {
       const pts: Array<[number, number]> = [];
       for (const p of a.ring) if (p[0] !== undefined && p[1] !== undefined) pts.push([p[1], p[0]]);
       if (pts.length < 3) continue;
       const poly = L.polygon(pts, { className: `lrb-area${a.doNotTouch ? " lrb-area-dnt" : ""}`, interactive: false, fill: false });
       g.addLayer(poly);
+      poly.getElement()?.setAttribute("data-area-id", String(a.id));
       if (a.doNotTouch) for (const seg of hatchLines(a.ring)) g.addLayer(L.polyline(seg, { className: "lrb-area-hatch", interactive: false }));
-      const c = poly.getBounds().getCenter();
-      const label = document.createElement("span");
-      label.className = `lrb-area-label ${pillClass(big.has(a.id))}`;
-      label.textContent = a.label;
-      g.addLayer(L.marker(c, { icon: L.divIcon({ className: "lrb-area-tag", html: label, iconSize: [0, 0] }), interactive: false, keyboard: false }));
     }
   }, [map, areas]);
+  useAreaNames(map, areas, { visible: true, tone: "plan" });
 };
 
 /** Fits the map to the points once per key (and again when the key changes). */

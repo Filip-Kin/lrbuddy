@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
+import { holdsGreen } from "../auth.ts";
 import { bus } from "../bus.ts";
 import { db } from "../db/index.ts";
 import { crews, LOT_GRADES, LOT_STATUSES, lots, requests, trucks, type CommandCenter, type Crew, type Lot } from "../db/schema.ts";
@@ -150,13 +151,16 @@ export const crewRouter = router({
         grade: z.enum(LOT_GRADES).nullish(),
       }),
     )
-    .mutation(({ ctx, input }) =>
-      setLot(
-        { role: "crew", cc: ctx.cc, day: ctx.day, event: ctx.event, crew: ctx.crew },
-        { lotId: input.lotId, parcelId: input.parcelId, status: input.status, grade: input.grade },
-        ctx.session.displayName,
-      ),
-    ),
+    .mutation(({ ctx, input }) => {
+      const patch = { lotId: input.lotId, parcelId: input.parcelId, status: input.status, grade: input.grade };
+      try {
+        return setLot({ role: "crew", cc: ctx.cc, day: ctx.day, event: ctx.event, crew: ctx.crew }, patch, ctx.session.displayName);
+      } catch (err) {
+        // A red shirt whose user also holds green at this CC may do what a green shirt may (SPEC 27).
+        if (!(err instanceof TRPCError) || err.code !== "FORBIDDEN" || !holdsGreen(ctx.session.userId, ctx.cc.id)) throw err;
+        return setLot({ role: "green", cc: ctx.cc, day: ctx.day, event: ctx.event, crew: null }, patch, ctx.session.displayName);
+      }
+    }),
 
   /** Everything the crew map draws in one call. */
   map: crewProcedure.query(({ ctx }) => {

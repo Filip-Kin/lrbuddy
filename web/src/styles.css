@@ -466,18 +466,6 @@
   stroke-width: 2px;
   stroke-dasharray: 8 5;
 }
-.lrb-area-label {
-  background: var(--surface);
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 9999px;
-  padding: 1px 8px;
-  font: 600 12px/18px ui-sans-serif, system-ui, sans-serif;
-  white-space: nowrap;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
-  transform: translate(-50%, -50%);
-  width: max-content;
-}
 /* Do not touch (SPEC 19 Marks): a crew area drawn hatched on every map. */
 .lrb-area-dnt {
   stroke: var(--warn);
@@ -500,46 +488,58 @@
 .lrb-dayof-hatch {
   stroke-opacity: 0.75;
 }
-.lrb-dayof-tag {
+/* Area names (Filip, 2026-10-02): small text along the area's top edge, inside it, turned to the edge
+   (lib/map/areaNames.ts). The name takes no tap; the dot at its start opens the area. */
+.lrb-area-anchor {
   overflow: visible;
+  pointer-events: none;
 }
-.lrb-dayof-pill {
+.lrb-area-name {
   position: absolute;
   left: 0;
   top: 0;
-  transform: translate(-50%, -50%);
-  min-height: 40px;
-  padding: 0 12px;
-  isolation: isolate;
+  transform-origin: 0 0;
   display: flex;
   align-items: center;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  touch-action: manipulation;
+  gap: 3px;
+  height: 14px;
+  pointer-events: none;
   white-space: nowrap;
-  font: 700 13px/1 ui-sans-serif, system-ui, sans-serif;
+  font: 600 11px/14px ui-sans-serif, system-ui, sans-serif;
   color: #1f6fe5;
+  text-shadow: 0 0 2px #ffffff, 0 0 2px #ffffff, 0 0 1px #ffffff;
 }
-.lrb-dayof-pill::before {
-  content: "";
-  position: absolute;
-  inset: 8px 0;
-  z-index: -1;
-  background: #ffffff;
-  border: 2px solid #1f6fe5;
-  border-radius: 9999px;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+.lrb-area-name-plan {
+  color: var(--ink);
 }
-.lrb-dayof-pill-dnt {
+.lrb-area-name-dnt {
   color: #8a3500;
 }
-.lrb-dayof-pill-dnt::before {
-  border-color: var(--warn);
+.lrb-area-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-/* The driver map turns heading up; its rectangle names stay upright. */
-.lrb-driver-map .lrb-dayof-pill {
-  transform: translate(-50%, -50%) rotate(var(--lrb-unrot, 0deg));
+/* A 40 px target, drawn as the 10 px dot in its middle; the margins keep the row 14 px tall. */
+.lrb-area-hit {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  margin: -13px -15px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.lrb-area-dot {
+  position: absolute;
+  inset: 15px;
+  border-radius: 9999px;
+  background: currentColor;
+  box-shadow: 0 0 0 1.5px #ffffff;
 }
 /* #endregion */
 

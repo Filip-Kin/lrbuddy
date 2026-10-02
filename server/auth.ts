@@ -74,6 +74,20 @@ export const hasAdmin = (userId: number | null): boolean =>
  */
 export const isAdminSession = (s: Pick<Session, "role" | "userId">): boolean => s.role === "admin" && hasAdmin(s.userId);
 
+/**
+ * True when the user holds green shirt powers at this CC (SPEC 27): an approved
+ * green membership for that CC row (one CC on one day), or admin. Capabilities
+ * follow the person, so a green shirt driving a truck still marks lots.
+ */
+export const holdsGreen = (userId: number | null, ccId: number): boolean =>
+  userId !== null &&
+  (hasAdmin(userId) ||
+    db
+      .select({ id: memberships.id })
+      .from(memberships)
+      .where(and(eq(memberships.userId, userId), eq(memberships.role, "green"), eq(memberships.ccId, ccId), eq(memberships.status, "approved")))
+      .get() !== undefined);
+
 export const getSession = (id: string | null): Session | null => {
   if (!id) return null;
   const s = db.select().from(sessions).where(eq(sessions.id, id)).get();
@@ -87,6 +101,14 @@ export const getSession = (id: string | null): Session | null => {
     db.update(sessions).set({ role: "none", membershipId: null, crewId: null, truckId: null, ccId: null }).where(eq(sessions.id, id)).run();
     s.role = "none";
     s.membershipId = null;
+    s.ccId = null;
+  } else if (s.userId !== null && s.role !== "none" && s.role !== "admin" && s.membershipId === null && !hasAdmin(s.userId)) {
+    // A user session in a role with no membership behind it is an admin's switch (SPEC 27); once the
+    // admin membership is gone, so is the role. A deleted membership clears membership_id the same way.
+    db.update(sessions).set({ role: "none", crewId: null, truckId: null, ccId: null }).where(eq(sessions.id, id)).run();
+    s.role = "none";
+    s.crewId = null;
+    s.truckId = null;
     s.ccId = null;
   }
   const now = Date.now();

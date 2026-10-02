@@ -30,17 +30,20 @@ const titleOf = (v: View): string => v.target ?? (v.ccName ? `CC ${v.ccName}` : 
 const placeOf = (v: View): string => [v.target && v.ccName ? `CC ${v.ccName}` : null, v.dayLabel, v.dayDate ? dayDate(v.dayDate) : null].filter(Boolean).join(", ");
 
 // #region request form
-const RequestForm = ({ options, onDone }: { options: Options; onDone: () => void }) => {
+/** The access request form. `initial` prefills it (the Switch sheet's day and CC, SPEC 27). */
+export const RequestForm = ({ options, onDone, initial }: { options: Options; onDone: () => void; initial?: { dayId?: number | null; ccId?: number | null } }) => {
   const utils = trpc.useUtils();
   const [role, setRole] = useState<AskRole | null>(null);
-  const [dayId, setDayId] = useState<number | null>(options.defaultDayId);
-  const [ccId, setCcId] = useState<number | null>(null);
+  const startDay = initial?.dayId != null && options.days.some((d) => d.id === initial.dayId) ? initial.dayId : options.defaultDayId;
+  const [dayId, setDayId] = useState<number | null>(startDay);
+  const [ccId, setCcId] = useState<number | null>(initial?.ccId != null && options.days.some((d) => d.id === startDay && d.ccs.some((c) => c.id === initial.ccId)) ? initial.ccId : null);
   const [companyId, setCompanyId] = useState<number | "none" | null>(null);
   const [crewId, setCrewId] = useState<number | null>(null);
   const [truckId, setTruckId] = useState<number | null>(null);
   const request = trpc.access.request.useMutation({
     onSuccess: () => {
       void utils.access.mine.invalidate();
+      void utils.access.switchOptions.invalidate();
       onDone();
     },
   });

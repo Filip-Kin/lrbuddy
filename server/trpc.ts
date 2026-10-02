@@ -2,7 +2,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import { eq } from "drizzle-orm";
 import superjson from "superjson";
-import { getSession, isAdminSession, JOIN_COOKIE, parseCookies, sessionIdFrom } from "./auth.ts";
+import { getSession, holdsGreen, isAdminSession, JOIN_COOKIE, parseCookies, sessionIdFrom } from "./auth.ts";
 import { bus, type BusMessage } from "./bus.ts";
 import { markTruckSeen } from "./dispatch.ts";
 import { db } from "./db/index.ts";
@@ -199,7 +199,23 @@ export const driverProcedure = authedProcedure.use(({ ctx, next }) => {
   return next({ ctx: { ...ctx, truck, ...scope } });
 });
 
-/** Green shirts at their CC; admin too, at the CC named by `?cc=`. */
+/**
+ * The CC of a driver or red shirt session, when its user holds green there
+ * (SPEC 27: capabilities follow the person). Null otherwise.
+ */
+const greenThroughMembership = (s: Session): number | null => {
+  if (s.userId === null) return null;
+  let ccId: number | null = null;
+  if (s.role === "driver" && s.truckId !== null) ccId = db.select({ ccId: trucks.ccId }).from(trucks).where(eq(trucks.id, s.truckId)).get()?.ccId ?? null;
+  else if (s.role === "crew" && s.crewId !== null) ccId = db.select({ ccId: crews.ccId }).from(crews).where(eq(crews.id, s.crewId)).get()?.ccId ?? null;
+  return ccId !== null && holdsGreen(s.userId, ccId) ? ccId : null;
+};
+
+/**
+ * Green shirts at their CC; admin too, at the CC named by `?cc=`. A driver or
+ * red shirt whose user holds green at the truck's or crew's CC (an approved
+ * green membership there, or admin) acts as a green shirt at that CC (SPEC 27).
+ */
 export const greenProcedure = authedProcedure.use(({ ctx, next }) => {
   const role = ctx.session.role;
   let ccId: number | null = null;
@@ -207,7 +223,10 @@ export const greenProcedure = authedProcedure.use(({ ctx, next }) => {
   else if (isAdminSession(ctx.session)) {
     ccId = ctx.ccOverride;
     if (ccId === null) throw new TRPCError({ code: "BAD_REQUEST", message: "No command center" });
-  } else throw forbidden();
+  } else {
+    ccId = greenThroughMembership(ctx.session);
+    if (ccId === null) throw forbidden();
+  }
   if (ccId === null) throw unauthorized();
   const scope = loadCcScope(ccId);
   return next({ ctx: { ...ctx, ...scope } });

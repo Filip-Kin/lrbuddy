@@ -2,7 +2,7 @@
  * Users, memberships and the session a user acts under (SPEC 18). Routes and
  * routers stay thin; the rules live here so the tests can call them directly.
  */
-import { and, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm";
 import { cleanPhone } from "./auth.ts";
 import { bus } from "./bus.ts";
 import { db } from "./db/index.ts";
@@ -689,9 +689,10 @@ export const removeAdmin = (userId: number): AdminResult => {
   if (admins.length <= 1) return { ok: false, error: "Last admin" };
   const row = adminRow(userId);
   db.delete(memberships).where(and(eq(memberships.userId, userId), eq(memberships.role, "admin"))).run();
+  // Admin sessions, and roles the admin switched into without a membership (SPEC 27).
   db.update(sessions)
     .set({ role: "none", membershipId: null, crewId: null, truckId: null, ccId: null })
-    .where(and(eq(sessions.userId, userId), eq(sessions.role, "admin")))
+    .where(and(eq(sessions.userId, userId), or(eq(sessions.role, "admin"), isNull(sessions.membershipId))))
     .run();
   bus.checkScopes();
   if (row) emitChanged({ ...row, status: "denied" });

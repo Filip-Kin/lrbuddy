@@ -88,14 +88,74 @@ test("the CC map draws lots, crew rectangles, the CC and the legend", async ({ a
   await zoomButtonTo(page, 16);
   const plan = await green.api.query<{ areas: Area[] }>("green.plan");
   // The declutter classes follow the zoom's end, which can come after the last button press returns.
-  let pills: string[] = [];
+  // The tap target at the start of a rectangle's name carries the full name.
   await expect
     .poll(async () => {
-      pills = await map.getByRole("button").allInnerTexts();
-      return plan.areas.some((a) => pills.includes(a.label));
-    }, { message: "a rectangle pill on the map at zoom 16" })
+      for (const a of plan.areas) if (await map.getByRole("button", { name: a.label, exact: true }).first().isVisible()) return true;
+      return false;
+    }, { message: "a rectangle name's tap target on the map at zoom 16" })
     .toBe(true);
   for (const b of ["Paint", "Draw area", "Draw lot", "Add stop"]) await expect(page.getByRole("button", { name: b, exact: true })).toBeVisible();
+});
+
+test("rectangle names: small, along the top edge inside the rectangle, taking no taps but their dot", async ({ as, L }) => {
+  const green = await as(L.webbGreen);
+  const page = green.page;
+  await visit(page, "/");
+  await zoomButtonTo(page, 17);
+  const plan = await green.api.query<{ areas: Area[] }>("green.plan");
+  const mine = plan.areas.filter((a) => L.webbAreas.includes(a.label));
+  expect(mine.length).toBeGreaterThan(0);
+  // Bring one of the lane's rectangles to the middle, then measure every name on screen.
+  await centreOn(page, `.lrb-area-name[data-area-id="${mine[0]!.id}"]`);
+  await page.waitForTimeout(400);
+  const measured = await page.evaluate(() => {
+    const out: Array<{ id: string; gap: number; along: number; font: number; pe: string; text: string }> = [];
+    for (const name of document.querySelectorAll<HTMLElement>(".lrb-area-name[data-area-id]")) {
+      const r = name.getBoundingClientRect();
+      if (r.width === 0 || r.right < 0 || r.left > innerWidth || r.bottom < 0 || r.top > innerHeight) continue;
+      const id = name.dataset.areaId!;
+      const path = document.querySelector<SVGPathElement>(`path[data-area-id="${id}"]`);
+      const ctm = path?.getScreenCTM();
+      if (!path || !ctm) continue;
+      const nums = (path.getAttribute("d") ?? "").match(/-?\d+(\.\d+)?/g)?.map(Number) ?? [];
+      const pts: Array<{ x: number; y: number }> = [];
+      for (let i = 0; i + 1 < nums.length; i += 2) {
+        const q = new DOMPoint(nums[i], nums[i + 1]).matrixTransform(ctm);
+        pts.push({ x: q.x, y: q.y });
+      }
+      // Leaflet clips an outline at the edge of the view; only whole outlines say where the top edge is.
+      const box = document.querySelector(".leaflet-container")!.getBoundingClientRect();
+      if (pts.length < 3 || pts.some((q) => q.x < box.left || q.x > box.right || q.y < box.top || q.y > box.bottom)) continue;
+      let top = 0;
+      for (let i = 1; i < pts.length; i++) {
+        const mid = (j: number) => (pts[j]!.y + pts[(j + 1) % pts.length]!.y) / 2;
+        if (mid(i) < mid(top)) top = i;
+      }
+      const a = pts[top]!;
+      const b = pts[(top + 1) % pts.length]!;
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      const c = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      const dist = Math.abs((b.x - a.x) * (a.y - c.y) - (a.x - c.x) * (b.y - a.y)) / len;
+      const along = ((c.x - a.x) * (b.x - a.x) + (c.y - a.y) * (b.y - a.y)) / (len * len);
+      const text = name.querySelector<HTMLElement>(".lrb-area-text")!;
+      out.push({ id, gap: dist - name.offsetHeight / 2, along, font: parseFloat(getComputedStyle(text).fontSize), pe: getComputedStyle(name).pointerEvents, text: text.textContent ?? "" });
+    }
+    return out;
+  });
+  expect(measured.length, "rectangle names on screen").toBeGreaterThan(0);
+  for (const m of measured) {
+    expect(m.gap, `name of area ${m.id} within 4 px of its top edge`).toBeGreaterThanOrEqual(-0.5);
+    expect(m.gap, `name of area ${m.id} within 4 px of its top edge`).toBeLessThanOrEqual(4);
+    expect(m.along, `name of area ${m.id} along its top edge`).toBeGreaterThan(0);
+    expect(m.along).toBeLessThan(1);
+    expect(m.font).toBeLessThanOrEqual(12);
+    expect(m.pe).toBe("none");
+  }
+  // The dot at the start of a name opens the rectangle's sheet.
+  const area = mine[0]!;
+  await page.getByRole("region", { name: "Command center map" }).getByRole("button", { name: area.label, exact: true }).first().click();
+  await expect(page.getByRole("dialog", { name: area.label })).toBeVisible();
 });
 
 test("tap a bare parcel: Todo turns it red and it stays red after a reload", async ({ as, L }) => {
@@ -205,7 +265,7 @@ test("Draw lot: four taps round a strip, Save; red, on the driver's list, Delete
     const name = await page.getByRole("dialog").locator("input").first().inputValue();
     expect(name.trim().length).toBeGreaterThan(0);
     await save.click();
-    made = await until(async () => (await lotsOf(green)).find((l) => !before.has(l.id)) ?? null, "the drawn lot");
+    made = await until(async () => (await lotsOf(green)).find((l) => !before.has(l.id) && l.source === "drawn") ?? null, "the drawn lot");
     expect(made).toMatchObject({ source: "drawn", parcelId: null, status: "open" });
     const shape = page.locator(`[data-lot-id="${made.id}"]`).first();
     await expect(shape).toHaveClass(/lrb-lot-shape-open/);

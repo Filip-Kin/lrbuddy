@@ -8,13 +8,14 @@ import {
   type TRPCLink,
 } from "@trpc/client";
 import { createTRPCReact } from "@trpc/react-query";
-import type { inferRouterOutputs } from "@trpc/server";
+import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import superjson from "superjson";
 import type { AppRouter } from "../../../server/routers/index.ts";
 import { storageGet, storageSet } from "./safe.ts";
 
 export type { AppRouter };
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
+export type RouterInputs = inferRouterInputs<AppRouter>;
 
 // #region admin CC override
 const CC_KEY = "lrb.cc";

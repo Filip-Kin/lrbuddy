@@ -1,6 +1,10 @@
+import { getQueryKey } from "@trpc/react-query";
+import { useState } from "react";
+import { useLocation } from "wouter";
+import { errorText } from "./errors.ts";
 import { clearIdbStore } from "./idbStore.ts";
-import { trpc, type RouterOutputs } from "./trpc.ts";
-import { storageClear, storageSet } from "./safe.ts";
+import { queryClient, setCcOverride, trpc, type RouterInputs, type RouterOutputs } from "./trpc.ts";
+import { storageClear, storageGet, storageSet } from "./safe.ts";
 
 export type Me = RouterOutputs["shared"]["me"];
 export type Role = Me["role"];
@@ -55,13 +59,58 @@ export const leave = async (): Promise<void> => {
   window.location.assign(signedOut ? "/login" : "/");
 };
 
+/**
+ * Set by Sign out, cleared by the next sign-in the person makes on the form. While set, the sign-in
+ * page does not sign a kept Firebase user straight back in (SPEC 27: Sign out lands on /login, never
+ * in a role the server picks, such as admin).
+ */
+const SIGNED_OUT_KEY = "lrb.signedOut";
+export const signedOut = (): boolean => storageGet("local", SIGNED_OUT_KEY) === "1";
+export const clearSignedOut = (): void => storageSet("local", SIGNED_OUT_KEY, null);
+
 /** Ends the session and the Firebase sign-in, and reloads onto the login page. */
 export const logout = async (): Promise<void> => {
+  storageSet("local", SIGNED_OUT_KEY, "1");
   await fetch("/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
   await signOutOfFirebase().catch(() => undefined);
   await forgetDevice();
   window.location.assign("/login");
 };
+
+// #region switch (SPEC 27)
+export type SwitchTarget = RouterInputs["access"]["switchTo"];
+
+const ME_KEY = JSON.stringify(getQueryKey(trpc.shared.me)[0]);
+
+/**
+ * Signs this session into another day, CC or role from the scope chip, without
+ * reloading the app shell: the server moves the session, `me` is read again
+ * (the shell follows its role), the new role's home opens, and every other
+ * answer is dropped so no screen draws the old place's data.
+ */
+export const useSwitchRole = () => {
+  const utils = trpc.useUtils();
+  const [, navigate] = useLocation();
+  const mutation = trpc.access.switchTo.useMutation();
+  const [error, setError] = useState<string | null>(null);
+  const go = async (t: SwitchTarget): Promise<boolean> => {
+    setError(null);
+    try {
+      const r = await mutation.mutateAsync(t);
+      // An admin's green view CC belongs to the admin role only.
+      setCcOverride(null);
+      await utils.shared.me.refetch();
+      navigate(r.role === "admin" ? "/admin" : "/");
+      void queryClient.resetQueries({ predicate: (q) => JSON.stringify(q.queryKey[0]) !== ME_KEY });
+      return true;
+    } catch (err) {
+      setError(errorText(err, "Not switched. Check signal and try again."));
+      return false;
+    }
+  };
+  return { go, busy: mutation.isPending, error };
+};
+// #endregion
 
 /**
  * Names this device's session (`POST /auth/name`). A crew also sends a mobile

@@ -1,12 +1,13 @@
 import L from "leaflet";
 import { removeMap } from "../../lib/map/removeMap.ts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM } from "../../lib/map/basemap.ts";
 import type { LotGeometry } from "../../../../server/db/schema.ts";
 import { ccBody, escapeHtml, lotIcon, lotShape, routeLine, type LotStatus } from "../../lib/map/markers.ts";
 import { attachLabelDeclutter } from "../../lib/map/declutter.ts";
 import { usePrefersDark } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
+import { useParcelLayer, type BareParcel } from "../../lib/map/parcelLayer.ts";
 import { ahead, metresPerPixel, turn, type LatLng } from "../../pages/plan/survey/geo.ts";
 import { useDayOfLayer, type DayOfArea } from "../green/dayOfLayer.ts";
 
@@ -19,6 +20,7 @@ export interface DriverMapStop extends LatLng {
 
 export interface DriverMapLot extends LatLng {
   id: number;
+  parcelId?: string | null;
   status: LotStatus;
   geometry: LotGeometry | null;
   title: string;
@@ -117,6 +119,11 @@ export const DriverMap = ({
   showLots,
   onLot,
   onArea,
+  parcels,
+  onParcel,
+  pending,
+  painting = false,
+  onMap,
 }: {
   at: LatLng | null;
   heading: number | null;
@@ -132,6 +139,15 @@ export const DriverMap = ({
   showLots: boolean;
   onLot: (id: number) => void;
   onArea: (id: number) => void;
+  /** Bare parcels, for a driver who holds green at the CC (SPEC 27); thin outlines that open the parcel sheet. */
+  parcels?: readonly BareParcel[];
+  onParcel?: (parcelId: string) => void;
+  /** Pending statuses (taps and paint strokes), keyed `p:<parcel id>`, for the bare parcels. */
+  pending?: ReadonlyMap<string, LotStatus>;
+  /** Paint is on: bare parcels draw at any zoom. */
+  painting?: boolean;
+  /** The Leaflet map, for Paint. */
+  onMap?: (m: L.Map | null) => void;
 }) => {
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
@@ -148,6 +164,8 @@ export const DriverMap = ({
   useOnewayLayer(leaflet);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const rot = useRef(0);
+  // The square's turn as state, so the rectangle names re-lay upright when it changes.
+  const [turnDeg, setTurnDeg] = useState(0);
   const followRef = useRef(follow);
   followRef.current = follow;
   const unfollowRef = useRef(onUnfollow);
@@ -156,6 +174,10 @@ export const DriverMap = ({
   onStopRef.current = onStop;
   const onLotRef = useRef(onLot);
   onLotRef.current = onLot;
+  const onParcelRef = useRef(onParcel);
+  onParcelRef.current = onParcel;
+  const onMapRef = useRef(onMap);
+  onMapRef.current = onMap;
   const dark = usePrefersDark();
 
   useEffect(() => {
@@ -187,9 +209,11 @@ export const DriverMap = ({
     truckLayer.current = L.layerGroup().addTo(m);
     map.current = m;
     setLeaflet(m);
+    onMapRef.current?.(m);
     const detachLabels = attachLabelDeclutter(m);
     return () => {
       detachLabels();
+      onMapRef.current?.(null);
       setLeaflet(null);
       removeMap(m);
       map.current = null;
@@ -211,6 +235,7 @@ export const DriverMap = ({
       followRef.current = false;
       tookAt.current = Date.now();
       rot.current = 0;
+      setTurnDeg(0);
       sq.style.transition = "none";
       sq.style.transform = "rotate(0deg)";
       sq.style.setProperty("--lrb-unrot", "0deg");
@@ -228,6 +253,15 @@ export const DriverMap = ({
   useEffect(() => {
     const m = map.current;
     if (m) setInteractive(m, !follow);
+    // Following stopped from a button (Paint): north up, as a touch on the map does.
+    const sq = inner.current;
+    if (!follow && sq && rot.current !== 0) {
+      rot.current = 0;
+      setTurnDeg(0);
+      sq.style.transition = "none";
+      sq.style.transform = "rotate(0deg)";
+      sq.style.setProperty("--lrb-unrot", "0deg");
+    }
   }, [follow]);
 
   useEffect(() => {
@@ -254,6 +288,7 @@ export const DriverMap = ({
     rot.current = heading === null ? rot.current + turn(rot.current, 0) : rot.current + turn(rot.current, -heading);
     sq.style.transform = `rotate(${rot.current}deg)`;
     sq.style.setProperty("--lrb-unrot", `${-rot.current}deg`);
+    setTurnDeg(Math.round(rot.current));
     if (!at) return;
     const shift = heading === null ? 0 : LOOK_AHEAD * size.h * metresPerPixel(at.lat, FOLLOW_ZOOM);
     const c = heading === null ? at : ahead(at, heading, shift);
@@ -305,6 +340,18 @@ export const DriverMap = ({
         onLotRef.current(l.id);
       });
       g.addLayer(layer);
+      // Lot id and parcel id on the drawn outline, as MapView marks them: Paint colours a stroke by them.
+      if (layer instanceof L.GeoJSON) {
+        layer.eachLayer((x) => {
+          if (!(x instanceof L.Path)) return;
+          const el = x.getElement();
+          if (!el || el.classList.contains("lrb-lot-hatch")) return;
+          el.setAttribute("data-lot-id", String(l.id));
+          if (l.parcelId) el.setAttribute("data-lot-parcel", l.parcelId);
+        });
+      } else if (layer instanceof L.Marker) {
+        layer.getElement()?.setAttribute("data-lot-id", String(l.id));
+      }
     }
   }, [lots, showLots]);
 
@@ -315,8 +362,15 @@ export const DriverMap = ({
     for (const c of crews) L.marker([c.lat, c.lng], { icon: crewDotIcon(c.label), interactive: false, keyboard: false, zIndexOffset: 200 }).addTo(g);
   }, [crews]);
 
+  // A tap that took the map from following lands on whatever is under the finger after the snap; drop it.
+  const tapParcel = useCallback((pid: string) => {
+    if (Date.now() - tookAt.current < TAKE_GRACE_MS) return;
+    onParcelRef.current?.(pid);
+  }, []);
+  useParcelLayer(leaflet, parcels, (showLots || painting) && parcels !== undefined, tapParcel, pending, painting);
+
   const plan = useMemo(() => (areas ? { areas: [...areas] } : undefined), [areas]);
-  useDayOfLayer(leaflet, plan, showLots, onArea, AREAS_Z);
+  useDayOfLayer(leaflet, plan, showLots, onArea, AREAS_Z, turnDeg);
 
   return (
     <div ref={outer} role="region" aria-label="Route map" className="lrb-driver-map absolute inset-0 overflow-hidden bg-surface-2">

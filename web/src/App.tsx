@@ -38,6 +38,7 @@ const Shell = ({
   scopeTone,
   links,
   onSignOut,
+  switchable,
   children,
 }: {
   scope?: string;
@@ -45,10 +46,12 @@ const Shell = ({
   scopeTone?: "crew" | "plain";
   links: readonly NavLink[];
   onSignOut?: () => void;
+  /** The scope chip opens Switch (SPEC 27): sessions of a signed-in user. */
+  switchable?: boolean;
   children: ReactNode;
 }) => (
   <div className="flex h-dvh flex-col">
-    <Nav scope={scope} scopeShort={scopeShort} scopeTone={scopeTone} links={links} onSignOut={onSignOut} />
+    <Nav scope={scope} scopeShort={scopeShort} scopeTone={scopeTone} links={links} onSignOut={onSignOut} switchable={switchable} />
     <main className="relative min-h-0 flex-1 overflow-y-auto">
       <Screen>{children}</Screen>
     </main>
@@ -161,7 +164,7 @@ const AdminGreen = ({ me }: { me: SignedIn }) => {
   const links = useGreenLinks("/green", `?cc=${cc ?? ""}`);
   if (cc === null) return <Redirect to="/admin/green" />;
   return (
-    <Shell scope={me.scope} scopeShort={me.scopeShort} links={[...links, { href: "/admin", label: "Admin" }]} onSignOut={() => void logout()}>
+    <Shell scope={me.scope} scopeShort={me.scopeShort} links={[...links, { href: "/admin", label: "Admin" }]} onSignOut={() => void logout()} switchable={me.user}>
       <Route path="/green" nest>
         <GreenRoutes />
       </Route>
@@ -176,13 +179,13 @@ const planNext = (): string | null => {
 };
 
 const GreenShell = ({ me }: { me: SignedIn }) => (
-  <Shell scope={me.scope} scopeShort={me.scopeShort} links={useGreenLinks()} onSignOut={() => void logout()}>
+  <Shell scope={me.scope} scopeShort={me.scopeShort} links={useGreenLinks()} onSignOut={() => void logout()} switchable={me.user}>
     <GreenRoutes />
   </Shell>
 );
 
 const AdminShell = ({ me }: { me: SignedIn }) => (
-  <Shell scope={me.scope} scopeShort={me.scopeShort} links={useAdminLinks()} onSignOut={() => void logout()}>
+  <Shell scope={me.scope} scopeShort={me.scopeShort} links={useAdminLinks()} onSignOut={() => void logout()} switchable={me.user}>
     <AdminRoutes />
   </Shell>
 );
@@ -215,14 +218,14 @@ const SignedInApp = ({ me }: { me: SignedIn }) => {
   switch (me.role) {
     case "crew":
       return (
-        <Shell scope={me.scope} scopeShort={me.scopeShort} scopeTone="crew" links={crewLinks}>
+        <Shell scope={me.scope} scopeShort={me.scopeShort} scopeTone="crew" links={crewLinks} switchable={me.user}>
           <CrewRoutes />
           <NamePrompt me={me} />
         </Shell>
       );
     case "driver":
       return (
-        <Shell scope={me.scope} scopeShort={me.scopeShort} links={driverLinks}>
+        <Shell scope={me.scope} scopeShort={me.scopeShort} links={driverLinks} switchable={me.user}>
           <DriverRoutes />
         </Shell>
       );

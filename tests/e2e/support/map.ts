@@ -90,8 +90,16 @@ export const centreOn = async (page: Page, selector: string): Promise<void> => {
   }
 };
 
-/** Zoom-in button presses until the map reaches the zoom. */
+/**
+ * Zoom button presses until the map is at the zoom (at most a step over it). The first fit can land
+ * closer than the target (a truck that has posted a position near the CC pulls the fit in), and a map
+ * zoomed in too far leaves the far parcels' outlines unrendered, so `centreOn` could not measure them.
+ */
 export const zoomButtonTo = async (page: Page, target: number): Promise<void> => {
+  for (let i = 0; i < 8 && (await zoomOf(page)) >= target + 1; i++) {
+    await page.locator(".leaflet-control-zoom-out").first().click();
+    await page.waitForTimeout(450);
+  }
   for (let i = 0; i < 8 && (await zoomOf(page)) < target; i++) {
     await page.locator(".leaflet-control-zoom-in").first().click();
     await page.waitForTimeout(450);

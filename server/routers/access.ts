@@ -16,6 +16,7 @@ import {
   type LinkKind,
 } from "../access.ts";
 import { bus } from "../bus.ts";
+import { switchOptions, switchTo } from "../switch.ts";
 import { inviteByToken, inviteLabel, stateOf } from "../invites.ts";
 import { db } from "../db/index.ts";
 import { sessions } from "../db/schema.ts";
@@ -77,6 +78,25 @@ export const accessRouter = router({
     if (!m || !enterMembership(ctx.session.id, m)) throw new TRPCError({ code: "NOT_FOUND", message: "Access not found" });
     return { role: m.role };
   }),
+
+  /** Days, CCs and roles for the header's Switch sheet (SPEC 27). */
+  switchOptions: userProcedure.query(({ ctx }) => switchOptions(ctx.user.id, ctx.session)),
+
+  /** Signs this session into the picked role at once; the client follows `shared.me` without a reload. */
+  switchTo: userProcedure
+    .input(
+      z.union([
+        z.object({ role: z.literal("admin") }),
+        z.object({ role: z.literal("green"), ccId: id }),
+        z.object({ role: z.literal("driver"), truckId: id }),
+        z.object({ role: z.literal("crew"), crewId: id }),
+      ]),
+    )
+    .mutation(({ ctx, input }) => {
+      const r = switchTo(ctx.user.id, ctx.session.id, input);
+      if (!r.ok) throw new TRPCError({ code: r.code, message: r.code === "FORBIDDEN" ? "Not allowed" : "Not found" });
+      return { role: r.role };
+    }),
 
   /**
    * The user's own requests changing: approved, denied, withdrawn, or created

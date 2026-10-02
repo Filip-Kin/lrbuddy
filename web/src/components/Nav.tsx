@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation } from "wouter";
+import { SwitchPanel } from "./SwitchPanel.tsx";
 
 export interface NavLink {
   href: string;
@@ -45,6 +46,7 @@ export const Nav = ({
   links,
   onSignOut,
   drawerTop,
+  switchable = false,
 }: {
   scope?: string;
   /** Shown below 860 px instead of `scope`. */
@@ -55,8 +57,12 @@ export const Nav = ({
   onSignOut?: () => void;
   /** Controls shown at the top of the phone drawer, above the links (the portal's event picker). */
   drawerTop?: ReactNode;
+  /** The scope chip opens the Switch sheet (SPEC 27); signed-in users only. */
+  switchable?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const chip = useRef<HTMLButtonElement>(null);
   const [loc] = useLocation();
   const menuId = useId();
   const drawer = useRef<HTMLDivElement>(null);
@@ -95,7 +101,28 @@ export const Nav = ({
           LR Buddy
         </Link>
         <span className="min-w-0 flex-1">
-          {scope && (
+          {scope && switchable && (
+            <button
+              ref={chip}
+              type="button"
+              data-scope-chip
+              aria-haspopup="dialog"
+              aria-expanded={switching}
+              onClick={() => setSwitching((v) => !v)}
+              className={`inline-flex min-h-10 max-w-full items-center gap-1 rounded-full py-1 pr-2 pl-3 align-middle text-sm font-semibold ring-1 ring-inset hover:bg-white/10 ${
+                scopeTone === "crew" ? "ring-2 ring-crew" : "ring-white/30"
+              }`}
+            >
+              <span className="min-w-0 truncate">
+                <span className="nav:hidden">{scopeShort ?? scope}</span>
+                <span className="hidden nav:inline">{scope}</span>
+              </span>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" className="shrink-0">
+                <path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
+          {scope && !switchable && (
             <span
               className={`inline-block max-w-full truncate rounded-full px-2.5 py-0.5 align-middle text-sm font-semibold ring-1 ring-inset ${
                 scopeTone === "crew" ? "ring-2 ring-crew" : "ring-white/30"
@@ -120,6 +147,7 @@ export const Nav = ({
           )}
         </nav>
       </div>
+      {switchable && <SwitchPanel open={switching} onClose={() => setSwitching(false)} anchor={chip} />}
       {open &&
         createPortal(
           <div className="nav:hidden">

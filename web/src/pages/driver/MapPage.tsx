@@ -14,6 +14,7 @@ import { ArrowIcon, FlagIcon, LayersIcon, ListIcon, NavigateIcon, PhoneIcon, Pin
 import { AreaCard, DriverLotSheet } from "../../components/driver/WorkSheets.tsx";
 import { useSetLot } from "../../components/LotStatusControl.tsx";
 import { PaintBar, PaintFrame, PaintIcon, usePaint } from "../../components/PaintBar.tsx";
+import { MapLegend } from "../../components/MapLegend.tsx";
 import type { ParcelView } from "../../components/ParcelSheet.tsx";
 import type { PaintTarget } from "../../lib/map/paintHit.ts";
 import { useMe } from "../../lib/session.ts";
@@ -402,6 +403,9 @@ export const MapPage = () => {
           </Card>
         )}
         {target && at && <GuidanceBanner target={target} at={at} heading={follow ? heading : null} line={line} steps={steps} />}
+              <div className="flex justify-end">
+          <MapLegend />
+        </div>
       </div>
 
       {!painting && (

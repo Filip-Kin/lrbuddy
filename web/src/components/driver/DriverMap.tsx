@@ -1,7 +1,7 @@
 import L from "leaflet";
 import { removeMap } from "../../lib/map/removeMap.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM } from "../../lib/map/basemap.ts";
+import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, ESRI_STREETS, MAX_NATIVE_ZOOM, MAX_ZOOM, STREETS_MAX_NATIVE_ZOOM, STREETS_MIN_ZOOM, TILE_ATTRIB } from "../../lib/map/basemap.ts";
 import type { LotGeometry } from "../../../../server/db/schema.ts";
 import { ccBody, escapeHtml, lotIcon, lotShape, routeLine, type LotStatus } from "../../lib/map/markers.ts";
 import { attachLabelDeclutter } from "../../lib/map/declutter.ts";
@@ -268,8 +268,13 @@ export const DriverMap = ({
     const m = map.current;
     if (!m) return;
     for (const t of tiles.current) m.removeLayer(t);
-    const opts = { maxNativeZoom: MAX_NATIVE_ZOOM, maxZoom: MAX_ZOOM };
-    tiles.current = [L.tileLayer(dark ? ESRI_DARK_BASE : ESRI_BASE, opts).addTo(m), L.tileLayer(dark ? ESRI_DARK_LABELS : ESRI_LABELS, opts).addTo(m)];
+    // Same tiles as every other map (MapView): canvas up to 16, street tiles from 17.
+    const opts = { maxNativeZoom: MAX_NATIVE_ZOOM, maxZoom: STREETS_MIN_ZOOM - 1 };
+    tiles.current = [
+      L.tileLayer(dark ? ESRI_DARK_BASE : ESRI_BASE, { ...opts, attribution: TILE_ATTRIB }).addTo(m),
+      L.tileLayer(dark ? ESRI_DARK_LABELS : ESRI_LABELS, opts).addTo(m),
+      L.tileLayer(ESRI_STREETS, { minZoom: STREETS_MIN_ZOOM, maxNativeZoom: STREETS_MAX_NATIVE_ZOOM, maxZoom: MAX_ZOOM, className: dark ? "tiles-dark-street" : "" }).addTo(m),
+    ];
     for (const t of tiles.current) (t as L.TileLayer).bringToBack();
   }, [dark]);
 
@@ -285,13 +290,13 @@ export const DriverMap = ({
     const sq = inner.current;
     if (!m || !sq || !follow) return;
     sq.style.transition = "";
-    rot.current = heading === null ? rot.current + turn(rot.current, 0) : rot.current + turn(rot.current, -heading);
+    // North up, like the green map (Filip 2026-10-02: "it should be basically identical").
+    rot.current = rot.current + turn(rot.current, 0);
     sq.style.transform = `rotate(${rot.current}deg)`;
     sq.style.setProperty("--lrb-unrot", `${-rot.current}deg`);
     setTurnDeg(Math.round(rot.current));
     if (!at) return;
-    const shift = heading === null ? 0 : LOOK_AHEAD * size.h * metresPerPixel(at.lat, FOLLOW_ZOOM);
-    const c = heading === null ? at : ahead(at, heading, shift);
+    const c = at;
     if (Math.abs(m.getZoom() - FOLLOW_ZOOM) > 0.01) m.setView([c.lat, c.lng], FOLLOW_ZOOM, { animate: false });
     else m.panTo([c.lat, c.lng], { animate: true, duration: 0.6, easeLinearity: 1 });
   }, [follow, at, heading, size.h, d]);

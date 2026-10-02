@@ -24,7 +24,7 @@ import { bareParcelsFor, setLot, type Actor } from "../parcel-status.ts";
 import { buildCrewsFor } from "./plan/assignments.ts";
 import { areaInput } from "./plan/common.ts";
 import { emitLot } from "../lots-import.ts";
-import { filterPairs, pairState, photoCounts, photoPairs, photoSummary, sitePhotos, withPhotoState } from "../photos.ts";
+import { filterPairs, pairState, pairsZip, photoCounts, photoPairs, photoSummary, sitePhotos, withPhotoState } from "../photos.ts";
 import { pushToCc } from "../push.ts";
 import { catalogFor, latestPositions, lotsAt, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
 import { greenProcedure, router } from "../trpc.ts";
@@ -373,6 +373,9 @@ export const greenRouter = router({
         companies: companyIds.size === 0 ? [] : db.select().from(companies).where(inArray(companies.id, [...companyIds])).orderBy(companies.name).all(),
       };
     }),
+
+  /** Pairs zip (SPEC 15): lots at this CC's site with a Before and an After, from photos taken on this day. */
+  pairsZip: greenProcedure.query(({ ctx }) => pairsZip(sitePhotos(ctx.cc.id).filter((p) => p.dayId === ctx.day.id), ctx.event.year)),
 
   crews: greenProcedure.query(({ ctx }) => crewsAt(ctx.cc.id, ctx.day.id)),
 

@@ -547,6 +547,20 @@ Where it shows
 - New admin page `/admin/photos`: the same gallery across every CC and day with a Day and CC filter and
   **Download zip** (`GET /admin/photos.zip?day=&cc=`, streamed with `fflate`, files named
   `<day>_<cc>_<address>_<before|after>_<n>.jpg`). Also a CSV of photo metadata on `/admin/export`.
+- **Pairs zip** (Filip, 2026-10-02: "one button to generate before and after pairs ... all the photos
+  one photo with the before and after side by side with subtitles baked in, but also the zip should have
+  the raw photos as well"): a button on the green `/photos` (its CC's site, photos taken on its day) and
+  on `/admin/photos` (the page's Day and CC filters). Only lots with a live Before and a live After.
+  Server `green.pairsZip` / `admin.photos.pairsZip` lists the lots, file names and captions; the browser
+  draws and zips (the server has no canvas), one lot at a time, the label counting "Pairs zip 12/40".
+  Zip `lrbuddy-pairs-<date>.zip`: `pairs/<address>.jpg`, the side by side, and
+  `raw/<address>_before[_n].jpg`, `raw/<address>_after[_n].jpg`, every live photo of the lot (`_n` from 1
+  in the order taken when there is more than one; a second lot with the same address is `<address>_2`).
+  The side by side matches Filip's reference (`1_2208_Richton.jpg`): newest Before left, newest After
+  right, each 1400 px tall, a 12 px gap, a 170 px `#0e3038` header with "<address>, Detroit" bold white
+  58 px and "Six Day Project <year>  ·  <Mon D of the newest After>  ·  <company>" 36 px `#c4dce2`, and a
+  96 px footer with BEFORE (white) and AFTER (`#ffd600`) bold 48 px centred under each photo. Text that
+  does not fit shrinks. e2e: `tests/e2e/specs/pairs.e2e.ts`.
 - Stats: a **Photographed** tile, lots with both kinds, and lots with a before but no after.
 - Nav: green gets **Photos** after Lots; admin gets **Photos** after Lots. Crew nav is unchanged.
 

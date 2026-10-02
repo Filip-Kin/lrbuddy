@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { FilterSelect } from "../../components/green/ui.tsx";
 import { PhotoGallery } from "../../components/photos/Gallery.tsx";
 import { MissingAfterToggle } from "../../components/photos/PairPill.tsx";
+import { PairsZipButton } from "../../components/photos/PairsZipButton.tsx";
 import { STATUS_LABEL, STATUS_ORDER, type LotStatus } from "../../lib/lotStatus.ts";
 import { trpc } from "../../lib/trpc.ts";
 
@@ -16,6 +17,7 @@ export const PhotosPage = () => {
   const [crewId, setCrewId] = useState<number | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [missingAfter, setMissingAfter] = useState(false);
+  const utils = trpc.useUtils();
   const q = trpc.green.photos.useQuery({ companyId, crewId, status, missingAfter }, { placeholderData: keepPreviousData, refetchInterval: 60_000 });
   const d = q.data;
   const crews = useMemo(() => (d?.crews ?? []).filter((c) => companyId === null || c.companyId === companyId), [d, companyId]);
@@ -30,7 +32,10 @@ export const PhotosPage = () => {
     <div className="mx-auto w-full max-w-6xl px-4 py-4 nav:px-6 nav:py-6">
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-bold tracking-tight">Photos</h1>
-        {d && d.total > 0 && <span className="text-sm font-semibold text-muted tabular-nums">{`${d.pairs.length} of ${d.total}`}</span>}
+        <div className="flex flex-wrap items-center gap-3">
+          {d && d.total > 0 && <span className="text-sm font-semibold text-muted tabular-nums">{`${d.pairs.length} of ${d.total}`}</span>}
+          {d && d.total > 0 && <PairsZipButton load={() => utils.client.green.pairsZip.query()} />}
+        </div>
       </div>
       {d && d.total > 0 && (
         <div className="mb-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">

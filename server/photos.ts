@@ -516,6 +516,55 @@ export const eventPhotos = (eventId: number, f: { dayId?: number | null; ccId?: 
     .map((r) => r.p);
 // #endregion
 
+// #region pairs zip (SPEC 15)
+export interface PairsZipLot {
+  lotId: number;
+  /** `pairs/<base>.jpg`, the side by side. */
+  pairFile: string;
+  /** Newest live Before and After, the two halves of the side by side. */
+  before: number;
+  after: number;
+  /** "2208 Richton, Detroit". */
+  title: string;
+  /** "Six Day Project 2026  ·  Oct 2  ·  Stonefield Engineering & Design". */
+  subtitle: string;
+  /** Every live photo of both kinds: `raw/<base>_before.jpg`, `_before_1.jpg`, `_before_2.jpg` with more than one. */
+  raw: Array<{ id: number; file: string }>;
+}
+
+/** "2208_Richton": a file name part from an address, letters, digits and underscores. */
+const fileBase = (s: string): string =>
+  s.normalize("NFKD").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80) || "lot";
+
+const MONTH_DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "America/Detroit" });
+
+/**
+ * The Pairs zip: every lot with at least one live Before and one live After, newest pair first.
+ * File names follow the address; two lots with the same address get `_2`, `_3`. The date on the
+ * subtitle is the day of the newest After, Detroit time.
+ */
+export const pairsZip = (photos: readonly LotPhoto[], year: number): PairsZipLot[] => {
+  const pairs = photoPairs(photos).filter((p) => p.before !== null && p.after !== null);
+  const byLot = new Map<number, LotPhoto[]>();
+  for (const p of photos) byLot.set(p.lotId, [...(byLot.get(p.lotId) ?? []), p]);
+  const taken = new Map<string, number>();
+  return pairs.map((p) => {
+    const name = p.address ?? (p.parcelId ? `Parcel ${p.parcelId}` : `Lot ${p.lotId}`);
+    let base = fileBase(name);
+    const n = (taken.get(base.toLowerCase()) ?? 0) + 1;
+    taken.set(base.toLowerCase(), n);
+    if (n > 1) base = `${base}_${n}`;
+    const raw: Array<{ id: number; file: string }> = [];
+    for (const kind of ["before", "after"] as const) {
+      const list = (byLot.get(p.lotId) ?? []).filter((x) => x.kind === kind).sort((a, b) => a.at - b.at || a.id - b.id);
+      list.forEach((x, i) => raw.push({ id: x.id, file: `raw/${base}_${kind}${list.length > 1 ? `_${i + 1}` : ""}.jpg` }));
+    }
+    const subtitle = [`Six Day Project ${year}`, MONTH_DAY.format(new Date(p.after!.at)), p.companyName].filter(Boolean).join("  ·  ");
+    return { lotId: p.lotId, pairFile: `pairs/${base}.jpg`, before: p.before!.id, after: p.after!.id, title: `${name}, Detroit`, subtitle, raw };
+  });
+};
+// #endregion
+
 // #region zip and csv names
 const slugPart = (s: string | null | undefined, fallback: string): string =>
   (s ?? "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || fallback;

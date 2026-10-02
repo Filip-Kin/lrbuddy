@@ -44,7 +44,7 @@ import {
   importVacantParcels,
   parcelAtPoint,
 } from "../lots-import.ts";
-import { eventPhotos, filterPairs, photoFileNames, photoPairs, sweepPhotoFiles } from "../photos.ts";
+import { eventPhotos, filterPairs, pairsZip, photoFileNames, photoPairs, sweepPhotoFiles } from "../photos.ts";
 import { activeEvent, catalogFor, requestViews } from "../queries.ts";
 import { loadAlleysForCc } from "../alleys.ts";
 import { loadOnewayForCc, scheduleOneway, scheduleOnewayForDay } from "../oneway.ts";
@@ -1102,6 +1102,11 @@ const photosRouter = router({
       const all = photoPairs(eventPhotos(eventId, { dayId: input?.dayId, ccId: input?.ccId }));
       return { pairs: filterPairs(all, input ?? {}), total: all.length };
     }),
+  /** Pairs zip (SPEC 15): lots with a Before and an After, from photos taken on the day and at the CC row given. */
+  pairsZip: adminProcedure.input(z.object({ dayId: id.nullish(), ccId: id.nullish() }).optional()).query(({ input }) => {
+    const ev = requireActive();
+    return pairsZip(eventPhotos(ev.id, { dayId: input?.dayId, ccId: input?.ccId }), ev.year);
+  }),
 });
 // #endregion
 

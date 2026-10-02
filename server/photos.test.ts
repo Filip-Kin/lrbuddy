@@ -249,3 +249,45 @@ describe("serving and pairs", () => {
     expect(names).toContain("day-1_east_100-test-st_after_2.jpg");
   });
 });
+
+describe("pairs zip", () => {
+  test("only lots with both kinds; names from the address, numbered raws, same address _2; project line", () => {
+    const w = world();
+    const mk = (address: string | null, parcelId: string | null) =>
+      db.insert(s.lots).values({ eventId: w.ev.id, lat: EAST.lat, lng: EAST.lng, source: "manual", address, parcelId, ccId: w.east.id }).returning().get();
+    const shot = (lotId: number, kind: "before" | "after", at: number, deletedAt: number | null = null) =>
+      db.insert(s.lotPhotos).values({ lotId, kind, role: "green", ccId: w.east.id, dayId: w.day.id, at, width: 10, height: 10, bytes: 10, deletedAt }).returning().get();
+    const t0 = Date.UTC(2026, 9, 2, 16, 0);
+    const a = mk("2208 Richton", "P1");
+    const a1 = shot(a.id, "before", t0);
+    const a2 = shot(a.id, "before", t0 + MIN);
+    const a3 = shot(a.id, "after", t0 + 2 * MIN);
+    const twin = mk("2208 Richton", "P2");
+    const t1 = shot(twin.id, "before", t0);
+    const t2 = shot(twin.id, "after", t0 + 3 * MIN);
+    const lone = mk("9 Only Before", "P3");
+    shot(lone.id, "before", t0);
+    const gone = mk("5 Deleted After", "P4");
+    shot(gone.id, "before", t0);
+    shot(gone.id, "after", t0, t0 + MIN);
+    const live = db.select().from(s.lotPhotos).all().filter((p) => p.deletedAt === null);
+
+    const out = photos.pairsZip(live, 2026);
+    expect(out.map((l) => l.lotId).sort()).toEqual([a.id, twin.id].sort());
+    const first = out.find((l) => l.lotId === a.id)!;
+    const second = out.find((l) => l.lotId === twin.id)!;
+    expect([first.pairFile, second.pairFile].sort()).toEqual(["pairs/2208_Richton.jpg", "pairs/2208_Richton_2.jpg"]);
+    const base = first.pairFile.slice(6, -4);
+    expect(first).toMatchObject({ before: a2.id, after: a3.id, title: "2208 Richton, Detroit", subtitle: "Six Day Project 2026  ·  Oct 2" });
+    expect(first.raw).toEqual([
+      { id: a1.id, file: `raw/${base}_before_1.jpg` },
+      { id: a2.id, file: `raw/${base}_before_2.jpg` },
+      { id: a3.id, file: `raw/${base}_after.jpg` },
+    ]);
+    const base2 = second.pairFile.slice(6, -4);
+    expect(second.raw).toEqual([
+      { id: t1.id, file: `raw/${base2}_before.jpg` },
+      { id: t2.id, file: `raw/${base2}_after.jpg` },
+    ]);
+  });
+});

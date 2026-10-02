@@ -15,8 +15,8 @@ export interface PaintStrokeOptions {
   /** Paint mode is on. */
   on: boolean;
   targets: readonly Candidate[];
-  /** The brush's status, for colouring parcels as the finger crosses them; null for the Crew brush. */
-  status: LotStatus | null;
+  /** The status the brush gives this parcel, for colouring it as the finger crosses it; null for the Crew brush. */
+  statusOf: (c: Candidate) => LotStatus | null;
   /** True for a parcel the brush would not change (already in its status, or nothing to assign). */
   skip: (c: Candidate) => boolean;
   /** Parcels the stroke in progress will change. */
@@ -91,7 +91,7 @@ export const usePaintStroke = (map: L.Map | null, opts: PaintStrokeOptions): { z
 
     const style = (c: Candidate): void => {
       if (!stroke) return;
-      const status = ref.current.status;
+      const status = ref.current.statusOf(c);
       for (const e of elementsFor(el, c)) {
         stroke.styled.push({ el: e, cls: e.getAttribute("class"), w: e.getAttribute("stroke-width"), fo: e.getAttribute("fill-opacity") });
         if (status && e instanceof SVGElement) {

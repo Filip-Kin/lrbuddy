@@ -33,12 +33,11 @@ interface Props {
   picked: { key: string; geometry: LotGeometry | null } | null;
   /** Statuses of flags still on their way to the server, keyed `l:<lot id>` or `p:<parcel id>`. */
   pending: ReadonlyMap<string, LotStatus>;
+  /** Full screen: always Paint (SPEC 22), so taps paint, the map holds still and bare parcels draw at any zoom. */
   expanded: boolean;
-  /** Paint mode on the full-screen map: taps pick nothing, the map stops following, bare parcels draw at any zoom. */
-  painting: boolean;
   /** The Leaflet map once it exists, for Paint's stroke handling. */
   onMap: (map: L.Map | null) => void;
-  /** A tap on a parcel in the full-screen map: `l:<lot id>` or `p:<parcel id>`. */
+  /** A tap on a parcel in the strip: `l:<lot id>` or `p:<parcel id>`. */
   onPick: (key: string) => void;
 }
 // #endregion
@@ -52,11 +51,11 @@ const cone = (at: LatLng, heading: number): L.LatLngTuple[] => {
 /**
  * The Flag screen's map (SPEC 22, map strip): north-up at zoom 18 on the
  * phone, the green map's lot, parcel, rectangle and CC layers, the heading
- * cone and the picked parcel in yellow. In the strip it follows the phone and
- * takes no gestures; full screen it pans and zooms, follows until touched, and
- * a tap on a parcel picks it.
+ * cone and the picked parcel in yellow. The strip follows the phone, takes no
+ * pan or zoom gestures, and a tap on a parcel picks it. Full screen is Paint:
+ * it centres on the phone once, then holds still under the strokes.
  */
-export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending, expanded, painting, onMap, onPick }: Props) => {
+export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending, expanded, onMap, onPick }: Props) => {
   const [map, setMapState] = useState<L.Map | null>(null);
   const mapRef = useRef(onMap);
   mapRef.current = onMap;
@@ -64,15 +63,11 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
     setMapState(m);
     mapRef.current(m);
   }, []);
-  const holder = useRef<HTMLDivElement>(null);
-  const expandedRef = useRef(expanded);
-  expandedRef.current = expanded;
-  const tapPicks = expanded && !painting;
+  const tapPicks = !expanded;
   const tapPicksRef = useRef(tapPicks);
   tapPicksRef.current = tapPicks;
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
-  const touched = useRef(false);
 
   // #region layers
   const markers = useMemo<MapMarker[]>(() => {
@@ -97,7 +92,7 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
   const onBare = useCallback((parcelId: string) => {
     if (tapPicksRef.current) pickRef.current(`p:${parcelId}`);
   }, []);
-  useParcelLayer(map, parcels, true, onBare, pending, painting);
+  useParcelLayer(map, parcels, true, onBare, pending, expanded);
   const noArea = useCallback(() => undefined, []);
   useDayOfLayer(map, plan, true, noArea);
 
@@ -134,7 +129,7 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
   // #endregion
 
   // #region view
-  // The strip takes no gestures; the full-screen map pans and zooms.
+  // The strip takes no gestures; the full-screen map pans and zooms (Paint takes one-finger drags).
   useEffect(() => {
     if (!map) return;
     const handlers = [map.dragging, map.touchZoom, map.doubleClickZoom, map.scrollWheelZoom, map.boxZoom, map.keyboard];
@@ -142,34 +137,31 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
       if (expanded) h.enable();
       else h.disable();
     }
-    touched.current = false;
   }, [map, expanded]);
 
-  useEffect(() => {
-    const el = holder.current;
-    if (!el) return;
-    const touch = (): void => {
-      if (expandedRef.current) touched.current = true;
-    };
-    for (const ev of ["pointerdown", "wheel"] as const) el.addEventListener(ev, touch, { passive: true });
-    return () => {
-      for (const ev of ["pointerdown", "wheel"] as const) el.removeEventListener(ev, touch);
-    };
-  }, []);
-
-  // Centred on the phone (or the CC before the first fix), following it until the full-screen map is touched.
-  // Paint holds the view still, so a stroke never lands on a map that moved under the finger.
+  // The strip stays centred on the phone (or the CC before the first fix). Expanding centres once
+  // at zoom 18 (again when the first fix arrives after it), then the map holds still so a stroke
+  // never lands on a map that moved.
   const at = fix ?? cc;
   const atLat = at?.lat;
   const atLng = at?.lng;
+  const atRef = useRef(at);
+  atRef.current = at;
   useEffect(() => {
-    if (!map || atLat === undefined || atLng === undefined || touched.current || painting) return;
+    if (!map || expanded || atLat === undefined || atLng === undefined) return;
     map.setView([atLat, atLng], FLAG_MAP_ZOOM, { animate: false });
-  }, [map, atLat, atLng, expanded, painting]);
+  }, [map, atLat, atLng, expanded]);
+  const hasFix = fix !== null;
+  useEffect(() => {
+    const p = atRef.current;
+    if (!map || !expanded || !p) return;
+    map.invalidateSize({ animate: false });
+    map.setView([p.lat, p.lng], FLAG_MAP_ZOOM, { animate: false });
+  }, [map, expanded, hasFix]);
   // #endregion
 
   return (
-    <div ref={holder} className={`absolute inset-0 ${expanded ? "" : "[&_.leaflet-control-zoom]:hidden"}`} data-flag-map={expanded ? "full" : "strip"}>
+    <div className={`absolute inset-0 ${expanded ? "" : "[&_.leaflet-control-zoom]:hidden"}`} data-flag-map={expanded ? "full" : "strip"}>
       <MapView markers={markers} fitKey="flag" label="Flag map" className="absolute inset-0" onReady={setMap} />
     </div>
   );

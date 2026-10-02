@@ -9,9 +9,10 @@ import { Button } from "./Button.tsx";
 import { FilterSelect } from "./green/ui.tsx";
 
 // #region brush
-export type BrushKey = LotStatus | "crew";
+/** `toggle` is the Flag map's brush (SPEC 22): Todo to Not todo, Not todo or bare to Todo. */
+export type BrushKey = LotStatus | "crew" | "toggle";
 
-/** The brush colour: the SPEC 21 status colours, ink for Crew. */
+/** The brush colour: the SPEC 21 status colours, ink for Crew, Todo's for the toggle. */
 export const BRUSH_COLOR: Record<BrushKey, string> = {
   not_todo: "var(--muted)",
   open: "var(--crew)",
@@ -19,9 +20,13 @@ export const BRUSH_COLOR: Record<BrushKey, string> = {
   done: "var(--brand-green)",
   do_not_touch: "var(--warn)",
   crew: "var(--ink)",
+  toggle: "var(--crew)",
 };
 
-const plural = (n: number): string => `${n.toLocaleString("en-US")} ${n === 1 ? "lot" : "lots"}`;
+/** The status the toggle brush gives a parcel, or null where it leaves it (server `toggled`). */
+export const toggled = (status: LotStatus | null): LotStatus | null => (status === "open" ? "not_todo" : status === null || status === "not_todo" ? "open" : null);
+
+export const plural = (n: number): string => `${n.toLocaleString("en-US")} ${n === 1 ? "lot" : "lots"}`;
 // #endregion
 
 // #region state
@@ -57,11 +62,14 @@ export const usePaint = (map: LeafletMap | null, scope: PaintScope, targets: rea
     else await Promise.all([utils.admin.lots.invalidate(), utils.admin.overview.invalidate()]);
   }, [scope.kind, utils]);
 
-  const cands = useMemo(() => candidates(targets), [targets]);
-  const status: LotStatus | null = brush === "crew" ? null : brush;
+  // A stroke not yet back from the server counts as done, so the next stroke (the toggle brush
+  // above all) sees each parcel's new status.
+  const cands = useMemo(() => candidates(pending.size === 0 ? targets : targets.map((t) => (pending.has(t.key) ? { ...t, status: pending.get(t.key) ?? t.status } : t))), [targets, pending]);
+  const statusOf = useCallback((c: Candidate): LotStatus | null => (brush === "crew" ? null : brush === "toggle" ? toggled(c.status) : brush), [brush]);
   const skip = useCallback(
     (c: Candidate): boolean => {
       if (brush === "crew") return crewId === null || c.lotId === null || c.status === "not_todo" || c.crewId === crewId;
+      if (brush === "toggle") return toggled(c.status) === null;
       return (c.status ?? "not_todo") === brush;
     },
     [brush, crewId],
@@ -71,10 +79,14 @@ export const usePaint = (map: LeafletMap | null, scope: PaintScope, targets: rea
     (hits: Candidate[]): void => {
       setError(null);
       const keys = hits.map((h) => h.key);
-      if (status) {
+      const painted = hits.flatMap((h) => {
+        const st = statusOf(h);
+        return st ? [[h.key, st] as const] : [];
+      });
+      if (painted.length > 0) {
         setPending((m) => {
           const next = new Map(m);
-          for (const k of keys) next.set(k, status);
+          for (const [k, st] of painted) next.set(k, st);
           return next;
         });
       }
@@ -86,7 +98,7 @@ export const usePaint = (map: LeafletMap | null, scope: PaintScope, targets: rea
         });
       const lotIds = hits.flatMap((h) => (h.lotId !== null ? [h.lotId] : []));
       const parcelIds = hits.flatMap((h) => (h.lotId === null && h.parcelId ? [h.parcelId] : []));
-      const b = brush === "crew" ? { kind: "crew" as const, crewId: crewId ?? 0 } : { kind: "status" as const, status: brush };
+      const b = brush === "crew" ? { kind: "crew" as const, crewId: crewId ?? 0 } : brush === "toggle" ? { kind: "toggle" as const } : { kind: "status" as const, status: brush };
       const done = {
         onSuccess: (r: { changed: number; refused: number; strokes: number }) => {
           setStroke(r.changed);
@@ -104,10 +116,10 @@ export const usePaint = (map: LeafletMap | null, scope: PaintScope, targets: rea
       if (scope.kind === "green") greenPaint.mutate({ brush: b, lotIds, parcelIds }, done);
       else if (scope.ccId !== null) adminPaint.mutate({ ccId: scope.ccId, brush: b, lotIds, parcelIds }, done);
     },
-    [status, brush, crewId, scope, greenPaint, adminPaint, refetch],
+    [statusOf, brush, crewId, scope, greenPaint, adminPaint, refetch],
   );
 
-  const { zoomOk } = usePaintStroke(map, { on: on && (scope.kind === "green" || scope.ccId !== null), targets: cands, status, skip, onCount: setStroke, onStroke });
+  const { zoomOk } = usePaintStroke(map, { on: on && (scope.kind === "green" || scope.ccId !== null), targets: cands, statusOf, skip, onCount: setStroke, onStroke });
 
   const undo = (): void => {
     setError(null);
@@ -124,7 +136,9 @@ export const usePaint = (map: LeafletMap | null, scope: PaintScope, targets: rea
     else if (scope.ccId !== null) adminUndo.mutate({ ccId: scope.ccId }, done);
   };
 
-  const open = (): void => {
+  /** Opens Paint, on `start` when given (the Flag map opens on the toggle brush). */
+  const open = (start?: BrushKey): void => {
+    if (start) setBrush(start);
     setStroke(0);
     setTotal(0);
     setError(null);
@@ -166,7 +180,7 @@ export const PaintIcon = () => (
   </svg>
 );
 
-const UndoIcon = () => (
+export const UndoIcon = () => (
   <svg viewBox="0 0 24 24" width={20} height={20} aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M9 14L4 9l5-5" />
     <path d="M4 9h11a5 5 0 010 10h-3" />
@@ -209,7 +223,7 @@ export const PaintBar = ({
   extra?: ReactNode;
 }) => {
   if (!paint.on) return null;
-  const brushes: BrushKey[] = crews ? [...STATUS_ORDER, "crew"] : [...STATUS_ORDER];
+  const brushes: Array<LotStatus | "crew"> = crews ? [...STATUS_ORDER, "crew"] : [...STATUS_ORDER];
   const off = !paint.zoomOk;
   return (
     <div

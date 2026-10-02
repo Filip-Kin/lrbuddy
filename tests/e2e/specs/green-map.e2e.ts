@@ -1,7 +1,7 @@
 /**
  * Green shirt on the CC map (SPEC 21 to 24) at CC Webb (L.webbGreen), as the gate does it: tap a bare
  * parcel to Todo, a paint stroke and Undo, Draw lot and Delete lot, Draw area for crews and the
- * rectangle's sheet, the Flag screen with a fake camera. Each lane works only on parcels inside
+ * rectangle's sheet, the Flag screen with a fake camera and a fake compass, and its Paint map. Each lane works only on parcels inside
  * its own rectangles (lanes.ts webbAreas); each test puts its parcels back to Not todo and deletes
  * what it drew and the crews it made.
  */
@@ -289,33 +289,174 @@ test("Draw area over three Todo lots for a crew; Reassign, Done, Do not touch, D
   }
 });
 
-test("Flag: fake camera and GPS on a bare parcel, Todo makes it a Todo lot with a Before photo, Undo", async ({ as, L }) => {
+/** Fires `deviceorientationabsolute` a few times, as a phone's compass does, with these W3C angles. */
+const face = async (page: Role["page"], alpha: number, beta: number, gamma: number): Promise<void> => {
+  await page.evaluate(([a, b, g]) => {
+    for (let i = 0; i < 6; i++) {
+      window.setTimeout(() => window.dispatchEvent(new DeviceOrientationEvent("deviceorientationabsolute", { alpha: a, beta: b, gamma: g, absolute: true })), i * 50);
+    }
+  }, [alpha, beta, gamma] as const);
+};
+
+/** A bare parcel in the Flag strip a tap would hit, clear of the strip's corner buttons. */
+const stripParcel = (page: Role["page"], allow: readonly string[], skip: string): Promise<{ pid: string; x: number; y: number } | null> =>
+  page.evaluate(
+    ([ids, not]) => {
+      const ok = new Set(ids);
+      const s = document.querySelector("[data-flag-strip]")!.getBoundingClientRect();
+      let best: { pid: string; x: number; y: number; d: number } | null = null;
+      for (const el of document.querySelectorAll("[data-flag-strip] [data-parcel]")) {
+        const pid = el.getAttribute("data-parcel")!;
+        if (pid === not || !ok.has(pid)) continue;
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        if (r.width < 10 || r.height < 10 || x < s.left + 30 || x > s.right - 30 || y < s.top + 60 || y > s.bottom - 20) continue;
+        if (document.elementFromPoint(x, y) !== el) continue;
+        const d = Math.hypot(x - (s.left + s.width / 2), y - (s.top + s.height / 2));
+        if (!best || d < best.d) best = { pid, x, y, d };
+      }
+      return best ? { pid: best.pid, x: best.x, y: best.y } : null;
+    },
+    [allow as string[], skip] as const,
+  );
+
+const pickedKey = (page: Role["page"]): Promise<string | null> =>
+  page.evaluate(() => document.querySelector("[data-flag-strip] [data-flag-pick]")?.getAttribute("data-flag-pick") ?? null);
+
+test("Flag: the camera's bearing from the compass picks the parcel it faces; a tap on the strip picks another; Todo, Undo", async ({ as, L }) => {
   const probe = await as(L.webbGreen);
-  const ok = new Set(await allowed(probe, L.webbAreas));
+  const okList = await allowed(probe, L.webbAreas);
+  const ok = new Set(okList);
   const bare = (await probe.api.query<Bare[]>("green.parcels")).filter((p) => ok.has(p.parcelId));
   const target = bare[Math.floor(bare.length / 2)]!;
-  const green = await as(L.webbGreen, { camera: true, geo: { latitude: target.lat, longitude: target.lng, accuracy: 5 } });
+  // Stand 5 m west of the parcel's centre: facing east, the ray enters it at 4 m.
+  const west = { latitude: target.lat, longitude: target.lng - 5 / (111_320 * Math.cos((target.lat * Math.PI) / 180)), accuracy: 5 };
+  const green = await as(L.webbGreen, { camera: true, geo: west });
   const page = green.page;
-  let lotId: number | null = null;
+  let flagged: string | null = null;
   try {
     await page.goto("/flag");
     await expect(page.locator("[data-flag-shutter]")).toBeVisible();
-    await expect(page.locator("[data-flag-target]")).not.toContainText("No parcel", { timeout: 15_000 });
+    await expect(page.locator("[data-flag-heading]")).toHaveText("No compass");
+    // Upright portrait facing east: alpha 270, beta 90.
+    await face(page, 270, 90, 0);
+    await expect(page.locator("[data-flag-heading]")).toHaveText("Facing E");
+    await expect.poll(() => pickedKey(page), { message: "the parcel to the east picked" }).toBe(`p:${target.parcelId}`);
+    // Landscape, screen turned left, facing west: alpha 180, beta 0, gamma -90 (alpha alone would say S).
+    await face(page, 180, 0, -90);
+    await expect(page.locator("[data-flag-heading]")).toHaveText("Facing W");
+    // Landscape facing east again: alpha 0, beta 0, gamma -90 (alpha alone would say N).
+    await face(page, 0, 0, -90);
+    await expect(page.locator("[data-flag-heading]")).toHaveText("Facing E");
+    await expect.poll(() => pickedKey(page)).toBe(`p:${target.parcelId}`);
+
     const shutter = await page.locator("[data-flag-shutter]").boundingBox();
     expect(Math.min(shutter!.width, shutter!.height)).toBeGreaterThanOrEqual(84);
-    for (const side of await page.locator("[data-flag-side]").all()) expect((await side.boundingBox())!.height).toBeGreaterThanOrEqual(56);
-    await expect(page.locator(`[data-flag-strip] [data-flag-pick="p:${target.parcelId}"]`)).toBeAttached();
+    await expect(page.locator("[data-flag-side]")).toHaveCount(1);
+    expect((await page.locator("[data-flag-side]").boundingBox())!.height).toBeGreaterThanOrEqual(56);
+    await expect(page.getByRole("button", { name: "Wrong lot" })).toHaveCount(0);
     await expectNoOverflow(page, "/flag");
+
+    // A tap on another parcel in the strip picks it; a second tap on it, or Clear, goes back to the ray.
+    const other = await until(() => stripParcel(page, okList, target.parcelId), "a bare parcel to tap in the strip");
+    const before = await page.locator("[data-flag-target] p").textContent();
+    await page.mouse.click(other.x, other.y);
+    await expect.poll(() => pickedKey(page)).toBe(`p:${other.pid}`);
+    await expect(page.locator("[data-flag-clear]")).toBeVisible();
+    await page.mouse.click(other.x, other.y);
+    await expect.poll(() => pickedKey(page)).toBe(`p:${target.parcelId}`);
+    await expect(page.locator("[data-flag-clear]")).toHaveCount(0);
+    await page.mouse.click(other.x, other.y);
+    await expect.poll(() => pickedKey(page)).toBe(`p:${other.pid}`);
+    await page.locator("[data-flag-clear]").click();
+    await expect.poll(() => pickedKey(page)).toBe(`p:${target.parcelId}`);
+    await expect(page.locator("[data-flag-target] p")).toHaveText(before ?? "");
+
+    // Tapped, then the shutter: that parcel becomes Todo with the photo, and the ray takes over again.
+    await page.mouse.click(other.x, other.y);
+    await expect.poll(() => pickedKey(page)).toBe(`p:${other.pid}`);
     await page.locator("[data-flag-shutter]").click();
-    const lot = await until(async () => (await lotsOf(green)).find((l) => l.parcelId === target.parcelId), "the flagged lot", 20_000);
-    lotId = lot.id;
+    flagged = other.pid;
+    const lot = await until(async () => (await lotsOf(green)).find((l) => l.parcelId === other.pid), "the flagged lot", 20_000);
     expect(lot.status).toBe("open");
     await until(async () => (await green.api.query<LotPhotos>("shared.lotPhotos", { lotId: lot.id })).photos.some((p) => p.kind === "before"), "a Before photo", 20_000);
+    await expect(page.locator("[data-flag-clear]")).toHaveCount(0);
+    await expect.poll(() => pickedKey(page)).toBe(`p:${target.parcelId}`);
     await expect(page.locator("[data-flag-last]")).toBeVisible();
     await page.locator("[data-flag-undo]").click();
-    await until(async () => (await green.api.query<Bare[]>("green.parcels")).some((p) => p.parcelId === target.parcelId), "the parcel bare again after Undo");
-    lotId = null;
+    await until(async () => (await green.api.query<Bare[]>("green.parcels")).some((p) => p.parcelId === other.pid), "the parcel bare again after Undo");
+    flagged = null;
   } finally {
-    if (lotId !== null) await restore(green, [target.parcelId]);
+    if (flagged !== null) await restore(green, [flagged]);
+  }
+});
+
+test("Flag: Expand is Paint; the toggle brush swaps Todo and Not todo, Do not touch on its switch, Undo, Collapse", async ({ as, L }) => {
+  const probe = await as(L.webbGreen);
+  const ok = await allowed(probe, L.webbAreas);
+  const bare = (await probe.api.query<Bare[]>("green.parcels")).filter((p) => ok.includes(p.parcelId));
+  // Stand in the middle of the lane's bare parcels, as mapAt17 centres the green map.
+  const mid = { lat: bare.reduce((t, p) => t + p.lat, 0) / bare.length, lng: bare.reduce((t, p) => t + p.lng, 0) / bare.length };
+  const at = bare.reduce((a, p) => (Math.hypot(p.lat - mid.lat, p.lng - mid.lng) < Math.hypot(a.lat - mid.lat, a.lng - mid.lng) ? p : a));
+  const green = await as(L.webbGreen, { camera: true, geo: { latitude: at.lat, longitude: at.lng, accuracy: 5 } });
+  const page = green.page;
+  let painted: string[] = [];
+  try {
+    await page.goto("/flag");
+    await expect(page.locator("[data-flag-shutter]")).toBeVisible();
+    await expect(page.locator("[data-paint-bar]")).toHaveCount(0);
+    await expect(page.locator("[data-flag-target]")).not.toContainText("No parcel");
+    await page.locator("[data-flag-expand]").click();
+    await expect(page.locator("[data-paint-bar]")).toBeVisible();
+    await expect(page.locator("[data-flag-shutter]")).toBeHidden();
+    await expect(page.locator("[data-brush]")).toHaveCount(0);
+    const dnt = page.locator("[data-flag-dnt-brush]");
+    await expect(dnt).toHaveAttribute("aria-pressed", "false");
+    expect((await dnt.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await zoomOf(page, "[data-flag-strip]")).toBe(18);
+    await expectNoOverflow(page, "/flag paint");
+
+    const tri = await until(() => pickTriple(page, "[data-flag-strip]", ok), "three neighbouring bare parcels in the expanded map");
+    painted = tri.map((t) => t.pid);
+    const statuses = async (): Promise<string[]> => {
+      const lots = await lotsOf(green);
+      return painted.map((pid) => lots.find((l) => l.parcelId === pid)?.status ?? "bare");
+    };
+    await drag(page, tri);
+    await expectRedTodo(page, painted);
+    await expect(page.locator("[data-paint-count]")).toHaveText("3 lots");
+    expect(await statuses()).toEqual(["open", "open", "open"]);
+    // The same stroke again: Todo turns back to Not todo.
+    await drag(page, tri);
+    await until(async () => (await statuses()).every((x) => x === "bare"), "the three back to Not todo");
+    await expect(page.locator("[data-paint-count]")).toHaveText("3 lots");
+    await expect(page.locator("[data-paint-total]")).toHaveText("6 total");
+    // Do not touch on its switch, one tap.
+    await dnt.click();
+    await expect(dnt).toHaveAttribute("aria-pressed", "true");
+    await page.mouse.click(tri[0].x, tri[0].y);
+    await until(async () => (await statuses())[0] === "do_not_touch", "the first parcel Do not touch");
+    await dnt.click();
+    await expect(dnt).toHaveAttribute("aria-pressed", "false");
+
+    // Undo walks back all three strokes.
+    const undo = page.locator("[data-paint-undo]");
+    await undo.click();
+    await until(async () => (await statuses()).join() === "bare,bare,bare", "Undo of Do not touch");
+    await expect(undo).toBeEnabled();
+    await undo.click();
+    await until(async () => (await statuses()).join() === "open,open,open", "Undo of the second stroke");
+    await expect(undo).toBeEnabled();
+    await undo.click();
+    await until(async () => (await statuses()).join() === "bare,bare,bare", "Undo of the first stroke");
+    painted = [];
+
+    await page.locator("[data-flag-expand]").click();
+    await expect(page.locator("[data-paint-bar]")).toHaveCount(0);
+    await expect(page.locator("[data-flag-shutter]")).toBeVisible();
+    await expect(page.locator('[data-flag-map="strip"]')).toBeAttached();
+  } finally {
+    if (painted.length > 0) await restore(green, painted);
   }
 });

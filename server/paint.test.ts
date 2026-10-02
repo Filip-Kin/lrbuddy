@@ -200,6 +200,38 @@ describe("paint", () => {
     const west = setup.createCrew({ dayId: w.day.id, ccId: w.west.id, companyId: w.gm.id });
     expect(await codeOf(w.green.paint({ brush: { kind: "crew", crewId: west.id }, lotIds: [], parcelIds: [pid("a1")] }))).toBe("BAD_REQUEST");
   });
+
+  test("toggle brush (SPEC 22): per parcel, Todo to Not todo and Not todo or bare to Todo; other statuses left; Undo puts each back", async () => {
+    const todo = (await w.green.setLotStatus({ parcelId: pid("a1"), status: "open" })).lot!;
+    const done = (await w.green.setLotStatus({ parcelId: pid("a2"), status: "done" })).lot!;
+    await w.green.setLotStatus({ parcelId: pid("mid"), status: "do_not_touch" });
+    const l = listen();
+    const r = await w.green.paint({ brush: { kind: "toggle" }, lotIds: [todo.id, done.id], parcelIds: [pid("b1"), pid("mid")] });
+    l.off();
+    expect(r).toMatchObject({ changed: 2, skipped: 2, refused: 0, strokes: 1 });
+    // a1 was an untouched Todo: Not todo deletes the row (SPEC 21). b1 was bare: Todo with crew B.
+    expect([statusOf("a1"), statusOf("a2"), statusOf("b1"), statusOf("mid")]).toEqual(["bare", "done", "open", "do_not_touch"]);
+    expect(lotOf("b1")).toMatchObject({ crewId: w.crewB.id });
+    expect(l.got.length).toBe(2);
+    // The same stroke again flips b1 back; a1 is bare now and becomes Todo.
+    await w.green.paint({ brush: { kind: "toggle" }, lotIds: [], parcelIds: [pid("a1"), pid("b1")] });
+    expect([statusOf("a1"), statusOf("b1")]).toEqual(["open", "bare"]);
+    // A Not todo lot with history (kept as not_todo) becomes Todo.
+    await w.green.paintUndo();
+    await w.green.paintUndo();
+    expect([statusOf("a1"), statusOf("a2"), statusOf("b1"), statusOf("mid")]).toEqual(["open", "done", "bare", "do_not_touch"]);
+    expect(lotOf("a1")!.id).toBe(todo.id);
+    const kept = db.update(s.lots).set({ status: "not_todo", note: "fence" }).where(eq(s.lots.id, todo.id)).returning().get();
+    await w.green.paint({ brush: { kind: "toggle" }, lotIds: [kept.id], parcelIds: [] });
+    expect(lotOf("a1")).toMatchObject({ id: todo.id, status: "open", crewId: w.crewA.id });
+  });
+
+  test("toggle brush keeps the role rules: a red shirt cannot paint, and parcels outside the CC are refused", async () => {
+    const r = await w.green.paint({ brush: { kind: "toggle" }, lotIds: [w.westLot.id], parcelIds: [pid("a1")] });
+    expect(r).toMatchObject({ changed: 1, refused: 1 });
+    const asCrew = greenRouter.createCaller({ session: createSession({ role: "crew", crewId: w.crewA.id, ccId: w.east.id }), ip: "t", ccOverride: null });
+    expect(await codeOf(asCrew.paint({ brush: { kind: "toggle" }, lotIds: [], parcelIds: [pid("a2")] }))).toBe("FORBIDDEN");
+  });
 });
 
 describe("paint role scope", () => {

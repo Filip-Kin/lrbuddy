@@ -19,13 +19,22 @@ export const PAINT_HISTORY = 20;
 /** Most parcels one stroke may carry. */
 export const PAINT_MAX = 500;
 
-export type Brush = { kind: "status"; status: LotStatus } | { kind: "crew"; crewId: number };
+/**
+ * `toggle` is the Flag map's brush (SPEC 22): Todo becomes Not todo, Not todo
+ * (or a bare parcel) becomes Todo, decided per parcel from its status now;
+ * In progress, Done and Do not touch are left alone.
+ */
+export type Brush = { kind: "status"; status: LotStatus } | { kind: "crew"; crewId: number } | { kind: "toggle" };
+
+/** The status the toggle brush gives a parcel in `status` (null for bare), or null to leave it. */
+export const toggled = (status: LotStatus | null): LotStatus | null => (status === "open" ? "not_todo" : status === null || status === "not_todo" ? "open" : null);
 
 /** The stroke as the routers take it. */
 export const paintInput = z.object({
   brush: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("status"), status: z.enum(LOT_STATUSES) }),
     z.object({ kind: z.literal("crew"), crewId: z.number().int() }),
+    z.object({ kind: z.literal("toggle") }),
   ]),
   lotIds: z.array(z.number().int()).max(PAINT_MAX),
   parcelIds: z.array(z.string().min(1).max(40)).max(PAINT_MAX),
@@ -73,7 +82,7 @@ const bad = (message: string): TRPCError => new TRPCError({ code: "BAD_REQUEST",
 export interface PaintResult {
   /** Lots written by this stroke. */
   changed: number;
-  /** Parcels already in the brush's status (or crew), left alone. */
+  /** Parcels already in the brush's status (or crew), or that the toggle brush leaves alone. */
   skipped: number;
   /** Parcels the role rules refused. */
   refused: number;
@@ -134,8 +143,8 @@ export const paint = (actor: Actor, sessionId: string, input: PaintInput, by: st
           entries.push({ kind: "updated", lotId: before.id, before: pick(before), wrote: { status: updated.status, crewId: updated.crewId } });
           continue;
         }
-        const status = brush.status;
-        if ((before && before.status === status) || (!before && status === "not_todo")) {
+        const status = brush.kind === "toggle" ? toggled(before?.status ?? null) : brush.status;
+        if (status === null || (before && before.status === status) || (!before && status === "not_todo")) {
           skipped++;
           continue;
         }

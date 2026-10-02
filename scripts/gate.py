@@ -628,13 +628,15 @@ def parcel_status_checks() -> None:
 # endregion
 
 # region Flag screen (SPEC 22)
-# At 390x844 the Todo shutter is at least 84 px and the side buttons 56 px, with no overflow.
+# At 390x844 the Todo shutter is at least 84 px and Do not touch 56 px (the only side button: no
+# Wrong lot), with no overflow and no yellow frame over the camera.
 # With a fake camera and the phone placed on a bare parcel: Todo makes the lot Todo with a Before
 # photo. Undo then takes the parcel back to bare, so the data is left as it was.
 # Map strip: about 28 % of the height (accepted 20 to 36 %), Expand and Collapse at least 44 px, the
-# picked parcel outlined in yellow inside the strip. Expanded the map takes most of the screen, the
-# camera pauses, the three buttons stay, a tap on another parcel picks it, a reload keeps it expanded,
-# and Collapse brings the strip and the camera back. Light and dark screenshots of both states.
+# picked parcel outlined in yellow inside the strip. A tap on another parcel in the strip picks it and
+# shows Clear (44 px); Clear goes back to the aimed parcel. Expanded the map takes most of the screen,
+# the camera pauses, the flag buttons give way to the paint bar, a reload keeps it expanded, and
+# Collapse brings the strip, the camera and the buttons back. Light and dark screenshots of both.
 SHUTTER_MIN_PX = 84
 SIDE_MIN_PX = 56
 STRIP_MIN, STRIP_MAX = 0.20, 0.36
@@ -672,6 +674,11 @@ FLAG_BOXES_JS = """() => {
   return { shutter: box(document.querySelector('[data-flag-shutter]')),
            sides: [...document.querySelectorAll('[data-flag-side]')].map(box),
            target: (document.querySelector('[data-flag-target] p') || {}).textContent || '',
+           wrong: [...document.querySelectorAll('[data-flag] button')].filter((e) => e.textContent.trim() === 'Wrong lot').length,
+           frame: [...document.querySelectorAll('[data-flag-camera] *')].filter((e) => getComputedStyle(e).borderTopColor === 'rgb(253, 221, 8)' && parseFloat(getComputedStyle(e).borderTopWidth) > 0).length,
+           clear: box(document.querySelector('[data-flag-clear]')),
+           bar: !!document.querySelector('[data-paint-bar]'),
+           shutterShown: !!document.querySelector('[data-flag-shutter]') && document.querySelector('[data-flag-shutter]').offsetParent !== null,
            over: document.documentElement.scrollWidth - document.documentElement.clientWidth };
 }"""
 
@@ -718,9 +725,12 @@ def flag_checks() -> None:
                 page.screenshot(path=str(OUT / "green_flag-phone-light.png"))
                 if not b["shutter"] or min(b["shutter"]["w"], b["shutter"]["h"]) < SHUTTER_MIN_PX:
                     fail(f"green /flag: shutter is {b['shutter']} (<{SHUTTER_MIN_PX}px)")
-                for sd in b["sides"]:
-                    if not sd or sd["h"] < SIDE_MIN_PX:
-                        fail(f"green /flag: side button is {sd} (<{SIDE_MIN_PX}px tall)")
+                if len(b["sides"]) != 1 or any(not sd or sd["h"] < SIDE_MIN_PX for sd in b["sides"]):
+                    fail(f"green /flag: side buttons {b['sides']} (want Do not touch only, {SIDE_MIN_PX}px tall)")
+                if b["wrong"]:
+                    fail("green /flag: Wrong lot button still shown")
+                if b["frame"]:
+                    fail("green /flag: yellow frame over the camera")
                 if b["over"] > 0:
                     fail(f"green /flag: horizontal overflow {b['over']}px")
                 if b["target"] == "No parcel":
@@ -817,7 +827,26 @@ def flag_checks() -> None:
 
 
 def flag_expand_checks(page, aimed: str, scheme: str) -> None:
-    """Expand, tap another parcel, reload, collapse. Picks only; nothing is flagged."""
+    """Tap another parcel in the strip, Clear; Expand (paint), reload, Collapse. Nothing is flagged."""
+    picked_other = None
+    for c in page.evaluate(OTHER_PARCELS_JS, aimed):
+        page.mouse.click(c["x"], c["y"])
+        page.wait_for_timeout(500)
+        if page.evaluate(STRIP_JS)["pickKey"] == f"p:{c['id']}":
+            picked_other = c["id"]
+            break
+    if not picked_other:
+        fail("green /flag: a tap on another parcel in the strip did not pick it")
+    else:
+        b = page.evaluate(FLAG_BOXES_JS)
+        page.screenshot(path=str(OUT / f"green_flag_tap-phone-{scheme}.png"))
+        if not b["clear"] or min(b["clear"]["w"], b["clear"]["h"]) < EXPAND_MIN_PX:
+            fail(f"green /flag: Clear is {b['clear']} (<{EXPAND_MIN_PX}px)")
+        else:
+            page.locator("[data-flag-clear]").click()
+            page.wait_for_timeout(400)
+            if page.evaluate(STRIP_JS)["pickKey"] != f"p:{aimed}":
+                fail("green /flag: Clear did not go back to the aimed parcel")
     page.locator("[data-flag-expand]").click()
     page.wait_for_timeout(1200)
     st = page.evaluate(STRIP_JS)
@@ -829,35 +858,25 @@ def flag_expand_checks(page, aimed: str, scheme: str) -> None:
         fail(f"green /flag: camera not paused with the map full screen (paused={st['paused']})")
     if not st["expand"] or min(st["expand"]["w"], st["expand"]["h"]) < EXPAND_MIN_PX:
         fail(f"green /flag: Collapse is {st['expand']} (<{EXPAND_MIN_PX}px)")
-    if not b["shutter"] or min(b["shutter"]["w"], b["shutter"]["h"]) < SHUTTER_MIN_PX:
-        fail(f"green /flag expanded: shutter is {b['shutter']} (<{SHUTTER_MIN_PX}px)")
-    if len(b["sides"]) != 2 or any(not sd or sd["h"] < SIDE_MIN_PX for sd in b["sides"]):
-        fail(f"green /flag expanded: side buttons {b['sides']} (<{SIDE_MIN_PX}px tall)")
+    if not b["bar"] or b["shutterShown"]:
+        fail(f"green /flag expanded: paint bar {b['bar']}, shutter shown {b['shutterShown']} (want the bar, no shutter)")
     if b["over"] > 0:
         fail(f"green /flag expanded: horizontal overflow {b['over']}px")
-    picked_other = None
-    for c in page.evaluate(OTHER_PARCELS_JS, aimed):
-        page.mouse.click(c["x"], c["y"])
-        page.wait_for_timeout(500)
-        if page.evaluate(STRIP_JS)["pickKey"] == f"p:{c['id']}":
-            picked_other = c["id"]
-            break
-    if not picked_other:
-        fail("green /flag expanded: a tap on another parcel did not pick it")
-    else:
-        page.screenshot(path=str(OUT / f"green_flag_expanded_tap-phone-{scheme}.png"))
     page.reload(wait_until="domcontentloaded", timeout=45000)
-    page.wait_for_selector("[data-flag-shutter]", timeout=20000)
+    page.wait_for_selector("[data-flag-strip]", timeout=20000)
     page.wait_for_timeout(1500)
-    if page.evaluate(STRIP_JS)["mode"] != "full":
-        fail("green /flag: the expanded map did not stay expanded after a reload")
+    if page.evaluate(STRIP_JS)["mode"] != "full" or not page.evaluate(FLAG_BOXES_JS)["bar"]:
+        fail("green /flag: the expanded map did not come back expanded and painting after a reload")
     page.locator("[data-flag-expand]").click()
     page.wait_for_timeout(1200)
     st = page.evaluate(STRIP_JS)
+    b = page.evaluate(FLAG_BOXES_JS)
     if st["mode"] != "strip" or not st["strip"] or not (STRIP_MIN <= st["strip"]["h"] / st["vh"] <= STRIP_MAX):
         fail(f"green /flag: Collapse left the map at {st['strip']} ({st['mode']!r})")
     if st["paused"] is not False:
         fail(f"green /flag: camera did not resume after Collapse (paused={st['paused']})")
+    if b["bar"] or not b["shutterShown"]:
+        fail(f"green /flag: after Collapse paint bar {b['bar']}, shutter shown {b['shutterShown']}")
     if st["pickKey"] != f"p:{aimed}":
         fail(f"green /flag: after Collapse the pick is {st['pickKey']}, not the aimed p:{aimed}")
 
@@ -1071,17 +1090,19 @@ def paint_checks() -> None:
         browser.close()
 
 
-# Flag screen, Paint on the expanded map (SPEC 22, last paragraph). As CC Webb's green on /flag at 390x844,
-# light and dark: the strip has no Paint; Expand shows Paint next to Collapse (44 px); Paint swaps the
-# flag buttons for the brush bar; a drag over three bare parcels at zoom 18 sets them Todo with
-# "3 lots"; Undo returns them; Done brings the flag buttons back; Paint then Collapse ends paint mode
-# and leaves the strip. Overflow 0. Undo leaves the data as found.
+# Flag screen, Paint on the expanded map (SPEC 22). As CC Webb's green on /flag at 390x844, light and
+# dark: the strip has no paint bar; Expand opens the paint bar at once (no brush chips, the Do not
+# touch switch at 44 px, off) in place of the flag buttons, zoom 18; a drag over three bare parcels
+# sets them Todo with "3 lots"; the same drag again sets them back to Not todo; Undo twice returns
+# them; the Do not touch switch turns on and off; Collapse ends paint mode and leaves the strip.
+# Overflow 0. Undo leaves the data as found.
 FLAG_PAINT_JS = """() => {
   const vis = (el) => !!el && el.offsetParent !== null;
   const box = (el) => { if (!vis(el)) return null; const r = el.getBoundingClientRect(); return { w: r.width, h: r.height }; };
   const strip = document.querySelector('[data-flag-strip]');
-  return { paint: box(document.querySelector('[data-flag-paint]')),
-           bar: !!document.querySelector('[data-paint-bar]'),
+  const dnt = document.querySelector('[data-flag-dnt-brush]');
+  return { bar: !!document.querySelector('[data-paint-bar]'),
+           dnt: box(dnt), dntOn: dnt ? dnt.getAttribute('aria-pressed') : null,
            shutter: vis(document.querySelector('[data-flag-shutter]')),
            sides: [...document.querySelectorAll('[data-flag-side]')].filter(vis).length,
            mode: (strip && strip.querySelector('[data-flag-map]') || {}).dataset?.flagMap || '',
@@ -1108,6 +1129,18 @@ def flag_paint_checks() -> None:
                 continue
             page = ctx.new_page()
             painted: list[str] = []
+
+            def statuses() -> list[str]:
+                lots = trpc_get(ctx, "green.overview")["lots"]
+                return [next((x["status"] for x in lots if x["parcelId"] == pid), "bare") for pid in painted]
+
+            def wait_for(want: list[str]) -> bool:
+                for _ in range(30):
+                    page.wait_for_timeout(300)
+                    if statuses() == want:
+                        return True
+                return False
+
             try:
                 bare = trpc_get(ctx, "green.parcels")
                 if not bare:
@@ -1119,39 +1152,37 @@ def flag_paint_checks() -> None:
                 page.wait_for_selector("[data-flag-shutter]", timeout=20000)
                 page.wait_for_timeout(2000)
                 st = page.evaluate(FLAG_PAINT_JS)
-                if st["mode"] != "strip" or st["paint"]:
-                    fail(f"{tag}: the strip shows Paint ({st['mode']!r}, {st['paint']})")
+                if st["mode"] != "strip" or st["bar"]:
+                    fail(f"{tag}: the strip paints ({st['mode']!r}, bar={st['bar']})")
                 page.locator("[data-flag-expand]").click()
                 page.wait_for_timeout(1500)
                 st = page.evaluate(FLAG_PAINT_JS)
-                if not st["paint"] or min(st["paint"]["w"], st["paint"]["h"]) < EXPAND_MIN_PX:
-                    fail(f"{tag}: Paint on the expanded map is {st['paint']} (<{EXPAND_MIN_PX}px)")
-                    continue
-                page.locator("[data-flag-paint]").click()
-                page.wait_for_timeout(1200)
-                st = page.evaluate(FLAG_PAINT_JS)
                 ps = page.evaluate(PAINT_STATE_JS)
                 if not st["bar"]:
-                    fail(f"{tag}: Paint opened no brush bar")
+                    fail(f"{tag}: Expand opened no paint bar")
                     continue
                 if st["shutter"] or st["sides"]:
-                    fail(f"{tag}: flag buttons still showing with the brush bar (shutter={st['shutter']}, sides={st['sides']})")
-                small = [round(c) for c in ps["chips"] if c < CHIP_MIN_PX]
-                if len(ps["chips"]) < 6 or small:
-                    fail(f"{tag}: brush chips {len(ps['chips'])} (want 5 statuses and Crew), under {CHIP_MIN_PX}px: {small}")
+                    fail(f"{tag}: flag buttons still showing with the paint bar (shutter={st['shutter']}, sides={st['sides']})")
+                if ps["chips"]:
+                    fail(f"{tag}: the Flag paint bar shows {len(ps['chips'])} brush chips (want none)")
+                if not st["dnt"] or min(st["dnt"]["w"], st["dnt"]["h"]) < CHIP_MIN_PX or st["dntOn"] != "false":
+                    fail(f"{tag}: Do not touch switch {st['dnt']} pressed={st['dntOn']} (want {CHIP_MIN_PX}px, off)")
                 if abs(st["zoom"] - 18) > 0.01:
                     fail(f"{tag}: expanded map zoom is {st['zoom']}, not 18")
                 tri = page.evaluate(PAINT_TRIPLE_JS)
                 if not tri:
                     fail(f"{tag}: no three neighbouring bare parcels in a row at zoom 18")
                     continue
-                page.locator('[data-brush="open"]').click()
-                a, b, c = tri
-                page.mouse.move(a["x"], a["y"])
-                page.mouse.down()
-                page.mouse.move(b["x"], b["y"], steps=8)
-                page.mouse.move(c["x"], c["y"], steps=8)
-                page.mouse.up()
+
+                def stroke() -> None:
+                    a, b, c = tri
+                    page.mouse.move(a["x"], a["y"])
+                    page.mouse.down()
+                    page.mouse.move(b["x"], b["y"], steps=8)
+                    page.mouse.move(c["x"], c["y"], steps=8)
+                    page.mouse.up()
+
+                stroke()
                 painted = [t["pid"] for t in tri]
                 ok = False
                 for _ in range(20):
@@ -1164,44 +1195,42 @@ def flag_paint_checks() -> None:
                 page.screenshot(path=str(OUT / f"green_flag_paint-phone-{scheme}.png"))
                 if not ok:
                     fail(f"{tag}: the three painted parcels did not turn red Todo")
-                lots = trpc_get(ctx, "green.overview")["lots"]
-                todo = [x for x in lots if x["parcelId"] in painted and x["status"] == "open"]
-                if len(todo) != 3:
-                    fail(f"{tag}: {len(todo)} of the three painted parcels are Todo lots on the server")
+                if not wait_for(["open"] * 3):
+                    fail(f"{tag}: the painted parcels are {statuses()} on the server, not Todo")
                 if ps["count"].strip() != "3 lots":
                     fail(f"{tag}: counter reads '{ps['count']}', expected '3 lots'")
                 if ps["over"] != 0:
                     fail(f"{tag}: horizontal overflow {ps['over']}px")
-                page.locator("[data-paint-undo]").click()
-                back = False
-                for _ in range(20):
-                    page.wait_for_timeout(300)
-                    if all(page.locator(f'[data-parcel="{pid}"]').count() > 0 for pid in painted):
-                        back = True
-                        break
-                if not back:
-                    fail(f"{tag}: Undo did not return the three parcels to Not todo")
-                else:
-                    painted = []
-                page.locator("[data-paint-exit]").click()
-                page.wait_for_timeout(600)
+                stroke()
+                if not wait_for(["bare"] * 3):
+                    fail(f"{tag}: the same stroke again left {statuses()}, not Not todo")
+                page.locator("[data-flag-dnt-brush]").click()
+                page.wait_for_timeout(300)
                 st = page.evaluate(FLAG_PAINT_JS)
-                b2 = page.evaluate(FLAG_BOXES_JS)
-                page.screenshot(path=str(OUT / f"green_flag_paint_done-phone-{scheme}.png"))
-                if st["bar"] or not st["shutter"] or st["sides"] != 2 or st["mode"] != "full":
-                    fail(f"{tag}: Done left bar={st['bar']}, shutter={st['shutter']}, sides={st['sides']}, map {st['mode']!r}")
-                if not b2["shutter"] or min(b2["shutter"]["w"], b2["shutter"]["h"]) < SHUTTER_MIN_PX:
-                    fail(f"{tag}: shutter after Done is {b2['shutter']} (<{SHUTTER_MIN_PX}px)")
-                if b2["over"] > 0:
-                    fail(f"{tag}: horizontal overflow after Done {b2['over']}px")
-                # Collapse while painting ends paint mode first, and the strip has no brush bar.
-                page.locator("[data-flag-paint]").click()
-                page.wait_for_timeout(500)
+                page.screenshot(path=str(OUT / f"green_flag_paint_dnt-phone-{scheme}.png"))
+                if st["dntOn"] != "true":
+                    fail(f"{tag}: Do not touch switch did not turn on")
+                page.locator("[data-flag-dnt-brush]").click()
+                page.wait_for_timeout(300)
+                if page.evaluate(FLAG_PAINT_JS)["dntOn"] != "false":
+                    fail(f"{tag}: Do not touch switch did not turn off")
+                page.locator("[data-paint-undo]").click()
+                if not wait_for(["open"] * 3):
+                    fail(f"{tag}: Undo of the second stroke left {statuses()}")
+                page.wait_for_timeout(400)
+                page.locator("[data-paint-undo]").click()
+                if wait_for(["bare"] * 3):
+                    painted = []
+                else:
+                    fail(f"{tag}: Undo of the first stroke left {statuses()}")
                 page.locator("[data-flag-expand]").click()
                 page.wait_for_timeout(1200)
                 st = page.evaluate(FLAG_PAINT_JS)
-                if st["mode"] != "strip" or st["bar"] or st["paint"] or not st["shutter"]:
-                    fail(f"{tag}: Collapse while painting left map {st['mode']!r}, bar={st['bar']}, paint={st['paint']}, shutter={st['shutter']}")
+                b2 = page.evaluate(FLAG_BOXES_JS)
+                if st["mode"] != "strip" or st["bar"] or not st["shutter"]:
+                    fail(f"{tag}: Collapse left map {st['mode']!r}, bar={st['bar']}, shutter={st['shutter']}")
+                if b2["over"] > 0:
+                    fail(f"{tag}: horizontal overflow after Collapse {b2['over']}px")
             except Exception as e:  # noqa: BLE001
                 fail(f"{tag}: {type(e).__name__} {str(e)[:160]}")
             finally:

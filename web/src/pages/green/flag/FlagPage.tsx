@@ -1,11 +1,12 @@
 import type { Map as LeafletMap } from "leaflet";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PaintBar, PaintFrame, PaintIcon, usePaint } from "../../../components/PaintBar.tsx";
+import { PaintFrame, usePaint } from "../../../components/PaintBar.tsx";
 import { useWakeLock } from "../../../components/driver/hooks.ts";
 import { lotTitle } from "../../../lib/format.ts";
 import type { PaintTarget } from "../../../lib/map/paintHit.ts";
 import { STATUS_LABEL, type LotGrade, type LotStatus } from "../../../lib/lotStatus.ts";
 import { FlagMap } from "./FlagMap.tsx";
+import { FlagPaintBar } from "./FlagPaintBar.tsx";
 import { postPhoto, prepareFrame, useInvalidatePhotos } from "../../../lib/photos.ts";
 import { trpc } from "../../../lib/trpc.ts";
 import { compassPoint, pickParcel, type Candidate } from "./pick.ts";
@@ -83,9 +84,10 @@ class PhotoRefused extends Error {}
 
 /**
  * Flag screen (SPEC 22): the morning sweep with the camera. The phone's GPS
- * and compass pick the parcel it faces; Todo takes the photo, saves it as the
- * lot's Before and marks the lot Todo with its rectangle's crew. Flags queue
- * in memory and post in order.
+ * and the bearing of its back camera pick the parcel it faces, or a tap on the
+ * strip map picks one; Todo takes the photo, saves it as the lot's Before and
+ * marks the lot Todo with its rectangle's crew. Flags queue in memory and post
+ * in order. The expanded map is Paint with the toggle brush.
  */
 export const FlagPage = () => {
   const utils = trpc.useUtils();
@@ -93,7 +95,7 @@ export const FlagPage = () => {
   const overview = trpc.green.overview.useQuery(undefined, { refetchInterval: 60_000 });
   const parcels = trpc.green.parcels.useQuery(undefined, { refetchInterval: 120_000 });
   const plan = trpc.green.plan.useQuery(undefined, { refetchInterval: 120_000 });
-  // Full-screen map: the camera pauses, taps on the map pick the parcel. Kept for the session.
+  // Full-screen map: the camera pauses and the map is Paint. Kept for the session.
   const [expanded, setExpandedState] = useState(readExpanded);
   const camera = useCamera(expanded);
   const { fix, state: fixState } = useFix();
@@ -105,8 +107,8 @@ export const FlagPage = () => {
     return () => window.clearInterval(t);
   }, []);
 
-  // The GPS course stands in for the compass while walking or driving faster than 2 m/s.
-  const heading = compass.heading ?? (fix && fix.speed !== null && fix.speed > 2 ? fix.heading : null);
+  // The back camera's bearing from the orientation sensors only; never the GPS course.
+  const heading = compass.heading;
 
   // #region candidates
   const crewName = useMemo(() => new Map((overview.data?.crews ?? []).map((c) => [c.id, c.name])), [overview.data]);
@@ -145,10 +147,12 @@ export const FlagPage = () => {
 
   // Recomputed every second (the `now` tick) from the latest fix and heading.
   const aimed = useMemo(() => pickParcel(fix, heading, targets), [fix, heading, targets, now]);
-  // A parcel tapped on the full-screen map wins over the aimed one until the map collapses.
+  // A parcel tapped on the strip holds the pick (the ray pick pauses) until Clear, a second tap
+  // on it, a flag, or Expand.
   const [tapped, setTapped] = useState<string | null>(null);
   const tappedTarget = tapped ? (targets.find((t) => t.key === tapped) ?? null) : null;
-  const picked = expanded && tappedTarget ? tappedTarget : aimed;
+  const picked = !expanded && tappedTarget ? tappedTarget : aimed;
+  const onStripPick = useCallback((key: string): void => setTapped((k) => (k === key ? null : key)), []);
   const setExpandedRaw = useCallback((on: boolean): void => {
     setExpandedState(on);
     setTapped(null);
@@ -235,16 +239,15 @@ export const FlagPage = () => {
     };
   }, [pump]);
 
-  // No photo while the map is full screen: the camera is paused and would not show the tapped parcel.
   const grab = useCallback(async (): Promise<{ photo: Blob; thumb: Blob } | null> => {
     const v = camera.video.current;
-    if (expanded || camera.state !== "on" || !v || v.videoWidth === 0) return null;
+    if (camera.state !== "on" || !v || v.videoWidth === 0) return null;
     try {
       return await prepareFrame(v, v.videoWidth, v.videoHeight);
     } catch {
       return null;
     }
-  }, [camera.state, camera.video, expanded]);
+  }, [camera.state, camera.video]);
 
   const flag = useCallback(
     async (target: Target, status: FlagStatus): Promise<void> => {
@@ -252,6 +255,7 @@ export const FlagPage = () => {
       const f: Flag = { id: nextId.current++, target, status, photo, at: Date.now(), phase: "queued", lotId: null, photoId: null, message: null, tries: 0 };
       flagsRef.current = [...flagsRef.current, f];
       setFlags(flagsRef.current);
+      setTapped(null);
       void pump();
     },
     [grab, pump],
@@ -294,8 +298,8 @@ export const FlagPage = () => {
   }, [flags]);
   const mapLots = useMemo(() => overview.data?.lots ?? [], [overview.data]);
 
-  // Paint on the full-screen map (SPEC 22, Paint on the expanded map): the green map's brush bar,
-  // the same green.paint batch and Undo history. Every lot and bare parcel at the CC is a target.
+  // The expanded map is Paint (SPEC 22): the toggle brush, or Do not touch, on the same green.paint
+  // batch and Undo history as the green map. Every lot and bare parcel at the CC is a target.
   const [leaflet, setLeaflet] = useState<LeafletMap | null>(null);
   const paintTargets = useMemo<PaintTarget[]>(() => {
     const out: PaintTarget[] = [];
@@ -308,17 +312,15 @@ export const FlagPage = () => {
     return out;
   }, [mapLots, parcels.data, pending]);
   const paint = usePaint(leaflet, { kind: "green" }, paintTargets);
-  const painting = paint.on && expanded;
   const mapPending = useMemo(() => (paint.pending.size === 0 ? pending : new Map([...pending, ...paint.pending])), [pending, paint.pending]);
-  // The strip never paints: Collapse ends paint mode first.
-  const closePaint = paint.close;
-  const setExpanded = useCallback(
-    (on: boolean): void => {
-      if (!on) closePaint();
-      setExpandedRaw(on);
-    },
-    [closePaint, setExpandedRaw],
-  );
+  // Paint follows the map: on with the toggle brush when expanded (a reload too), off on Collapse.
+  const paintRef = useRef(paint);
+  paintRef.current = paint;
+  useEffect(() => {
+    const p = paintRef.current;
+    if (expanded && !p.on) p.open("toggle");
+    else if (!expanded && p.on) p.close();
+  }, [expanded]);
   const cc = useMemo(() => {
     const c = overview.data?.cc;
     return c ? { lat: c.lat, lng: c.lng, name: c.name, letter: c.letter } : null;
@@ -376,10 +378,6 @@ export const FlagPage = () => {
       <div className={`relative min-h-0 flex-1 ${expanded ? "hidden" : ""}`} data-flag-camera>
         <video ref={camera.video} muted playsInline autoPlay className="absolute inset-0 h-full w-full object-cover" aria-label="Camera" />
         {camera.state !== "on" && <div aria-hidden="true" className="absolute inset-0 bg-[#0e3038]" />}
-        {/* The parcel being aimed at: a yellow frame in the middle of the view. */}
-        {picked && (
-          <div aria-hidden="true" className="pointer-events-none absolute inset-x-[12%] top-[22%] bottom-[18%] rounded-2xl border-4 border-[#fddd08] shadow-[0_0_0_2px_rgb(0_0_0/0.35)]" />
-        )}
         {!expanded && lastCard}
       </div>
 
@@ -394,13 +392,22 @@ export const FlagPage = () => {
           picked={picked}
           pending={mapPending}
           expanded={expanded}
-          painting={painting}
           onMap={setLeaflet}
-          onPick={setTapped}
+          onPick={onStripPick}
         />
+        {!expanded && tappedTarget && (
+          <button
+            type="button"
+            onClick={() => setTapped(null)}
+            className="absolute top-2 left-2 z-[1000] h-11 rounded-full bg-black/75 px-4 text-sm font-bold text-white shadow-lg ring-2 ring-white/70"
+            data-flag-clear
+          >
+            Clear
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => setExpandedRaw(!expanded)}
           aria-label={expanded ? "Collapse map" : "Expand map"}
           aria-expanded={expanded}
           className="absolute top-2 right-2 z-[1000] grid h-11 w-11 place-items-center rounded-full bg-black/75 text-white shadow-lg ring-2 ring-white/70"
@@ -408,33 +415,20 @@ export const FlagPage = () => {
         >
           <ExpandIcon up={!expanded} />
         </button>
-        {expanded && !painting && (
-          <button
-            type="button"
-            onClick={() => paint.open()}
-            disabled={!leaflet || !overview.data}
-            className="absolute top-2 right-15 z-[1000] flex h-11 items-center gap-1.5 rounded-full bg-black/75 pr-4 pl-3 text-sm font-bold text-white shadow-lg ring-2 ring-white/70 disabled:opacity-40"
-            data-flag-paint
-          >
-            <PaintIcon />
-            Paint
-          </button>
-        )}
-        {expanded && !painting && lastCard}
-        {painting && (
-          <div className="text-ink">
+        {expanded && (
+          <>
             <PaintFrame paint={paint} />
-            <PaintBar paint={paint} crews={overview.data?.crews ?? []} />
-          </div>
+            <FlagPaintBar paint={paint} />
+          </>
         )}
       </div>
 
-      <div className={`relative z-10 shrink-0 items-center justify-between gap-3 bg-black px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] ${painting ? "hidden" : "flex"}`} data-flag-buttons>
+      <div className={`relative z-10 shrink-0 items-center justify-between gap-3 bg-black px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] ${expanded ? "hidden" : "flex"}`} data-flag-buttons>
         <button
           type="button"
           disabled={!canFlag}
           onClick={() => picked && void flag(picked, "do_not_touch")}
-          className="min-h-14 w-24 rounded-2xl bg-white/10 px-2 text-sm leading-tight font-bold ring-2 ring-[#ff8a3d] disabled:opacity-40"
+          className="min-h-14 w-28 shrink-0 rounded-2xl bg-white/10 px-2 text-sm leading-tight font-bold ring-2 ring-[#ff8a3d] disabled:opacity-40"
           data-flag-side="dnt"
         >
           Do not touch
@@ -454,16 +448,24 @@ export const FlagPage = () => {
             </span>
           )}
         </button>
-        <button
-          type="button"
-          disabled={expanded}
-          aria-pressed={expanded}
-          onClick={() => setExpanded(true)}
-          className={`min-h-14 w-24 rounded-2xl px-2 text-sm leading-tight font-bold ring-2 ${expanded ? "bg-[#fddd08] text-[#0e3038] ring-[#fddd08]" : "bg-white/10 ring-white/70"}`}
-          data-flag-side="wrong"
-        >
-          Wrong lot
-        </button>
+        {camera.canSwitch ? (
+          <div role="group" aria-label="Lens" className="flex w-28 shrink-0 rounded-full bg-white/10 p-1 ring-2 ring-white/70" data-flag-lens>
+            {(["wide", "normal"] as const).map((l) => (
+              <button
+                key={l}
+                type="button"
+                aria-pressed={camera.lens === l}
+                onClick={() => camera.setLens(l)}
+                className={`min-h-11 min-w-0 flex-1 rounded-full text-[13px] font-bold ${camera.lens === l ? "bg-white text-[#0e3038]" : "text-white"}`}
+                data-flag-lens-option={l}
+              >
+                {l === "wide" ? "Wide" : "Normal"}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span aria-hidden="true" className="w-28 shrink-0" />
+        )}
       </div>
     </div>
   );

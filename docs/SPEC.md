@@ -927,23 +927,42 @@ Who: the B&B lead and the green shirts doing the morning sweep before crews arri
 foot or from the truck window. Not red shirts.
 
 `/flag` (green and admin; also reachable from the green map's menu as **Flag**):
-- Full-screen camera view (`getUserMedia`, rear camera). Over it: the parcel the phone is standing at
-  and facing, named top left ("4014 St Clair · vacant · GM 2") and outlined on the preview as a
-  yellow frame; a heading chip top right ("facing NE").
-- Which parcel: from the GPS fix and the compass heading (`deviceorientationabsolute`, iOS needs the
-  permission prompt on first use), cast a ray 4 to 30 m ahead and pick the first cached parcel it
-  enters; if the heading is unavailable, the nearest parcel within 25 m. Recomputed every second.
+- Full-screen camera view (`getUserMedia`, rear camera). Over it: the picked parcel named top left
+  ("4014 St Clair · vacant · GM 2") and a heading chip top right ("Facing NE"). No frame or
+  rectangle over the camera image; the picked parcel is outlined in yellow on the map strip only.
+- Heading (Filip, 2026-10-02, in the field: "which way the phone is facing is based on movement of
+  GPS rather than position of the phone"): the compass bearing of the back camera, from the phone's
+  orientation and never from the GPS course. The camera looks along the device's -Z axis; its bearing
+  comes from `deviceorientationabsolute` alpha, beta and gamma through the full rotation matrix, so it
+  is right held upright in portrait, tilted, and in landscape. When the camera points within 20
+  degrees of straight down (phone flat) the top of the screen is "ahead" instead, turned by
+  `screen.orientation.angle`. iOS: `deviceorientation` with `webkitCompassHeading`, after the
+  permission prompt on the first tap of **Compass**. Smoothed as a circular mean over 300 ms. No
+  orientation at all: the chip reads **No compass** and the pick is the nearest parcel.
+- Which parcel: from the GPS fix and the camera bearing, cast a ray 4 to 30 m ahead and pick the
+  first cached parcel it enters, so pointing at the left side of the street picks the parcel on the
+  left; with no bearing, the nearest parcel within 25 m. Recomputed every second.
+- A tap on a parcel in the strip map picks it instead (yellow outline in the strip, label at the top
+  updates, the ray pick pauses) and the shutter photographs that parcel. **Clear** on the strip's top
+  left, a second tap on the same parcel, a flag, or Expand returns to the ray pick. The strip still
+  takes no pan or zoom gestures.
 - One big **Todo** shutter: takes the photo, saves it as that lot's Before (section 15), creates or
   updates the lot as Todo with the crew whose rectangle contains it, and shows the last-flag card
   ("Last: 3998 St Clair · Todo · 00:12 ago") with **Undo** for 20 s (undo deletes the photo and
-  reverts the status). Two side buttons: **Do not touch** (same, status do_not_touch, photo kept)
-  and **Wrong lot** (expands the map strip below to full screen, where a tap picks the right parcel).
+  reverts the status). One side button: **Do not touch** (same, status do_not_touch, photo kept).
+  The Wrong lot button is gone (Filip, 2026-10-02): a tap on the strip replaces it.
+- Lens: when the back camera reaches an ultra-wide (a `zoom` capability below 1 on the open camera,
+  or a camera whose label says "ultra", "0.5" or "wide"), a **Wide** / **Normal** switch sits right of
+  the shutter, Wide by default, kept for the session. With neither, no switch.
 - Works offline-ish: flags queue in memory and post in order; a queued count shows on the shutter.
-- No camera permission or no GPS: the screen says which one in a label and still allows Wrong lot
-  tapping with Todo and no photo.
-- Gate: at 390x844 the shutter is at least 84 px, side buttons 56 px, overflow 0; a Playwright run
-  with a fake camera (`--use-fake-device-for-media-stream`) and `set_geolocation` flags a parcel and
-  the lot appears Todo with a Before photo.
+- No camera permission or no GPS: the screen says which one in a label and still allows a tap on
+  the strip and Todo with no photo.
+- Gate: at 390x844 the shutter is at least 84 px, Do not touch 56 px, no Wrong lot, no yellow frame
+  over the camera, overflow 0; a Playwright run with a fake camera
+  (`--use-fake-device-for-media-stream`) and `set_geolocation` flags a parcel and the lot appears
+  Todo with a Before photo. The e2e suite fires fake `deviceorientationabsolute` events (portrait
+  and landscape) and checks the chip and the ray pick, then a strip tap, Clear and a flag on the
+  tapped parcel.
 
 ## 23. Paint mode on the green and admin maps (Filip, 2026-10-01 15:34)
 
@@ -1001,19 +1020,22 @@ Flag screen map strip (Filip, 2026-10-01 16:29)
   outlined in yellow, every parcel in its current status colour (same layers as the green map,
   bare parcels as thin outlines), crew rectangles, and the CC star. Zoom 18.
 - An **Expand** arrow button on the strip's top right makes the map full screen; the camera pauses
-  but the Todo, Do not touch and Wrong lot buttons stay at the bottom and act on the picked parcel,
-  and a tap on any parcel picks it (replacing Wrong lot's separate mini map, which goes away). A
-  **Collapse** button in the same corner brings the strip back down and resumes the camera.
+  and the map is in Paint at once (next paragraph). A **Collapse** button in the same corner leaves
+  Paint, brings the strip back down and resumes the camera.
 - The strip remembers its state for the session. Both buttons at least 44 px. Overflow 0 at 390.
 
-Flag screen: Paint on the expanded map (Filip, 2026-10-01 16:54)
-- When the Flag map is expanded, a **Paint** button sits next to Collapse. It opens the same brush
-  bar as the green map (section 23: five status chips, Crew brush, Undo, counter, Done) in place of
-  the Todo / Do not touch / Wrong lot row while painting; Done returns that row. Strokes use the same
-  `green.paint` batch and Undo history. Collapse while painting ends paint mode first.
+Flag screen: Paint on the expanded map (Filip, 2026-10-01 16:54; two-state brush 2026-10-02)
+- Expanding the Flag map enters Paint at once, with no Paint button and no brush chips. The brush is
+  a toggle: a tap or a drag over a Todo makes it Not todo, over a Not todo (or bare parcel) makes it
+  Todo, decided per parcel from its status when the finger first crosses it. In progress, Done and
+  Do not touch are left alone. A **Do not touch** switch in the bar turns the brush to Do not touch;
+  a second tap turns it back to the toggle. **Undo** and the counter stay; there is no Done.
+- The bar takes the place of the Todo / Do not touch row. Strokes use the same `green.paint` batch
+  (brush `toggle`, the section 21 rules per parcel) and Undo history. Collapse ends Paint.
 - The strip itself never paints; Paint needs the expanded map.
-- Gate: as CC Webb's green shirt on /flag, Expand, Paint, drag over three parcels at zoom 18 sets Todo with count 3,
-  Undo returns them, Done brings the flag buttons back, overflow 0 at 390.
+- Gate: as CC Webb's green shirt on /flag, Expand shows the bar with the switch off, a drag over three
+  parcels at zoom 18 sets Todo with count 3, the same drag sets them back to Not todo, Undo returns
+  them, Collapse brings the flag buttons back, overflow 0 at 390.
 
 ## 25. Load speed and crash visibility (Filip, 2026-10-01, on 5G in the field)
 

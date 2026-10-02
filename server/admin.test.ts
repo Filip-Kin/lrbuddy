@@ -197,6 +197,17 @@ describe("lots", () => {
     expect(titleCase("4776 Seminole")).toBe("4776 Seminole");
   });
 
+  test("Land Bank and every other import store addresses in title case", async () => {
+    const { fetchDlba, upsertLots } = await import("./lots-import.ts");
+    const page = { features: [{ attributes: { name: "4136 BUCKINGHAM", parcel_id: "DLBA1.", latitude: 42.375, longitude: -83.0 } }] };
+    const fake: typeof fetch = Object.assign(async () => new Response(JSON.stringify(page)), { preconnect: fetch.preconnect });
+    const rows = await fetchDlba([-83.01, 42.37, -82.99, 42.38], { fetchImpl: fake });
+    expect(rows.map((r) => r.address)).toEqual(["4136 Buckingham"]);
+    upsertLots(w.eventId, [{ parcelId: "CAPS.", address: " 4114 DEVONSHIRE ", lat: 42.376, lng: -83.0 }], "csv");
+    const stored = (await admin.lots.list()).find((l) => l.parcelId === "CAPS.");
+    expect(stored?.address).toBe("4114 Devonshire");
+  });
+
   test("CSV lots can go straight to a CC; a lot already at another CC keeps it", async () => {
     const { upsertLots } = await import("./lots-import.ts");
     const held = addLot(42.37, -83.0, "HELD.");

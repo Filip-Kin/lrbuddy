@@ -1,4 +1,5 @@
 import L from "leaflet";
+import { removeMap } from "../../../lib/map/removeMap.ts";
 import { useEffect, useRef, useState } from "react";
 import type { LotGeometry } from "../../../../../server/db/schema.ts";
 import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM } from "../../../lib/map/basemap.ts";
@@ -89,7 +90,7 @@ export const DriveMap = ({ fix, heading, shapes, zoom }: { fix: LatLng | null; h
     carLayer.current = L.layerGroup().addTo(m);
     map.current = m;
     return () => {
-      m.remove();
+      removeMap(m);
       map.current = null;
       tiles.current = [];
     };

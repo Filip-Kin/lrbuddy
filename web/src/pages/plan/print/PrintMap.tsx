@@ -1,4 +1,5 @@
 import L from "leaflet";
+import { removeMap } from "../../../lib/map/removeMap.ts";
 import { useEffect, useRef } from "react";
 import type { LotGeometry } from "../../../../../server/db/schema.ts";
 import { ESRI_BASE, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM, TILE_ATTRIB } from "../../../lib/map/basemap.ts";
@@ -402,7 +403,11 @@ export const PrintMap = ({ readyKey, onReady, fit, layers, cc, padding = 18, cla
   useEffect(() => {
     const el = holder.current;
     if (!el || fit.length === 0) return;
-    const report = (ready: boolean): void => readyRef.current(readyKey, ready);
+    // A tile event or the timeout that fires after this effect is torn down must not report the old view.
+    let gone = false;
+    const report = (ready: boolean): void => {
+      if (!gone) readyRef.current(readyKey, ready);
+    };
     report(false);
     const m = L.map(el, {
       zoomControl: false,
@@ -471,9 +476,10 @@ export const PrintMap = ({ readyKey, onReady, fit, layers, cc, padding = 18, cla
     });
     ro.observe(el);
     return () => {
+      gone = true;
       window.clearTimeout(timer);
       ro.disconnect();
-      m.remove();
+      removeMap(m);
       readyRef.current(readyKey, false);
     };
   }, [readyKey, fit, layers, cc, padding]);

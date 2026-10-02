@@ -8,6 +8,7 @@
 import { and, gte, lte } from "drizzle-orm";
 import { db } from "./db/index.ts";
 import { osmAlleys, type ParcelRow } from "./db/schema.ts";
+import { titleCase } from "./lots-import.ts";
 import { ccOnewayBBox, isRecord, overpassJson, scopeOf, withRetry, type Fetcher, type RetryOpts } from "./oneway.ts";
 import type { BBox } from "./geo.ts";
 
@@ -43,8 +44,6 @@ export const alleyQuery = (b: BBox): string => {
   const [w, s, e, n] = b.map((x) => x.toFixed(5));
   return `[out:json][timeout:25];way["highway"="service"]["service"="alley"](${s},${w},${n},${e});out geom;`;
 };
-
-const title = (s: string): string => s.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase());
 
 const mostCommon = (values: ReadonlyArray<string | null | undefined>): string | null => {
   const counts = new Map<string, number>();
@@ -89,10 +88,10 @@ export const alleyNames = (points: ReadonlyArray<readonly [number, number]>, par
   );
   const [from, to] = crosses ? crosses.split("|") : [null, null];
   return {
-    betweenStreet1: leftStreet ? title(leftStreet) : null,
-    betweenStreet2: rightStreet && rightStreet !== leftStreet ? title(rightStreet) : null,
-    fromCross: from ? title(from) : null,
-    toCross: to ? title(to) : null,
+    betweenStreet1: leftStreet ? titleCase(leftStreet) : null,
+    betweenStreet2: rightStreet && rightStreet !== leftStreet ? titleCase(rightStreet) : null,
+    fromCross: from ? titleCase(from) : null,
+    toCross: to ? titleCase(to) : null,
   };
 };
 // #endregion

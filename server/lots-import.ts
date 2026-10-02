@@ -41,7 +41,9 @@ export const upsertLots = (eventId: number, rows: readonly LotInput[], source: L
         continue;
       }
       const parcelId = r.parcelId?.trim() || null;
-      const address = r.address?.trim() || null;
+      // Every import path (Land Bank, vacant parcels, CSV) stores the address the same way.
+      const trimmed = r.address?.trim();
+      const address = trimmed ? titleCase(trimmed) : null;
       if (parcelId) {
         const existing = tx
           .select({ id: lots.id, ccId: lots.ccId })
@@ -161,7 +163,8 @@ export const fetchDlba = async (area: Area, opts: DlbaOptions = {}): Promise<Lot
       const lat = Number.isFinite(num(f.attributes.latitude)) ? num(f.attributes.latitude) : num(f.geometry?.y);
       const lng = Number.isFinite(num(f.attributes.longitude)) ? num(f.attributes.longitude) : num(f.geometry?.x);
       if (!Number.isFinite(lat) || !Number.isFinite(lng) || !inArea({ lat, lng }, area)) continue;
-      out.push({ parcelId: str(f.attributes.parcel_id), address: str(f.attributes.name), lat, lng });
+      const name = str(f.attributes.name);
+      out.push({ parcelId: str(f.attributes.parcel_id), address: name === null ? null : titleCase(name), lat, lng });
       if (out.length >= limit) return out;
     }
     if (!body.exceededTransferLimit || feats.length === 0) return out;
@@ -491,7 +494,7 @@ export const addManualLot = async (
       eventId,
       lat: input.lat,
       lng: input.lng,
-      address: r?.address ?? null,
+      address: r?.address ? titleCase(r.address) : null,
       parcelId: r?.parcelId ?? null,
       geometry: r?.geometry ?? null,
       ccId: input.ccId ?? null,

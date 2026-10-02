@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "../../db/index.ts";
 import { assignments, lots, parcels, surveyTags, SURVEY_GRADES, SURVEY_SIDES } from "../../db/schema.ts";
 import { normalizeBBox } from "../../geo.ts";
-import { emitLot } from "../../lots-import.ts";
+import { emitLot, titleCase } from "../../lots-import.ts";
 import { BAND_LABELS, blockSides, cachedParcelsInBBox, loadParcelsBBox, newestTags, outlinePoints, parcelsById, parcelsNear, parcelsOnSides, SURVEY_RULES } from "../../parcels.ts";
 import { adminProcedure, router } from "../../trpc.ts";
 import { badRequest, bboxInput, dayOfEvent, eventInput, eventOrActive, id, notFound } from "./common.ts";
@@ -264,7 +264,7 @@ export const surveyRouter = router({
     if (!p) throw notFound("Parcel");
     const lot = db
       .insert(lots)
-      .values({ eventId, parcelId: p.parcelId, address: p.address, lat: p.lat, lng: p.lng, geometry: p.geometry, source: "survey", status: "open" })
+      .values({ eventId, parcelId: p.parcelId, address: p.address ? titleCase(p.address) : null, lat: p.lat, lng: p.lng, geometry: p.geometry, source: "survey", status: "open" })
       .onConflictDoNothing()
       .returning()
       .get();

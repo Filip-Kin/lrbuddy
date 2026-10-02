@@ -1,4 +1,5 @@
 import L from "leaflet";
+import { removeMap } from "./removeMap.ts";
 import { ErrorBoundary } from "../../components/ErrorBoundary.tsx";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import {
@@ -192,7 +193,7 @@ const MapViewInner = ({ markers, lines = [], fitKey, onMapClick, className, labe
       ro.disconnect();
       detachLabels();
       readyRef.current?.(null);
-      m.remove();
+      removeMap(m);
       map.current = null;
       tiles.current = [];
       fitted.current = null;

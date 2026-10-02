@@ -1,4 +1,5 @@
 import L from "leaflet";
+import { removeMap } from "../../lib/map/removeMap.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM } from "../../lib/map/basemap.ts";
 import type { LotGeometry } from "../../../../server/db/schema.ts";
@@ -190,7 +191,7 @@ export const DriverMap = ({
     return () => {
       detachLabels();
       setLeaflet(null);
-      m.remove();
+      removeMap(m);
       map.current = null;
       lotRenderer.current = null;
       tiles.current = [];

@@ -73,7 +73,7 @@ export class Api {
  * instead of failing it, so a known bug fails its own fixme test and not every test that happens
  * to trip over it.
  */
-const KNOWN_PAGE_ERRORS: ReadonlyArray<{ id: string; match: RegExp }> = [{ id: "FOUND-1", match: /reading '_leaflet_pos'/ }];
+const KNOWN_PAGE_ERRORS: ReadonlyArray<{ id: string; match: RegExp }> = [];
 
 let ipSerial = 0;
 /** A fresh client address per context, unique across workers and projects. */

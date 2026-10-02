@@ -1,4 +1,5 @@
 import L from "leaflet";
+import { removeMap } from "../../../lib/map/removeMap.ts";
 import { useEffect, useRef } from "react";
 import type { LotGeometry } from "../../../../../server/db/schema.ts";
 import { DEFAULT_CENTER, DEFAULT_ZOOM, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, MAX_NATIVE_ZOOM, MAX_ZOOM, TILE_ATTRIB } from "../../../lib/map/basemap.ts";
@@ -89,7 +90,7 @@ export const SurveyMap = ({ parcels, context, sides, selectedId, onParcel, passi
     return () => {
       ro.disconnect();
       readyRef.current?.(null);
-      m.remove();
+      removeMap(m);
       map.current = null;
       layers.current = null;
       fitted.current = null;

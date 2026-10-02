@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "../../db/index.ts";
 import { assignments, companies, companyDays, crewAreas, crews, days, lotPhotos, lots, type AreaPolygon, type Lot } from "../../db/schema.ts";
 import { dayOfMap } from "../../dayof.ts";
-import { emitLot } from "../../lots-import.ts";
+import { emitLot, titleCase } from "../../lots-import.ts";
 import { scheduleOneway, scheduleOnewayForDay } from "../../oneway.ts";
 import { areaAround, isWork, newestTags, outlinePoints, parcelsOnSides, workParcelsOnSides, type BlockSide } from "../../parcels.ts";
 import { createCrew } from "../../setup.ts";
@@ -94,7 +94,7 @@ export const publishAssignments = (eventId: number, opts: { dayId?: number | nul
           res.kept++;
           continue;
         }
-        const set = { address: p.address, lat: p.lat, lng: p.lng, geometry: p.geometry, ccId: a.ccId, crewId, grade: p.grade };
+        const set = { address: p.address ? titleCase(p.address) : null, lat: p.lat, lng: p.lng, geometry: p.geometry, ccId: a.ccId, crewId, grade: p.grade };
         const lot = existing
           ? tx.update(lots).set(set).where(eq(lots.id, existing.id)).returning().get()
           : tx.insert(lots).values({ ...set, eventId, parcelId: p.parcelId, source: "survey", status: "open" }).returning().get();

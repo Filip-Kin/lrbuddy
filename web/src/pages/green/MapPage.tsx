@@ -20,6 +20,7 @@ import { ToggleChip } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
 import { trpc } from "../../lib/trpc.ts";
+import { RecenterIcon } from "../../components/driver/icons.tsx";
 import { geolocation } from "../../lib/safe.ts";
 
 type Selected = { kind: "crew" | "truck" | "lot" | "stop" | "area"; id: number } | { kind: "parcel"; parcelId: string } | null;
@@ -53,6 +54,19 @@ export const MapPage = () => {
   const [showAreas, setShowAreas] = useState(true);
   const [showOsmAlleys, setShowOsmAlleys] = useState(false);
   const [map, setMap] = useState<LeafletMap | null>(null);
+  // Recenter: follow the blue dot until the map is moved by hand.
+  const [follow, setFollow] = useState(false);
+  useEffect(() => {
+    if (follow && map && me) map.panTo([me.lat, me.lng], { animate: true, duration: 0.5 });
+  }, [follow, map, me]);
+  useEffect(() => {
+    if (!map) return;
+    const stop = (): void => setFollow(false);
+    map.on("dragstart zoomstart", stop);
+    return () => {
+      map.off("dragstart zoomstart", stop);
+    };
+  }, [map]);
   const plan = trpc.green.plan.useQuery(undefined, { refetchInterval: 60_000 });
   const [selected, setSelected] = useState<Selected>(null);
   const [placing, setPlacing] = useState(false);
@@ -323,6 +337,23 @@ export const MapPage = () => {
         <PaintBar paint={paint} crews={crews} />
         {!placing && !drawing && !editing && !painting && !lotDrawing && (
           <div className="pointer-events-none absolute right-4 bottom-[max(2.25rem,env(safe-area-inset-bottom))] left-4 z-[1000] flex flex-wrap justify-end gap-2">
+            {me && !follow && (
+              <Button
+                size="lg"
+                variant="secondary"
+                data-recenter
+                className="pointer-events-auto shadow-lg"
+                onClick={() => {
+                  if (!map) return;
+                  map.setView([me.lat, me.lng], Math.max(map.getZoom(), 17), { animate: true });
+                  // setView fires zoomstart; turn following on after it settles.
+                  window.setTimeout(() => setFollow(true), 400);
+                }}
+              >
+                <RecenterIcon />
+                Recenter
+              </Button>
+            )}
             <Button
               size="lg"
               variant="secondary"

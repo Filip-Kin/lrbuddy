@@ -337,13 +337,9 @@ export const FlagPage = () => {
           {fixState === "waiting" && <span className="rounded-full bg-white/20 px-2 py-0.5">Finding location</span>}
         </div>
       </div>
-      {compass.needsAsk ? (
-        <button type="button" onClick={() => void compass.ask()} className="min-h-11 shrink-0 rounded-full bg-[#fddd08] px-4 text-sm font-bold text-[#0e3038]">
-          Compass
-        </button>
-      ) : (
-        <span className="shrink-0 rounded-full bg-black/65 px-3 py-2 text-sm font-bold" data-flag-heading>
-          {heading !== null ? `Facing ${compassPoint(heading)}` : "No compass"}
+      {(!compass.needsAsk || compass.denied) && (
+        <span className={`shrink-0 rounded-full px-3 py-2 text-sm font-bold ${heading === null ? "bg-[#e55b00]" : "bg-black/65"}`} data-flag-heading>
+          {heading !== null ? `Facing ${compassPoint(heading)}` : compass.denied ? "Compass off" : "No compass"}
         </span>
       )}
     </div>
@@ -373,6 +369,19 @@ export const FlagPage = () => {
         <video ref={camera.video} muted playsInline autoPlay className="absolute inset-0 h-full w-full object-cover" aria-label="Camera" />
         {camera.state !== "on" && <div aria-hidden="true" className="absolute inset-0 bg-[#0e3038]" />}
         {!expanded && lastCard}
+        {/* iOS reads the compass only after a tap: one big button over the camera until then. */}
+        {compass.needsAsk && !compass.denied && !expanded && (
+          <div className="absolute inset-0 z-[1002] grid place-items-center bg-black/55 p-6">
+            <button
+              type="button"
+              onClick={() => void compass.ask()}
+              className="min-h-16 w-full max-w-xs rounded-2xl bg-[#fddd08] px-6 text-xl font-extrabold text-[#0e3038] shadow-2xl ring-4 ring-white/80"
+              data-flag-compass-ask
+            >
+              Turn on compass
+            </button>
+          </div>
+        )}
       </div>
 
       <div className={`relative isolate shrink-0 overflow-hidden border-t-2 border-black ${expanded ? "min-h-0 flex-1" : "h-[28%]"}`} data-flag-strip>

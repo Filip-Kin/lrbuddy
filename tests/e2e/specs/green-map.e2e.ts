@@ -446,6 +446,25 @@ const stripParcel = (page: Role["page"], allow: readonly string[], skip: string)
 const pickedKey = (page: Role["page"]): Promise<string | null> =>
   page.evaluate(() => document.querySelector("[data-flag-strip] [data-flag-pick]")?.getAttribute("data-flag-pick") ?? null);
 
+test("Flag: on a phone that asks before reading the compass (iOS), a big Turn on compass button over the camera", async ({ as, L }) => {
+  const green = await as(L.webbGreen, { camera: true });
+  const page = green.page;
+  await page.addInitScript(() => {
+    (DeviceOrientationEvent as unknown as { requestPermission: () => Promise<string> }).requestPermission = async () => "granted";
+  });
+  await page.goto("/flag");
+  const ask = page.locator("[data-flag-compass-ask]");
+  await expect(ask).toBeVisible();
+  expect((await ask.boundingBox())!.height).toBeGreaterThanOrEqual(56);
+  await expect(page.locator("[data-flag-heading]")).toHaveCount(0);
+  await expectNoOverflow(page, "/flag with the compass button");
+  await ask.click();
+  await expect(ask).toHaveCount(0);
+  await expect(page.locator("[data-flag-heading]")).toHaveText("No compass");
+  await face(page, 270, 90, 0);
+  await expect(page.locator("[data-flag-heading]")).toHaveText("Facing E");
+});
+
 test("Flag: the camera's bearing from the compass picks the parcel it faces; a tap on the strip picks another; Todo, Undo", async ({ as, L }) => {
   const probe = await as(L.webbGreen);
   const okList = await allowed(probe, L.webbAreas);

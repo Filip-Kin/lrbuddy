@@ -1045,3 +1045,29 @@ bg color."
 - Gate: the entry chunk check, a crash test route (`/admin/client-errors/test`) showing the panel
   with Reload and Back at 44 px and the report reaching `admin.clientErrors`, and `/admin/client-errors`
   on the route list. `scripts/perf.py` measures cold and warm loads at Slow 4G.
+
+## 26. No staff password; admins and invites (Filip, 2026-10-01 22:51)
+
+- **Staff password removed.** No `ADMIN_PASSWORD`, no password field, no `/auth/login` route. Every
+  person signs in with phone or Google (section 18). Roles come only from approved memberships.
+- **Admin is a membership role** (`role: 'admin'`, no day or CC scope, not tied to the event; an admin
+  membership applies to every event). The first admin is set by hand in the database:
+  `bun run make-admin <phone E.164 | email>` finds the user (they must have signed in once) and inserts
+  an approved admin membership; prints what it did; idempotent. Documented in the README.
+- **More admins:** the access request form gains **Admin** as a role (no further fields); only admins
+  see and decide admin requests, on `/admin/access`. Admins can also add an admin directly from
+  `/admin/people` (search users by name, phone or email, **Make admin** / **Remove admin**; the last
+  admin cannot be removed).
+- **Invites.** Admins (any role, any scope) and greens (crew, driver or green at their own CC and day)
+  create invite links on a new **Invite** screen: pick role and scope (day, CC, crew or truck), optional
+  name, optional single use, expiry (default end of that day; admin invites 7 days). The result is a
+  short link `/i/<token>` with **Copy**, **Share** (Web Share API) and a QR on screen. Opening it signs
+  the person in (or sends them through sign-in first, remembering the link) and creates an approved
+  membership with that role and scope, then lands them in it. Used and expired invites are refused
+  with a label. Invites listed with who made them, uses, and **Revoke**.
+- `invites` table: id, token (random 16), role, event_id, day_id, cc_id, crew_id, truck_id, name, max_uses
+  (null = unlimited), uses, expires_at, created_by_user_id, created_at, revoked_at.
+- `/j /t /g` QR links stay and behave like unlimited invites for their scope.
+- Tests and tooling: the e2e suite, gate, sheets and scripts sign in admins by a seeded admin user and a
+  test session helper (seed writes an admin invite link into `seed-codes.json`; tests open it after a
+  test sign-in), never by password. `/auth/login` returning 404 is asserted.

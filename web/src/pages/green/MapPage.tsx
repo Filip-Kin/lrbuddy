@@ -1,5 +1,5 @@
 import type { Map as LeafletMap } from "leaflet";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { AddStopSheet } from "../../components/green/AddStopSheet.tsx";
@@ -20,6 +20,7 @@ import { ToggleChip } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
 import { trpc } from "../../lib/trpc.ts";
+import { geolocation } from "../../lib/safe.ts";
 
 type Selected = { kind: "crew" | "truck" | "lot" | "stop" | "area"; id: number } | { kind: "parcel"; parcelId: string } | null;
 
@@ -32,6 +33,18 @@ const DrawIcon = () => (
 export const MapPage = () => {
   const now = useNow();
   const overview = trpc.green.overview.useQuery(undefined, { refetchInterval: 30_000 });
+  // Own position, shown only on this phone (greens do not report it).
+  const [me, setMe] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
+  useEffect(() => {
+    const geo = geolocation();
+    if (!geo) return;
+    const id = geo.watchPosition(
+      (p) => setMe({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+      () => undefined,
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 },
+    );
+    return () => geo.clearWatch(id);
+  }, []);
   const [company, setCompany] = useState<number | null>(null);
   const [crewFilter, setCrewFilter] = useState<number | null>(null);
   const [showRequests, setShowRequests] = useState(true);
@@ -139,8 +152,9 @@ export const MapPage = () => {
       }
     }
     if (pin) out.push({ id: "pin", kind: "request", lat: pin.lat, lng: pin.lng, urgent: true, noFit: true });
+    if (me) out.push({ id: "me", kind: "me", lat: me.lat, lng: me.lng, accuracy: me.accuracy, noFit: true });
     return out;
-  }, [d, openRequests, visibleCrewIds, showLots, showRequests, showTrucks, pin, now, pending, drawing, painting, lotDrawing]);
+  }, [d, openRequests, visibleCrewIds, showLots, showRequests, showTrucks, pin, now, pending, drawing, painting, lotDrawing, me]);
 
   const onArea = useCallback((id: number) => setSelected({ kind: "area", id }), []);
   const onParcel = useCallback((parcelId: string) => setSelected({ kind: "parcel", parcelId }), []);

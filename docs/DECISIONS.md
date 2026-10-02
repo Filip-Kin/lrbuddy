@@ -341,4 +341,11 @@ One line per call made without anyone to ask. Newest at the bottom.
 - 2026-10-01 crash panel: a failed lazy chunk download (old chunk names after a deploy) reloads the page once per tab before showing the panel; a second failure shows the panel.
 - 2026-10-01 crash panel: `/admin/client-errors/test` is a real admin-only route that throws on render, so the gate can check the panel and the report end to end on the built app.
 - 2026-10-01 Flag crashes: the hostile-environment sweep found five crashes, all fixed at the source through `web/src/lib/safe.ts` (storage refused, no `matchMedia`, `matchMedia` without `addEventListener`, no `navigator.geolocation`, NaN heading reaching Leaflet as an invalid LatLng). None reproduces the field report for certain; the reports at `/admin/client-errors` will name the next one.
+- 2026-10-01 audit: request bodies are capped at 16 MB for every route, chunked ones counted as they stream (Bun's `maxRequestBodySize` only checks a declared length). 16 MB holds two 6 MB photos and the admin's 5 MB lot CSV.
+- 2026-10-01 audit: push subscriptions take only https endpoints on a public host name; browser push services all are, and anything else made the server a POST relay.
+- 2026-10-01 audit: `access.enter` takes only what the chooser lists (`candidates`), so an approved membership for another day cannot be entered on an event day.
+- 2026-10-01 audit: only the newest route computation started for a truck may save; an older one finishing late is dropped.
+- 2026-10-01 audit: a failed live stream (shared.onCc, admin.onEvent, access.onMine) is switched off and on again after 2, 4, 8 ... 30 s, since tRPC does not resubscribe after the EventSource closes on a non-200 reconnect.
+- 2026-10-01 audit: when `shared.me` gets no answer at all the app shows "No connection" with Retry instead of the sign-in page; the login page signs out of Firebase only when the server refuses the token, never on a network failure.
+- 2026-10-01 audit: Flag and survey drive queues keep retrying after their screen unmounts, until empty. A photo the server refuses (4xx other than 408 and 429) or a tRPC UNAUTHORIZED ends that flag with its reason instead of retrying it as "No signal".
 

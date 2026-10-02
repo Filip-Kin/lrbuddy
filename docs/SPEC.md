@@ -121,7 +121,7 @@ truck_stock       truck_id, type_id, qty, capacity        PK (truck_id, type_id)
 stock_moves       id, truck_id, type_id, delta, reason ('delivery'|'restock'|'adjust'), request_id, at
 positions         id, kind ('crew'|'truck'), ref_id, lat, lng, accuracy, heading, speed, at
                   index (kind, ref_id, at desc)
-lots              id, event_id, parcel_id, address, lat, lng, source ('dlba'|'parcel'|'csv'|'manual'|'survey'),
+lots              id, event_id, parcel_id, address, lat, lng, source ('dlba'|'parcel'|'csv'|'manual'|'survey'|'drawn'),
                   geometry (nullable text, GeoJSON Polygon or MultiPolygon in WGS84, the parcel outline),
                   cc_id (nullable, stands for the CC's site across days, section 8), crew_id (nullable),
                   status ('open'|'in_progress'|'done'|'do_not_touch'|'not_todo', section 21), grade ('high'|'low', nullable),
@@ -136,9 +136,8 @@ routes            truck_id PK, computed_at, stop_order (json array of request id
                   engine ('osrm'|'fallback'), origin_lat, origin_lng (truck position used, for the 250 m check)
 oneway_ways       id, bbox_key, osm_id, geometry (json [[lat,lng]...]), direction (1 along the points, -1 against),
                   name, min_lat, min_lng, max_lat, max_lng, fetched_at   -- section 20, cached per fetched bbox
-alleys            id, event_id, day_id, cc_id, osm_id, polygon (GeoJSON, centreline buffered 3 m each side), centerline,
-                  between_street_1, between_street_2, from_cross, to_cross, status ('open'|'in_progress'|'done'|'do_not_touch'),
-                  crew_id, status_at, fetched_at   unique (cc_id, osm_id)   -- section 19, from OSM service=alley
+osm_alleys        id, osm_id (unique), centerline (json [[lat,lng]...]), min_lat, min_lng, max_lat, max_lng, fetched_at
+                  -- section 24: OSM service=alley centrelines, a map hint for Draw lot; shared by every CC
 ```
 
 Default request types seeded for every new event, in this order:
@@ -260,6 +259,7 @@ route.changed     { truckId, route }
 lot.changed       { lot }
 stock.changed     { truckId, stock[] }
 broadcast         { broadcast }
+membership.changed { membershipId, userId, status }   access requests (section 18)
 ```
 
 Subscriptions (all scoped by the session):
@@ -360,7 +360,8 @@ neighbour; delivering floors stock at 0. `osrm.test.ts` parses steps from a reco
 
 ## 9. Push
 
-- Subscribe from the settings page only after a tap on **Notifications**. Store per session.
+- Subscribe from the settings page only after a tap on **Notifications**. Store per session. The server takes only
+  https endpoints on a public host name (it POSTs to them).
 - Send: new stop to the truck's driver sessions; delivered and en route to the crew's sessions;
   broadcast to every session at the CC and day. Payload `{ title, body, url, tag }`. Drop subscriptions
   on 404 and 410.
@@ -369,6 +370,7 @@ neighbour; delivering floors stock at 0. `osrm.test.ts` parses steps from a reco
 ## 10. HTTP, build, deploy
 
 - `GET /health` → `{ ok: true, version, db: 'ok' }`, 200. Coolify health check hits this.
+- Request bodies are capped at 16 MB (413 past it), chunked bodies included: two 6 MB photos and the 5 MB lot CSV fit.
 - Dockerfile: two-stage `oven/bun:1` with the `NPM_REGISTRY` build arg exactly as in
   `/home/filip/FTA-Buddy/Dockerfile`, install `curl`, `bun run build` (web), `CMD ["bun", "server/index.ts"]`,
   `EXPOSE 3000`, `VOLUME /data`. Migrations run at boot.

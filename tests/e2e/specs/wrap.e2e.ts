@@ -1,7 +1,7 @@
 /**
- * Wrap up (/wrap): the After photo round. A Before taken from the lot sheet puts the lot under
- * Needs After with the camera badge at the lot on the strip and the green map; the After takes it
- * off. Works on one crewless Todo lot of the lane CC with no photos, and deletes what it took.
+ * Wrap up (/wrap): the After photo round. A Todo lot with no Before carries the camera badge on
+ * the Flag strip; a Before taken from the lot sheet moves the badge to the Wrap up strip and puts
+ * the lot under Needs After; the After takes it off. The green map never shows the badge. Works on one crewless Todo lot of the lane CC with no photos, and deletes what it took.
  */
 import { expect, expectNoOverflow, navTo, test, until, visit } from "../support/fixtures.ts";
 import { jpegFile, type LotPhotos } from "../support/photo.ts";
@@ -15,7 +15,7 @@ interface WrapLot {
   hasAfter: boolean;
 }
 
-test("a Before puts the lot under Needs After with the camera badge; the After takes it off", async ({ as, L }) => {
+test("camera badge: Flag until the Before, Wrap up until the After, never the green map", async ({ as, L }) => {
   const green = await as(L.green, { camera: true });
   const page = green.page;
   const lots = await green.api.query<WrapLot[]>("green.wrap");
@@ -24,6 +24,11 @@ test("a Before puts the lot under Needs After with the camera badge; the After t
   const made: number[] = [];
   const photosOf = async () => (await green.api.query<LotPhotos>("shared.lotPhotos", { lotId: lot!.id })).photos;
   try {
+    // No Before yet: the badge is on the Flag strip.
+    await page.goto("/flag");
+    await expect(page.locator("[data-flag-strip]")).toBeVisible();
+    await expect(page.locator(`[data-flag-strip] [data-cam-lot="${lot!.id}"]`)).toBeAttached();
+
     await visit(page, "/");
     await navTo(page, "Wrap up");
     await expect(page.getByRole("region", { name: "Wrap up map" })).toBeVisible();
@@ -50,9 +55,14 @@ test("a Before puts the lot under Needs After with the camera badge; the After t
     await expect(row.locator('[data-photo="after"]')).toHaveAttribute("data-taken", "false");
     await expect(page.locator(`[data-cam-lot="${lot!.id}"]`)).toBeAttached();
     await expectNoOverflow(page, "/wrap with a lot under Needs After");
-    // The same badge on the green map.
+    // No badge on the green map; the Flag strip drops it once the Before is in.
     await navTo(page, "Map");
-    await expect(page.locator(`[data-cam-lot="${lot!.id}"]`)).toBeAttached();
+    await expect(page.getByRole("region", { name: /map/i }).first()).toBeVisible();
+    await expect(page.locator("[data-cam-lot]")).toHaveCount(0);
+    await page.goto("/flag");
+    await expect(page.locator("[data-flag-strip]")).toBeVisible();
+    await expect(page.locator(`[data-flag-strip] [data-cam-lot="${lot!.id}"]`)).toHaveCount(0);
+    await visit(page, "/");
     await navTo(page, "Wrap up");
 
     // After from the same sheet: the lot leaves Needs After and loses its badge.

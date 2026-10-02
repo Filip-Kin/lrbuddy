@@ -323,7 +323,7 @@ export const MapPage = () => {
 
   const mapLots = useMemo<DriverMapLot[]>(
     () =>
-      (work.data?.lots ?? []).map((l) => ({ id: l.id, parcelId: l.parcelId, lat: l.lat, lng: l.lng, status: pending.get(`l:${l.id}`) ?? l.status, geometry: l.geometry, title: lotTitle(l), needsAfter: l.needsAfter })),
+      (work.data?.lots ?? []).map((l) => ({ id: l.id, parcelId: l.parcelId, lat: l.lat, lng: l.lng, status: pending.get(`l:${l.id}`) ?? l.status, geometry: l.geometry, title: lotTitle(l) })),
     [work.data, pending],
   );
   const mapCrews = useMemo<DriverMapCrew[]>(

@@ -24,7 +24,7 @@ import { bareParcelsFor, setLot, type Actor } from "../parcel-status.ts";
 import { buildCrewsFor } from "./plan/assignments.ts";
 import { areaInput } from "./plan/common.ts";
 import { emitLot } from "../lots-import.ts";
-import { filterPairs, pairState, photoCounts, photoPairs, photoSummary, sitePhotos, withNeedsAfter } from "../photos.ts";
+import { filterPairs, pairState, photoCounts, photoPairs, photoSummary, sitePhotos, withPhotoState } from "../photos.ts";
 import { pushToCc } from "../push.ts";
 import { catalogFor, latestPositions, lotsAt, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
 import { greenProcedure, router } from "../trpc.ts";
@@ -128,7 +128,7 @@ export const greenRouter = router({
       openRequests: requestsWhere(
         and(eq(requests.ccId, ctx.cc.id), eq(requests.dayId, ctx.day.id), inArray(requests.status, [...OPEN_STATUSES])),
       ),
-      lots: withNeedsAfter(lotsAt(ctx.cc.id, ctx.day.id), photoSummary(ctx.event.id)),
+      lots: withPhotoState(lotsAt(ctx.cc.id, ctx.day.id), photoSummary(ctx.event.id)),
       /** Companies with a crew at this CC today; the filter offers nothing that would show an empty board. */
       companies: here.length === 0 ? [] : db.select().from(companies).where(inArray(companies.id, here)).orderBy(companies.name).all(),
     };

@@ -372,9 +372,15 @@ export const photoSummary = (eventId: number): Map<number, PhotoSummary> => {
   return out;
 };
 
-/** `needsAfter`: a Before and no After yet, the camera badge on every map (Wrap up). */
-export const withNeedsAfter = <T extends { id: number }>(rows: readonly T[], summary: Map<number, PhotoSummary>): Array<T & { needsAfter: boolean }> =>
-  rows.map((l) => ({ ...l, needsAfter: pairState(summary.get(l.id)) === "before" }));
+/**
+ * Photo state for the camera badges: `hasBefore` for the Flag screen (a work lot with no Before),
+ * `needsAfter` (a Before and no After) for Wrap up. The day maps draw no badge.
+ */
+export const withPhotoState = <T extends { id: number }>(rows: readonly T[], summary: Map<number, PhotoSummary>): Array<T & { hasBefore: boolean; needsAfter: boolean }> =>
+  rows.map((l) => {
+    const s = summary.get(l.id);
+    return { ...l, hasBefore: (s?.before ?? null) !== null, needsAfter: pairState(s) === "before" };
+  });
 
 /** Lots with both kinds, and lots with a before and no after. */
 export const photoCounts = (lotIds: readonly number[], summary: Map<number, PhotoSummary>): { both: number; missingAfter: number } => {

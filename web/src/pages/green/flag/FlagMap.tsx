@@ -20,6 +20,8 @@ export interface FlagMapLot extends LatLng {
   parcelId: string | null;
   crewId: number | null;
   address: string | null;
+  /** A Before on the lot: Todo and In progress lots without one carry the camera badge. */
+  hasBefore?: boolean;
 }
 
 interface Props {
@@ -84,6 +86,12 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
       title: l.address ?? undefined,
       onClick: tapPicks ? () => pickRef.current(`l:${l.id}`) : undefined,
     }));
+    // Camera badge: the lots still waiting for their Before (the morning photo round).
+    for (const l of lots) {
+      const status = pending.get(`l:${l.id}`) ?? l.status;
+      if (l.hasBefore !== false || (status !== "open" && status !== "in_progress")) continue;
+      out.push({ id: `cam-${l.id}`, kind: "camera", lat: l.lat, lng: l.lng, noFit: true, title: l.address ?? undefined, onClick: tapPicks ? () => pickRef.current(`l:${l.id}`) : undefined });
+    }
     if (cc) out.push({ id: "cc", kind: "cc", lat: cc.lat, lng: cc.lng, name: `CC ${cc.name}`, letter: cc.letter, noFit: true });
     if (fix) out.push({ id: "me", kind: "me", lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, noFit: true });
     return out;

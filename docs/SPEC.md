@@ -1138,13 +1138,19 @@ lots Todo.
 `/wrap` (green and admin's green view), nav **Wrap up** after Map.
 - Server `green.wrap`: every lot at the CC's site on the day that is Todo, In progress or Done, with
   address, position, status, crew name, `hasBefore`, `hasAfter` and the newest thumb id of each.
-- Screen: a map strip (lots, camera badges, blue dot, **Recenter**) over a list sorted by distance
+- Screen: a map (56% of the height: lots, camera badges, blue dot, **Recenter**) over a compact list sorted by distance
   from the phone, by address with no position. Tabs with counts: **Needs After** (a Before, no After;
   the default), **Not done** (Todo or In progress), **All**. A row: address, status, crew, Before and
   After marks (the thumb when taken, a hollow camera when missing), distance. A tap opens the lot
   sheet with its Before and After tiles and highlights the lot on the strip.
-- Camera badge: on the green map, the driver map and the strip, a lot with a Before and no After
-  carries an ink camera in a 16 px white circle (`needsAfter` on `green.overview` and `driver.lots`).
+- Camera badge (an ink camera in a 16 px white circle) only where photos get taken (Filip,
+  2026-10-02: the day maps are not for photos):
+  - Flag strip and Paint map, the morning round: a Todo or In progress lot with no Before
+    (`hasBefore` on `green.overview`).
+  - Wrap up map, the afternoon round: a lot with a Before and no After (`needsAfter` on
+    `green.overview`).
+  - Never on the green map or the driver map.
   A photo upload emits lot.changed, so badges and the list follow live.
-- Gate: `/wrap` in the green routes; `tests/e2e/specs/wrap.e2e.ts` takes a Before, sees the lot under
-  Needs After with its badge on the strip and the green map, takes the After, sees it leave.
+- Gate: `/wrap` in the green routes; `tests/e2e/specs/wrap.e2e.ts` sees the badge on the Flag strip,
+  takes a Before, sees the lot under Needs After with its badge on the Wrap up strip and none on the
+  green map or the Flag strip, takes the After, sees it leave.

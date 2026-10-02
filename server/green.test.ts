@@ -293,10 +293,12 @@ describe("wrap up", () => {
     expect(byId.get(both.id)).toMatchObject({ hasBefore: true, hasAfter: true, afterThumb: a2.id, crewName: null });
     expect(byId.get(bare.id)).toMatchObject({ hasBefore: false, hasAfter: false, beforeThumb: null });
 
-    // The map badge reads the same state from the overview.
+    // The badges read the same state from the overview: Wrap up's needsAfter, Flag's hasBefore.
     const ov = await w.green.overview();
     const needs = ov.lots.filter((l) => l.needsAfter).map((l) => l.id);
     expect(needs).toEqual([before.id]);
+    const noBefore = ov.lots.filter((l) => byId.has(l.id) && !l.hasBefore).map((l) => l.id);
+    expect(noBefore).toEqual([bare.id]);
 
     // West sees only its own lot.
     const west = await callerFor(session("green", w.west.id)).wrap();

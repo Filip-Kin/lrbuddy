@@ -29,13 +29,13 @@ const FILTERS: Record<Filter, (l: WrapLot) => boolean> = {
 const PhotoMark = ({ kind, thumb }: { kind: "Before" | "After"; thumb: number | null }) => (
   <span data-photo={kind.toLowerCase()} data-taken={thumb !== null} className="flex flex-col items-center gap-0.5">
     {thumb !== null ? (
-      <img src={photoUrl(thumb, true)} alt={kind} loading="lazy" className="h-9 w-9 rounded-lg bg-surface-2 object-cover ring-1 ring-line" />
+      <img src={photoUrl(thumb, true)} alt={kind} loading="lazy" className="h-8 w-8 rounded-md bg-surface-2 object-cover ring-1 ring-line" />
     ) : (
-      <span role="img" aria-label={`No ${kind.toLowerCase()}`} className="grid h-9 w-9 place-items-center rounded-lg text-muted ring-1 ring-inset ring-line ring-dashed">
-        <CameraIcon size={18} />
+      <span role="img" aria-label={`No ${kind.toLowerCase()}`} className="grid h-8 w-8 place-items-center rounded-md text-muted ring-1 ring-inset ring-line ring-dashed">
+        <CameraIcon size={16} />
       </span>
     )}
-    <span className="text-[11px] leading-none font-semibold text-muted">{kind}</span>
+    <span className="text-[10px] leading-none font-semibold text-muted">{kind}</span>
   </span>
 );
 
@@ -155,7 +155,7 @@ export const WrapPage = () => {
 
   return (
     <div className="flex h-full min-h-[420px] flex-col">
-      <div className="relative h-[34dvh] min-h-[180px] shrink-0 border-b border-line">
+      <div className="relative h-[56dvh] min-h-[240px] shrink-0 border-b border-line">
         <MapView markers={markers} fitKey={fitKey} label="Wrap up map" className="absolute inset-0" onReady={setMap} />
         {(!d || !wrap.data) && <div aria-hidden="true" className="absolute inset-0 z-[500] animate-pulse bg-surface-2/60" />}
         {me && !follow && (
@@ -208,7 +208,7 @@ export const WrapPage = () => {
         ) : !wrap.data ? (
           <ul aria-hidden="true" className="divide-y divide-line">
             {[0, 1, 2, 3].map((i) => (
-              <li key={i} className="h-[68px] animate-pulse bg-surface-2/40" />
+              <li key={i} className="h-[56px] animate-pulse bg-surface-2/40" />
             ))}
           </ul>
         ) : rows.length === 0 ? (
@@ -221,11 +221,11 @@ export const WrapPage = () => {
                   type="button"
                   data-wrap-lot={lot.id}
                   onClick={() => open(lot.id)}
-                  className={`flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left nav:px-5 ${lot.id === selected ? "bg-surface-2" : "hover:bg-surface-2"}`}
+                  className={`flex w-full min-w-0 items-center gap-2.5 px-3 py-1.5 text-left nav:px-5 ${lot.id === selected ? "bg-surface-2" : "hover:bg-surface-2"}`}
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-semibold">{lotTitle(lot)}</span>
-                    <span className="mt-1 flex min-w-0 items-center gap-2">
+                    <span className="block truncate text-sm font-semibold">{lotTitle(lot)}</span>
+                    <span className="mt-0.5 flex min-w-0 items-center gap-2">
                       <StatusPill status={lotPill(lot.status)} />
                       <span className="truncate text-sm text-muted">{lot.crewName ?? "No crew"}</span>
                     </span>

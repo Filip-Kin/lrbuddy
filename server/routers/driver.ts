@@ -25,7 +25,6 @@ import {
 import { bboxAround, directionsUrl, haversine, type LatLng } from "../geo.ts";
 import { dayOfAreas } from "../dayof.ts";
 import { setLot } from "../parcel-status.ts";
-import { photoSummary, withNeedsAfter } from "../photos.ts";
 import { latestPositions, lotsAt, requestViews } from "../queries.ts";
 import { driverProcedure, liveFor, readCcScope, router, sameCc } from "../trpc.ts";
 
@@ -262,7 +261,7 @@ export const driverRouter = router({
    */
   lots: driverProcedure.query(({ ctx }) => ({
     // A driver who also holds green here sees Not todo lots too, as the green map does (SPEC 27).
-    lots: withNeedsAfter(lotsAt(ctx.cc.id, ctx.day.id).filter((l) => l.status !== "not_todo" || holdsGreen(ctx.session.userId, ctx.cc.id)), photoSummary(ctx.event.id)).map((l) => ({
+    lots: lotsAt(ctx.cc.id, ctx.day.id).filter((l) => l.status !== "not_todo" || holdsGreen(ctx.session.userId, ctx.cc.id)).map((l) => ({
       id: l.id,
       lat: l.lat,
       lng: l.lng,
@@ -274,7 +273,6 @@ export const driverRouter = router({
       statusAt: l.statusAt,
       crewId: l.crewId,
       note: l.note,
-      needsAfter: l.needsAfter,
     })),
     areas: dayOfAreas({ cc: ctx.cc, day: ctx.day }),
   })),

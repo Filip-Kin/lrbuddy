@@ -90,20 +90,22 @@ export const LoginPage = () => {
     let live = true;
     setRestoring(true);
     void (async () => {
-      const fb = await import("../../lib/firebase.ts");
-      const token = await fb.currentIdToken().catch(() => null);
-      if (!live) return;
-      if (!token) {
-        setRestoring(false);
-        return;
+      try {
+        const fb = await import("../../lib/firebase.ts");
+        const token = await fb.currentIdToken().catch(() => null);
+        if (!live || !token) return;
+        const res = await signInWithIdToken(token).catch(() => null);
+        if (res?.ok) {
+          window.location.assign("/");
+          return;
+        }
+        // Only a refusal from the server ends the phone's sign-in; no signal keeps it for the next try.
+        if (res !== null) await fb.firebaseSignOut();
+      } catch {
+        // The Firebase chunk did not load: the form below still works.
+      } finally {
+        if (live) setRestoring(false);
       }
-      const res = await signInWithIdToken(token).catch(() => null);
-      if (res?.ok) {
-        window.location.assign("/");
-        return;
-      }
-      await fb.firebaseSignOut();
-      if (live) setRestoring(false);
     })();
     return () => {
       live = false;
@@ -136,8 +138,8 @@ export const LoginPage = () => {
       const fb = await import("../../lib/firebase.ts");
       setSent(await fb.sendCode(e164, recaptchaRef.current));
     } catch (err) {
-      const { errorCode } = await import("../../lib/firebase.ts");
-      setError(firebaseError(errorCode(err)));
+      const code = await import("../../lib/firebase.ts").then((m) => m.errorCode(err)).catch(() => null);
+      setError(firebaseError(code));
     }
     setBusy(null);
   };

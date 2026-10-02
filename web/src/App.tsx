@@ -61,6 +61,17 @@ const Splash = () => (
   </div>
 );
 
+const Offline = ({ onRetry, busy }: { onRetry: () => void; busy: boolean }) => (
+  <div className="grid h-dvh place-items-center p-6" role="alert">
+    <div className="grid justify-items-center gap-4">
+      <span className="text-lg font-extrabold tracking-tight text-ink">No connection</span>
+      <Button busy={busy} onClick={onRetry}>
+        Retry
+      </Button>
+    </div>
+  </div>
+);
+
 const phoneDigits = (v: string): number => v.replace(/\D/g, "").length;
 
 /**
@@ -217,6 +228,10 @@ export const App = () => {
   useEffect(() => setReportRole(role), [role]);
   usePrefetchRole(me.data);
   if (me.isLoading) return <Splash />;
+  // No answer at all (no signal at app open, a restart) is not "signed out": the session
+  // cookie is still good, so the app waits here instead of sending the phone to /login.
+  // React Query refetches `me` when the browser comes back online.
+  if (!me.data && me.isError) return <Offline onRetry={() => void me.refetch()} busy={me.isFetching} />;
   if (me.data?.role === "none") return <NoRoleApp me={me.data} />;
   if (!isSignedIn(me.data)) {
     return (

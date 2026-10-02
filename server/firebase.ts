@@ -10,9 +10,8 @@ import { getAuth } from "firebase-admin/auth";
  *   `demo-lrbuddy`, which is what docker-compose.yml starts).
  * - `FIREBASE_SERVICE_ACCOUNT` set: the service-account JSON on one line, as
  *   Coolify stores it. The project id comes from it.
- * - Neither: Firebase sign-in is off. `/auth/firebase` answers 503, the
- *   sign-in page has no form, and `/j/<token>` signs a crew in directly as it
- *   did before SPEC 18.
+ * - Neither: the server refuses to start (server/index.ts). There is no
+ *   sign-in without Firebase.
  *
  * Tests swap the verifier with `setVerifier` instead of running the emulator.
  */
@@ -56,8 +55,8 @@ const init = (): App | null => {
   return null;
 };
 
-/** True when phone and Google sign-in can work on this server. */
-export const firebaseEnabled = (): boolean => override !== null || emulatorHost !== "" || serviceAccount !== "";
+/** True when the server can verify ID tokens: a service account or an emulator (or a test verifier). */
+export const firebaseConfigured = (): boolean => override !== null || emulatorHost !== "" || serviceAccount !== "";
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v : null);
 

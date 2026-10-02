@@ -22,7 +22,6 @@ import {
   type Truck,
 } from "../db/schema.ts";
 import { crewLabel, markTruckSeen, onCrewMoved, onTruckMoved } from "../dispatch.ts";
-import { firebaseEnabled } from "../firebase.ts";
 import { subscribe, unsubscribe, vapidPublicKey } from "../push.ts";
 import { canViewLot, deletePhoto, lotPhotoList, photoScope } from "../photos.ts";
 import { activeEvent, catalogFor, ccCard } from "../queries.ts";
@@ -165,8 +164,6 @@ export const sharedRouter = router({
     return { role: "anon" };
   }),
 
-  /** Which sign-in methods this server accepts. */
-  authConfig: publicProcedure.query(() => ({ firebase: firebaseEnabled() })),
 
   position: authedProcedure
     .input(

@@ -73,8 +73,9 @@ Production needs, once:
 5. Project settings, Service accounts: generate a key and set its JSON, on one
    line, as `FIREBASE_SERVICE_ACCOUNT` on Coolify.
 
-Without `FIREBASE_SERVICE_ACCOUNT` (or the emulator) nobody can sign in on
-`/login`; a crew, truck or CC QR still signs the phone straight into its place.
+The server refuses to start without `FIREBASE_SERVICE_ACCOUNT` or
+`FIREBASE_AUTH_EMULATOR_HOST`: there is no sign-in, and no QR sign-in, without a
+Firebase user.
 
 ## Planning portal
 
@@ -111,7 +112,7 @@ rotate handles. It exists because the east side's streets run on a diagonal.
 
 ```sh
 bun install
-cp .env.example .env          # set SESSION_SECRET
+cp .env.example .env          # set SESSION_SECRET and FIREBASE_AUTH_EMULATOR_HOST
 bun run seed                  # demo event; prints every QR join link, writes $DATA_DIR/seed-codes.json
 bun run dev                   # server on :3000 with watch, vite on :5173
 ```
@@ -150,8 +151,8 @@ an admin membership, which the scripts and the e2e suite sign in as through the 
 | `OSRM_URL` | `https://router.project-osrm.org` | Routing. `off` uses straight lines at 25 km/h. |
 | `TRUST_PROXY_HOPS` | `0` | Proxies in front that append to `X-Forwarded-For`. Set `1` behind Coolify so the sign-in limit counts per client, not per proxy. |
 | `WEB_DIST` | `web/dist` | Serve the web build from another folder. |
-| `FIREBASE_SERVICE_ACCOUNT` | empty | Firebase service-account JSON on one line. Turns on phone and Google sign-in. |
-| `FIREBASE_AUTH_EMULATOR_HOST` | empty | `127.0.0.1:9099` for the local emulator instead of a real project. |
+| `FIREBASE_SERVICE_ACCOUNT` | required in production | Firebase service-account JSON on one line. This or the next is required. |
+| `FIREBASE_AUTH_EMULATOR_HOST` | required locally | `127.0.0.1:9099` (docker compose) or `127.0.0.1:9297` (fake-auth.ts) instead of a real project. |
 | `FIREBASE_PROJECT_ID` | `demo-lrbuddy` | Project id when running against the emulator. |
 | `VITE_FIREBASE_CONFIG` | empty | Build time. Firebase web config as JSON, for hosts other than production. |
 | `VITE_FIREBASE_EMULATOR` | empty | Build time. Emulator URL for the browser, `http://127.0.0.1:9099`. |

@@ -3,7 +3,7 @@ import type { ConfirmationResult } from "firebase/auth";
 import { useSearch } from "wouter";
 import { Button } from "../../components/Button.tsx";
 import { Field } from "../../components/Field.tsx";
-import { firebaseOptions, googleEnabled } from "../../lib/firebaseConfig.ts";
+import { googleEnabled } from "../../lib/firebaseConfig.ts";
 import { signInWithIdToken } from "../../lib/session.ts";
 import { trpc } from "../../lib/trpc.ts";
 
@@ -47,17 +47,12 @@ const Brand = () => (
  * SPEC 18 sign-in: Name and Mobile number, Continue sends a text with a
  * six-digit code; Google below a divider. Truck, green and crew codes and
  * invites sign in only through their links. A Firebase user already signed in
- * on this phone goes straight through. There is no password (SPEC 26); without
- * Firebase (no config here or on the server) the page says sign-in is off.
+ * on this phone goes straight through. There is no password (SPEC 26) and no
+ * sign-in without Firebase.
  */
 export const LoginPage = () => {
   const search = new URLSearchParams(useSearch());
-  const authConfig = trpc.shared.authConfig.useQuery(undefined, { staleTime: Infinity, retry: 5, refetchOnReconnect: true });
   const link = trpc.access.link.useQuery(undefined, { staleTime: Infinity });
-  // A built-in config means the project exists; only an explicit "off" from the server hides the
-  // phone form, so a slow or failed config request never hides it.
-  const firebaseOn = firebaseOptions !== null && authConfig.data?.firebase !== false;
-  const decided = authConfig.data !== undefined || authConfig.isError;
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -80,7 +75,6 @@ export const LoginPage = () => {
 
   // A Firebase sign-in kept on this phone: no form, straight to the role.
   useEffect(() => {
-    if (!firebaseOn) return;
     let live = true;
     setRestoring(true);
     void (async () => {
@@ -104,7 +98,7 @@ export const LoginPage = () => {
     return () => {
       live = false;
     };
-  }, [firebaseOn]);
+  }, []);
 
   useEffect(() => {
     if (sent) document.querySelector<HTMLInputElement>("input[name=otp]")?.focus();
@@ -180,22 +174,11 @@ export const LoginPage = () => {
           </p>
         )}
 
-        {decided && !firebaseOn && (
-          <p role="status" className="py-4 text-center text-base font-semibold text-muted">
-            Sign-in unavailable
-          </p>
-        )}
-        {error && !firebaseOn && (
-          <p role="alert" className="text-center text-sm font-semibold">
-            {error}
-          </p>
-        )}
         {restoring ? (
           <p role="status" aria-live="polite" className="py-6 text-center text-base font-semibold text-muted">
             Signing in…
           </p>
         ) : (
-          firebaseOn && (
             <>
               <form onSubmit={(e) => void send(e)} noValidate className="space-y-4" data-phone-signin>
                 <Field
@@ -276,7 +259,6 @@ export const LoginPage = () => {
                 </>
               )}
             </>
-          )
         )}
 
       </div>

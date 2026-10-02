@@ -1,4 +1,3 @@
-import { firebaseOptions } from "./firebaseConfig.ts";
 import { clearIdbStore } from "./idbStore.ts";
 import { trpc, type RouterOutputs } from "./trpc.ts";
 import { storageClear, storageSet } from "./safe.ts";
@@ -33,7 +32,6 @@ export const signInWithIdToken = async (idToken: string, name?: string): Promise
 };
 
 const signOutOfFirebase = async (): Promise<void> => {
-  if (!firebaseOptions) return;
   const { firebaseSignOut } = await import("./firebase.ts");
   await firebaseSignOut();
 };

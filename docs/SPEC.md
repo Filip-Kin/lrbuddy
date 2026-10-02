@@ -182,8 +182,8 @@ the code or the docs. A session cookie names a role and a scope.
 - Auth routes are plain `Bun.serve` routes, not tRPC. There is no `/auth/login`: every `/auth/*` path
   that is not a route answers 404. `GET /j/:token`,
   `GET /t/:code`, `GET /g/:code` (each takes only its own kind: a truck code under `/j` or `/g` is
-  unknown; with Firebase off they set the session and 302 to `/`, an unknown one 302s to
-  `/login?link=unknown`; with Firebase on see section 18), `GET /i/:token` (section 26),
+  unknown, and an unknown one 302s to `/login?link=unknown`; a known one needs a signed-in user,
+  see section 18), `GET /i/:token` (section 26),
   `POST /auth/firebase`, `POST /auth/leave`, `POST /auth/logout`, `POST /auth/name {displayName}`.
 - `shared.me` returns `{ role, displayName, crew?, truck?, cc?, day?, event }` or `{ role: 'anon' }`.
 - Role procedures throw `UNAUTHORIZED` when the session is missing and `FORBIDDEN` when the role is
@@ -764,9 +764,9 @@ Access
 Setup outside the repo: a Firebase project on the Blaze plan (phone sign-in on the free plan is capped
 at a handful of SMS a day) with Phone and Google providers enabled and `lrbuddy.filipkin.com` as an
 authorized domain; the web config in `web/src/lib/firebase.ts` picked by hostname like FTA-Buddy; a
-service account in `FIREBASE_SERVICE_ACCOUNT` on Coolify (single-line JSON). Until the project exists
-the client config is read from `VITE_FIREBASE_CONFIG` and the Firebase Auth emulator runs locally
-(`docker compose up` in the repo), so no real SMS is sent in development or tests.
+service account in `FIREBASE_SERVICE_ACCOUNT` on Coolify (single-line JSON). Local runs use an Auth
+emulator instead (`docker compose up` in the repo, or the fake one in `tests/e2e/support/fake-auth.ts`
+for tests, the gate and the scripts), so no real SMS is sent in development or tests.
 
 Gate: `/login` shows no field labelled Code. Phone field is `type="tel"` with `autocomplete="tel"`,
 code field `inputmode="numeric"` with `autocomplete="one-time-code"`. Both at least 16 px.
@@ -785,8 +785,10 @@ The calls the build made (details in DECISIONS.md):
 - Approving fills the place with the person: a crew with no red shirt takes the requester as lead
   (Replace lead overwrites, Add leaves it), a truck with no driver takes their name and number, a
   green shirt joins the CC's green shirt list (unless the name or number is already on it).
-- Without `FIREBASE_SERVICE_ACCOUNT` or the emulator nobody signs in on `/login`, and `/j`, `/t`,
-  `/g` sign in on the spot.
+- There is no sign-in without Firebase: the server refuses to start without `FIREBASE_SERVICE_ACCOUNT`
+  or `FIREBASE_AUTH_EMULATOR_HOST`, and `/j`, `/t`, `/g` never sign a phone in without a Firebase
+  user (signed out, they remember the link and send the phone to `/login`). The sign-in page always
+  shows the phone form.
 - The CC sheet carries the green QR top right and one QR per truck; the overview map gives up
   0.45 in per truck so the sheet stays one page.
 

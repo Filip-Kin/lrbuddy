@@ -12,7 +12,6 @@ import {
   isAdminSession,
   JOIN_COOKIE,
   joinCookie,
-  loginWithLink,
   parseCookies,
   sessionCookie,
   sessionIdFrom,
@@ -20,7 +19,7 @@ import {
 } from "./auth.ts";
 import { handleClientError } from "./client-errors.ts";
 import { withEtag } from "./etag.ts";
-import { firebaseEnabled, verifyIdToken } from "./firebase.ts";
+import { firebaseConfigured, verifyIdToken } from "./firebase.ts";
 import { acceptInvite, inviteByToken, stateOf } from "./invites.ts";
 import { config } from "./config.ts";
 import { sqlite } from "./db/index.ts";
@@ -29,6 +28,12 @@ import { eventPhotos, handlePhotoUpload, photoZipStream, servePhoto, sweepPhotoF
 import { activeEvent } from "./queries.ts";
 import { appRouter } from "./routers/index.ts";
 import { createContextFor } from "./trpc.ts";
+
+// Every sign-in is a Firebase user (SPEC 18, 26): production has the service account, local runs the
+// Auth emulator (docker compose, or tests/e2e/support/fake-auth.ts). There is no way in without one.
+if (!firebaseConfigured()) {
+  throw new Error("Missing FIREBASE_SERVICE_ACCOUNT or FIREBASE_AUTH_EMULATOR_HOST. Production sets the first; local runs point the second at an Auth emulator.");
+}
 
 const DIST = config.webDist.endsWith("/") ? config.webDist : `${config.webDist}/`;
 
@@ -191,7 +196,6 @@ const server = Bun.serve({
     }
 
     if (path === "/auth/firebase" && req.method === "POST") {
-      if (!firebaseEnabled()) return json({ ok: false, error: "Sign-in unavailable" }, { status: 503 });
       if (!allowLogin(ip)) return json({ ok: false, error: "Too many tries" }, { status: 429 });
       const body = await readBody(req);
       const token = await verifyIdToken(body.idToken ?? "");
@@ -237,13 +241,6 @@ const server = Bun.serve({
       const kind = LINK_KINDS[link[1] as "j" | "t" | "g"];
       const raw = link[2]!;
       if (!linkTarget(kind, raw)) return redirect("/login?link=unknown");
-      if (!firebaseEnabled()) {
-        // No Firebase project yet: the printed QR still signs in on the spot, as before SPEC 18.
-        const session = loginWithLink(kind, raw, req.headers.get("user-agent"));
-        if (!session) return redirect("/login?link=unknown");
-        deleteSession(sessionIdFrom(req));
-        return redirect("/", sessionCookie(session.id));
-      }
       const current = getSession(sessionIdFrom(req));
       if (current?.userId != null) {
         joinByLink(current.userId, current.id, kind, raw);

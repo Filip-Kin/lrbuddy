@@ -12,7 +12,7 @@ process.env.OSRM_URL = "off";
 const { db } = await import("./db/index.ts");
 const s = await import("./db/schema.ts");
 const setup = await import("./setup.ts");
-const { joinWithToken, setSessionName, cleanPhone } = await import("./auth.ts");
+const { createSession, setSessionName, cleanPhone } = await import("./auth.ts");
 const { eq } = await import("drizzle-orm");
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -29,7 +29,7 @@ describe("crew join name and mobile", () => {
   test("fills a blank lead phone and lead name", () => {
     const { day, cc } = world();
     const crew = setup.createCrew({ dayId: day.id, ccId: cc.id, companyId: null, token: "join-test-01" });
-    const session = joinWithToken("join-test-01", null)!;
+    const session = createSession({ role: "crew", crewId: crew.id, ccId: cc.id });
     expect(setSessionName(session.id, "Jordan", "313 555 0199")).toBe("Jordan");
     expect(db.select().from(s.crews).where(eq(s.crews.id, crew.id)).get()).toMatchObject({ leadPhone: "313 555 0199", leadName: "Jordan" });
   });
@@ -37,7 +37,7 @@ describe("crew join name and mobile", () => {
   test("never overwrites an imported number", () => {
     const { day, cc } = world();
     const crew = setup.createCrew({ dayId: day.id, ccId: cc.id, companyId: null, leadName: "Pat", leadPhone: "313-555-0100", token: "join-test-02" });
-    const session = joinWithToken("join-test-02", null)!;
+    const session = createSession({ role: "crew", crewId: crew.id, ccId: cc.id });
     setSessionName(session.id, "Sam", "313-555-0142");
     expect(db.select().from(s.crews).where(eq(s.crews.id, crew.id)).get()).toMatchObject({ leadPhone: "313-555-0100", leadName: "Pat" });
   });

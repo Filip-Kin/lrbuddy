@@ -19,7 +19,7 @@ const s = await import("./db/schema.ts");
 const setup = await import("./setup.ts");
 const a = await import("./access.ts");
 const { createSession, getSession } = await import("./auth.ts");
-const { setVerifier, verifyIdToken, firebaseEnabled } = await import("./firebase.ts");
+const { setVerifier, verifyIdToken, firebaseConfigured } = await import("./firebase.ts");
 const { accessRouter } = await import("./routers/access.ts");
 const { sharedRouter } = await import("./routers/shared.ts");
 const { eq } = await import("drizzle-orm");
@@ -69,7 +69,7 @@ beforeEach(() => {
 describe("verifier", () => {
   test("a mocked verifier stands in for the Admin SDK", async () => {
     setVerifier(async (t) => (t === "good" ? { uid: "u1", phone: "+13135550100", email: null, name: null } : null));
-    expect(firebaseEnabled()).toBe(true);
+    expect(firebaseConfigured()).toBe(true);
     expect(await verifyIdToken("good")).toMatchObject({ uid: "u1" });
     expect(await verifyIdToken("bad")).toBeNull();
     setVerifier(null);

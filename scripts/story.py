@@ -145,7 +145,14 @@ with sync_playwright() as pw:
     if truck_name and truck_name != "Truck 1":
         # Dispatch picked the other truck; the green moves it to Truck 1, which is the phone in this story.
         go(green, "/requests")
-        card = green.locator("article", has_text="FORD 1").filter(has_text="Water").first
+        # The board renders the phone tab view too, hidden at this width; the Closed column holds FORD 1's
+        # delivered water. The card is the visible one with an Assign button.
+        card = (
+            green.locator("article:visible", has_text="FORD 1")
+            .filter(has_text="Water")
+            .filter(has=green.get_by_role("button", name="Assign"))
+            .first
+        )
         card.get_by_role("button", name="Assign").click()
         green.get_by_role("dialog").get_by_role("button", name="Truck 1").click()
         moved = wait_for(lambda: next((r for r in api(crew_ctx, "crew.myRequests") if r["id"] == req["id"] and r["truckName"] == "Truck 1"), None), 10)

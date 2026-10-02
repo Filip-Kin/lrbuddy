@@ -143,7 +143,7 @@ export interface Role {
 }
 
 export interface AsOptions {
-  /** Server; the main one unless the test needs Firebase on. */
+  /** Server; the main one unless the test needs the signin server's own database. */
   base?: string;
   name?: string;
   geo?: { latitude: number; longitude: number; accuracy?: number };

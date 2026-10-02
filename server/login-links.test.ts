@@ -5,8 +5,10 @@ import { join } from "node:path";
 
 // SPEC 26: there is no staff password and no /auth/login route. A truck
 // code, a green code and a crew token sign in only through their own /t, /g
-// and /j links; an invite /i/<token> is remembered through sign-in. Runs the real server (Firebase off) on its
-// own temp database. Bun runs every test file in one process and the db
+// and /j links, and like an invite /i/<token> only for a signed-in Firebase
+// user: signed out, the link is remembered through sign-in, never signed in on
+// the spot. Runs the real server on its own temp database, pointed at an
+// emulator address nothing answers (nothing here signs in). Bun runs every test file in one process and the db
 // module opens one $DATA_DIR for all of them, so the fixture is written by a
 // child process with this test's DATA_DIR, not through an import here.
 
@@ -17,9 +19,9 @@ const env = {
   DATA_DIR: dir,
   SESSION_SECRET: "test-secret",
   OSRM_URL: "off",
-  // Bun reads the repo's .env too; empty values keep Firebase off whatever it holds.
+  // Bun reads the repo's .env too; set both so whatever it holds does not leak in.
   FIREBASE_SERVICE_ACCOUNT: "",
-  FIREBASE_AUTH_EMULATOR_HOST: "",
+  FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9",
   VAPID_PUBLIC_KEY: "",
   VAPID_PRIVATE_KEY: "",
 };
@@ -79,13 +81,6 @@ const login = (code: string): Promise<Response> =>
 
 const open = (path: string): Promise<Response> => fetch(`${base}${path}`, { redirect: "manual" });
 
-const roleOf = async (res: Response): Promise<string> => {
-  const cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
-  const me = await fetch(`${base}/trpc/shared.me`, { headers: { cookie } });
-  const body = (await me.json()) as { result: { data: { json: { role: string } } } };
-  return body.result.data.json.role;
-};
-
 describe("no staff password", () => {
   test("POST /auth/login is gone: 404 for a password, a truck code, a green code and a crew token", async () => {
     for (const code of ["right-password", "change-me", truck.code, greenCode, crew.token]) {
@@ -118,24 +113,20 @@ describe("invite links", () => {
   });
 });
 
-describe("the QR links still sign in", () => {
-  test("/t/<truck code> signs in as the driver", async () => {
-    const res = await open(`/t/${truck.code}`);
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/");
-    expect(await roleOf(res)).toBe("driver");
-  });
-
-  test("/g/<green code> signs in as the green shirt", async () => {
-    const res = await open(`/g/${greenCode}`);
-    expect(res.headers.get("location")).toBe("/");
-    expect(await roleOf(res)).toBe("green");
-  });
-
-  test("/j/<crew token> signs in as the crew", async () => {
-    const res = await open(`/j/${crew.token}`);
-    expect(res.headers.get("location")).toBe("/");
-    expect(await roleOf(res)).toBe("crew");
+describe("QR links need a signed-in user", () => {
+  test("signed out, /t, /g and /j are remembered for sign-in and sign nobody in", async () => {
+    for (const [path, kind, value] of [
+      [`/t/${truck.code}`, "truck", truck.code],
+      [`/g/${greenCode}`, "cc", greenCode],
+      [`/j/${crew.token}`, "crew", crew.token],
+    ] as const) {
+      const res = await open(path);
+      expect(res.status, path).toBe(302);
+      expect(res.headers.get("location"), path).toBe("/login");
+      const cookies = res.headers.get("set-cookie") ?? "";
+      expect(cookies, path).toContain(`lrb_join=${kind}%3A${value}`);
+      expect(cookies, path).not.toContain("lrb_session=");
+    }
   });
 
   test("a link takes only its own kind", async () => {

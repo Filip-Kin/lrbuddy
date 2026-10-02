@@ -18,7 +18,7 @@ Field app for Life Remodeled's Six Day Project. Read `docs/SPEC.md` first; it is
 
 ```
 bun install
-cp .env.example .env         # then set SESSION_SECRET
+cp .env.example .env         # then set SESSION_SECRET and FIREBASE_AUTH_EMULATOR_HOST (no sign-in without Firebase)
 bun run generate             # drizzle-kit, after a schema change
 bun run seed                 # demo event, prints codes and join links
 bun run dev                  # server on :3000 + vite on :5173

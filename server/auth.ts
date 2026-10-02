@@ -141,28 +141,6 @@ const cleanName = (n: string | null | undefined): string | null => {
   return v ? v : null;
 };
 
-/**
- * A scanned QR with Firebase off: `/t/<truck code>`, `/g/<green code>` or
- * `/j/<crew token>` signs in on the spot, each link only with its own kind.
- */
-export const loginWithLink = (kind: "crew" | "truck" | "cc", raw: string, userAgent: string | null): Session | null => {
-  if (kind === "crew") return joinWithToken(raw, userAgent);
-  const code = raw.trim().toUpperCase();
-  if (!code) return null;
-  if (kind === "truck") {
-    const truck = db.select().from(trucks).where(eq(trucks.code, code)).get();
-    return truck ? createSession({ role: "driver", truckId: truck.id, ccId: truck.ccId, displayName: truck.driverName, userAgent }) : null;
-  }
-  const green = db.select().from(greenCodes).where(eq(greenCodes.code, code)).get();
-  return green ? createSession({ role: "green", ccId: green.ccId, displayName: "Green shirt", userAgent }) : null;
-};
-
-export const joinWithToken = (token: string, userAgent: string | null, displayName?: string | null): Session | null => {
-  const crew = db.select().from(crews).where(eq(crews.token, token)).get();
-  if (!crew) return null;
-  return createSession({ role: "crew", crewId: crew.id, ccId: crew.ccId, displayName: cleanName(displayName), userAgent });
-};
-
 /** Digits of a phone number, kept as typed when it has 7 to 15 of them; else null. */
 export const cleanPhone = (v: string | null | undefined): string | null => {
   const s = v?.trim().slice(0, 40) ?? "";

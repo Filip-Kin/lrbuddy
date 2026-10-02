@@ -1,5 +1,5 @@
 /**
- * Sign-in and access requests with Firebase on (SPEC 18), against the signin server. A person
+ * Sign-in and access requests (SPEC 18), against the signin server. A person
  * signs in (an unsigned emulator token, support/firebase.ts), asks for a red shirt role, the
  * green shirt approves it on the Access page and the person's phone moves into the crew live;
  * Leave crew keeps the sign-in; a crew QR scanned before sign-in completes after it; a truck QR
@@ -98,12 +98,11 @@ test("a crew QR scanned before sign-in completes after it; a truck QR then makes
   await expect(page.getByRole("region", { name: "Route map" })).toBeVisible();
 });
 
-test("with Firebase on, /j before sign-in remembers the link instead of signing in", async ({ as, LS, signin }) => {
+test("/j before sign-in remembers the link instead of signing in", async ({ as, LS, signin }) => {
   const anon = await as("", { anon: true, base: signin });
   const res = await anon.ctx.request.get(`${signin}${LS.crews[2]!.link}`, { maxRedirects: 0 });
   expect(res.status()).toBe(302);
   expect(res.headers()["location"]).toBe("/login");
   expect(res.headers()["set-cookie"] ?? "").toContain("lrb_join=");
-  expect((await anon.api.query<{ firebase: boolean }>("shared.authConfig")).firebase).toBe(true);
   expect((await anon.api.query<{ role: string }>("shared.me")).role).toBe("anon");
 });

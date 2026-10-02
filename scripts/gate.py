@@ -175,7 +175,7 @@ ROLES = {
     "anon": {"login": None, "routes": ["/login"]},
     "crew": {"login": {"seed": ("crew", "FORD 1", "East", 1), "displayName": "Gate"}, "routes": ["/", "/request", "/requests", "/lots", "/cc", "/settings"]},
     "driver": {"login": {"seed": ("driver", "Truck 1", "East", 1), "displayName": "Gate"}, "routes": ["/", "/stock", "/settings"]},
-    "green": {"login": {"seed": ("green", "CC East", "East", 1), "displayName": "Gate"}, "routes": ["/", "/flag", "/requests", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access", "/invite"]},
+    "green": {"login": {"seed": ("green", "CC East", "East", 1), "displayName": "Gate"}, "routes": ["/", "/wrap", "/flag", "/requests", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access", "/invite"]},
     "admin": {"login": {"admin": True}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export",
                                                   "/admin/access", "/admin/invite", "/admin/people", "/admin/client-errors", "/plan/survey", "/plan/blocks", "/plan/assignments", "/plan/print", "/plan/survey/drive"]},
 }

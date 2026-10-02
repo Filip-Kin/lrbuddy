@@ -3,7 +3,7 @@ import { removeMap } from "../../lib/map/removeMap.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_CENTER, ESRI_BASE, ESRI_DARK_BASE, ESRI_DARK_LABELS, ESRI_LABELS, ESRI_STREETS, MAX_NATIVE_ZOOM, MAX_ZOOM, STREETS_MAX_NATIVE_ZOOM, STREETS_MIN_ZOOM, TILE_ATTRIB } from "../../lib/map/basemap.ts";
 import type { LotGeometry } from "../../../../server/db/schema.ts";
-import { ccBody, escapeHtml, lotIcon, lotShape, routeLine, type LotStatus } from "../../lib/map/markers.ts";
+import { cameraBadgeIcon, ccBody, escapeHtml, lotIcon, lotShape, routeLine, type LotStatus } from "../../lib/map/markers.ts";
 import { attachLabelDeclutter } from "../../lib/map/declutter.ts";
 import { usePrefersDark } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
@@ -24,6 +24,8 @@ export interface DriverMapLot extends LatLng {
   status: LotStatus;
   geometry: LotGeometry | null;
   title: string;
+  /** A Before and no After: the camera badge at the lot (Wrap up). */
+  needsAfter?: boolean;
 }
 
 export interface DriverMapCrew extends LatLng {
@@ -356,6 +358,17 @@ export const DriverMap = ({
         });
       } else if (layer instanceof L.Marker) {
         layer.getElement()?.setAttribute("data-lot-id", String(l.id));
+      }
+      if (l.needsAfter) {
+        L.marker([l.lat, l.lng], { icon: cameraBadgeIcon(UNROT), zIndexOffset: 100, title: l.title, alt: l.title, keyboard: false })
+          .on("click", (e: L.LeafletEvent) => {
+            L.DomEvent.stopPropagation(e as L.LeafletMouseEvent);
+            if (Date.now() - tookAt.current < TAKE_GRACE_MS) return;
+            onLotRef.current(l.id);
+          })
+          .addTo(g)
+          .getElement()
+          ?.setAttribute("data-cam-lot", String(l.id));
       }
     }
   }, [lots, showLots]);

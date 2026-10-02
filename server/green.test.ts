@@ -257,3 +257,58 @@ describe("company filter", () => {
     expect(o.companies.map((c) => c.name)).toEqual(["Ford"]);
   });
 });
+
+describe("wrap up", () => {
+  test("work lots at this CC only, with crew and photo state; Before alone needs an After", async () => {
+    const w = world();
+    const crew = setup.createCrew({ dayId: w.day.id, ccId: w.east.id, companyId: null });
+    const mk = (ccId: number, n: number, status: "open" | "in_progress" | "done" | "do_not_touch" | "not_todo", crewId: number | null = null) =>
+      db
+        .insert(s.lots)
+        .values({ eventId: w.ev.id, parcelId: `W${ccId}-${n}`, address: `${n} Harding`, lat: CC_EAST.lat, lng: CC_EAST.lng, source: "manual", ccId, status, crewId })
+        .returning()
+        .get();
+    const photo = (lotId: number, kind: "before" | "after", deletedAt: number | null = null) =>
+      db
+        .insert(s.lotPhotos)
+        .values({ lotId, kind, role: "green", ccId: w.east.id, dayId: w.day.id, at: Date.now(), width: 10, height: 10, bytes: 10, deletedAt })
+        .returning()
+        .get();
+    const before = mk(w.east.id, 1, "in_progress", crew.id);
+    const both = mk(w.east.id, 2, "done");
+    const bare = mk(w.east.id, 3, "open");
+    mk(w.east.id, 4, "do_not_touch");
+    mk(w.east.id, 5, "not_todo");
+    const theirs = mk(w.west.id, 6, "open");
+    const b1 = photo(before.id, "before");
+    photo(before.id, "after", Date.now());
+    photo(both.id, "before");
+    const a2 = photo(both.id, "after");
+    photo(theirs.id, "before");
+
+    const rows = await w.green.wrap();
+    expect(rows.map((r) => r.id).sort((a, b) => a - b)).toEqual([before.id, both.id, bare.id]);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get(before.id)).toMatchObject({ hasBefore: true, hasAfter: false, beforeThumb: b1.id, afterThumb: null, crewId: crew.id, crewName: expect.any(String) });
+    expect(byId.get(both.id)).toMatchObject({ hasBefore: true, hasAfter: true, afterThumb: a2.id, crewName: null });
+    expect(byId.get(bare.id)).toMatchObject({ hasBefore: false, hasAfter: false, beforeThumb: null });
+
+    // The map badge reads the same state from the overview.
+    const ov = await w.green.overview();
+    const needs = ov.lots.filter((l) => l.needsAfter).map((l) => l.id);
+    expect(needs).toEqual([before.id]);
+
+    // West sees only its own lot.
+    const west = await callerFor(session("green", w.west.id)).wrap();
+    expect(west.map((r) => r.id)).toEqual([theirs.id]);
+  });
+
+  test("roles: admin with a CC, never driver, crew or signed out", async () => {
+    const w = world();
+    expect(await callerFor(mkAdmin(), w.east.id).wrap()).toEqual([]);
+    await expect(callerFor(mkAdmin()).wrap()).rejects.toThrow("No command center");
+    await expect(callerFor(session("driver", null)).wrap()).rejects.toThrow("Not allowed");
+    await expect(callerFor(session("crew", null)).wrap()).rejects.toThrow("Not allowed");
+    await expect(callerFor(null).wrap()).rejects.toThrow("Sign in");
+  });
+});

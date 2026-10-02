@@ -18,7 +18,7 @@ import {
 } from "./basemap.ts";
 import type { LotGeometry } from "../../../../server/db/schema.ts";
 import { attachLabelDeclutter } from "./declutter.ts";
-import { ccIcon, crewIcon, lotIcon, lotShape, meIcon, requestIcon, routeLine, selectLine, stopIcon, truckIcon, type LotStatus } from "./markers.ts";
+import { cameraBadgeIcon, ccIcon, crewIcon, lotIcon, lotShape, meIcon, requestIcon, routeLine, selectLine, stopIcon, truckIcon, type LotStatus } from "./markers.ts";
 import { media } from "../safe.ts";
 
 // #region types
@@ -43,6 +43,8 @@ export type MapMarker =
   /** Drawn as its parcel outline when `geometry` is set, else a small square. `selected` adds a heavy ink outline. */
   | (Base & { kind: "lot"; status: LotStatus; mine?: boolean; selected?: boolean; geometry?: LotGeometry | null; parcelId?: string | null })
   | (Base & { kind: "request"; urgent?: boolean })
+  /** Camera badge: a Before and no After on the lot. */
+  | (Base & { kind: "camera" })
   | (Base & { kind: "stop"; n: number; active?: boolean });
 
 export interface MapLine {
@@ -109,6 +111,9 @@ const layerFor = (m: MapMarker): L.Layer => {
       break;
     case "request":
       layer = L.marker(at, { icon: requestIcon(m.urgent ?? false), zIndexOffset: 150, interactive: !!m.onClick, keyboard: false });
+      break;
+    case "camera":
+      layer = L.marker(at, { icon: cameraBadgeIcon(), zIndexOffset: 100, interactive: !!m.onClick, keyboard: false, title: m.title, alt: m.title });
       break;
     case "stop":
       layer = L.marker(at, { icon: stopIcon(m.n, m.active), zIndexOffset: 700, title: m.title, alt: m.title });
@@ -228,6 +233,8 @@ const MapViewInner = ({ markers, lines = [], fitKey, onMapClick, className, labe
     for (const mk of markers) {
       const layer = layerFor(mk);
       group.addLayer(layer);
+      // The camera badge names its lot, so a test can find the badge of one lot.
+      if (mk.kind === "camera" && layer instanceof L.Marker && mk.id.startsWith("cam-")) layer.getElement()?.setAttribute("data-cam-lot", mk.id.slice(4));
       // Lot outlines carry their parcel id, so a parcel can be found again after it becomes a lot,
       // and their lot id (`lot-<id>` markers), which Paint uses to colour a stroke as it goes.
       if (mk.kind === "lot") {

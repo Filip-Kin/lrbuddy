@@ -24,7 +24,7 @@ import { bareParcelsFor, setLot, type Actor } from "../parcel-status.ts";
 import { buildCrewsFor } from "./plan/assignments.ts";
 import { areaInput } from "./plan/common.ts";
 import { emitLot } from "../lots-import.ts";
-import { filterPairs, pairState, photoCounts, photoPairs, photoSummary, sitePhotos } from "../photos.ts";
+import { filterPairs, pairState, photoCounts, photoPairs, photoSummary, sitePhotos, withNeedsAfter } from "../photos.ts";
 import { pushToCc } from "../push.ts";
 import { catalogFor, latestPositions, lotsAt, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
 import { greenProcedure, router } from "../trpc.ts";
@@ -128,7 +128,7 @@ export const greenRouter = router({
       openRequests: requestsWhere(
         and(eq(requests.ccId, ctx.cc.id), eq(requests.dayId, ctx.day.id), inArray(requests.status, [...OPEN_STATUSES])),
       ),
-      lots: lotsAt(ctx.cc.id, ctx.day.id),
+      lots: withNeedsAfter(lotsAt(ctx.cc.id, ctx.day.id), photoSummary(ctx.event.id)),
       /** Companies with a crew at this CC today; the filter offers nothing that would show an empty board. */
       companies: here.length === 0 ? [] : db.select().from(companies).where(inArray(companies.id, here)).orderBy(companies.name).all(),
     };
@@ -208,6 +208,34 @@ export const greenRouter = router({
       crews: crewList.map((c) => ({ id: c.id, name: c.name, companyName: c.companyName })),
       counts: [...byCrew.entries()].map(([crewId, counts]) => ({ crewId, counts })),
     };
+  }),
+
+  /**
+   * Wrap up: every work lot at this CC's site on the day (Todo, In progress, Done) with its crew and
+   * whether it has a Before and an After, newest thumb of each. The list behind the After photo round.
+   */
+  wrap: greenProcedure.query(({ ctx }) => {
+    const summary = photoSummary(ctx.event.id);
+    const crewNames = new Map(crewsAt(ctx.cc.id, ctx.day.id).map((c) => [c.id, c.name]));
+    return lotsAt(ctx.cc.id, ctx.day.id)
+      .filter((l) => l.status === "open" || l.status === "in_progress" || l.status === "done")
+      .map((l) => {
+        const p = summary.get(l.id);
+        return {
+          id: l.id,
+          parcelId: l.parcelId,
+          address: l.address,
+          lat: l.lat,
+          lng: l.lng,
+          status: l.status,
+          crewId: l.crewId,
+          crewName: l.crewId !== null ? (crewNames.get(l.crewId) ?? null) : null,
+          hasBefore: (p?.before ?? null) !== null,
+          hasAfter: (p?.after ?? null) !== null,
+          beforeThumb: p?.before ?? null,
+          afterThumb: p?.after ?? null,
+        };
+      });
   }),
 
   assignLots: greenProcedure

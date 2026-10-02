@@ -11,6 +11,7 @@ import { PhotosPage } from "./PhotosPage.tsx";
 import { RequestsPage } from "./RequestsPage.tsx";
 import { StatsPage } from "./StatsPage.tsx";
 import { TrucksPage } from "./TrucksPage.tsx";
+import { WrapPage } from "./WrapPage.tsx";
 
 /** The camera screen is its own chunk: the green map does not wait for it, and a crash there stays there. */
 const FlagPage = lazy(() => import("./flag/FlagPage.tsx").then((m) => ({ default: m.FlagPage })));
@@ -26,6 +27,7 @@ const Flag = () => (
 export const GreenRoutes = () => (
   <Switch>
     <Route path="/" component={MapPage} />
+    <Route path="/wrap" component={WrapPage} />
     <Route path="/flag" component={Flag} />
     <Route path="/requests" component={RequestsPage} />
     <Route path="/photos" component={PhotosPage} />

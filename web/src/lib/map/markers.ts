@@ -67,6 +67,22 @@ export const stopIcon = (n: number, active = false): L.DivIcon =>
     iconAnchor: [14, 14],
   });
 
+const CAMERA_SVG =
+  '<svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5A1.5 1.5 0 0 1 5 7h2.5L9 4.5h6L16.5 7H19a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5zM12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/></svg>';
+
+/**
+ * Camera badge at a lot with a Before and no After (Wrap up): an ink camera in a 16 px white
+ * circle, so it reads as "photo missing" and never as a crew dot or the blue dot. `style` keeps it
+ * upright on a turned map (the driver map passes its counter-rotation).
+ */
+export const cameraBadgeIcon = (style = ""): L.DivIcon =>
+  L.divIcon({
+    className: "lrb-cam",
+    html: `<span class="lrb-cam-body"${style ? ` style="${style}"` : ""}>${CAMERA_SVG}</span>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+  });
+
 /** Small square in the status colour inside a 28 px tap target. */
 export const lotIcon = (status: LotStatus, mine = true, selected = false): L.DivIcon =>
   L.divIcon({

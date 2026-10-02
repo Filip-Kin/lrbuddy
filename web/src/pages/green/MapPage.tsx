@@ -132,6 +132,17 @@ export const MapPage = () => {
           title: l.address ?? undefined,
           onClick: drawing || painting || lotDrawing ? undefined : () => setSelected({ kind: "lot", id: l.id }),
         });
+        if (l.needsAfter) {
+          out.push({
+            id: `cam-${l.id}`,
+            kind: "camera",
+            lat: l.lat,
+            lng: l.lng,
+            noFit: true,
+            title: l.address ?? undefined,
+            onClick: drawing || painting || lotDrawing ? undefined : () => setSelected({ kind: "lot", id: l.id }),
+          });
+        }
       }
     }
     out.push({ id: "cc", kind: "cc", lat: d.cc.lat, lng: d.cc.lng, name: `CC ${d.cc.name}`, letter: d.cc.letter });

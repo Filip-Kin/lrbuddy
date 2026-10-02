@@ -10,6 +10,7 @@ import { trpc } from "../../lib/trpc.ts";
 export const greenLinks = (base = "", search = ""): NavLink[] =>
   [
     { href: "/", label: "Map" },
+    { href: "/wrap", label: "Wrap up" },
     { href: "/flag", label: "Flag" },
     { href: "/requests", label: "Requests" },
     { href: "/photos", label: "Photos" },

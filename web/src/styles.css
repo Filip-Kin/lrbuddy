@@ -204,6 +204,22 @@
 }
 
 /* Lots: small squares in their status colour, inside a larger transparent tap target. */
+/* Camera badge (Wrap up): Before taken, After missing. White disc, ink camera, never round-dot looking. */
+.lrb-cam {
+  display: grid;
+  place-items: center;
+}
+.lrb-cam .lrb-cam-body {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #fff;
+  color: #1a1a1a;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35), 0 1px 3px rgb(0 0 0 / 0.35);
+}
+
 .lrb-lot {
   display: grid;
   place-items: center;

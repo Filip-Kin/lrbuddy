@@ -372,6 +372,10 @@ export const photoSummary = (eventId: number): Map<number, PhotoSummary> => {
   return out;
 };
 
+/** `needsAfter`: a Before and no After yet, the camera badge on every map (Wrap up). */
+export const withNeedsAfter = <T extends { id: number }>(rows: readonly T[], summary: Map<number, PhotoSummary>): Array<T & { needsAfter: boolean }> =>
+  rows.map((l) => ({ ...l, needsAfter: pairState(summary.get(l.id)) === "before" }));
+
 /** Lots with both kinds, and lots with a before and no after. */
 export const photoCounts = (lotIds: readonly number[], summary: Map<number, PhotoSummary>): { both: number; missingAfter: number } => {
   let both = 0;

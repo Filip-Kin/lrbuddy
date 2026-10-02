@@ -30,7 +30,7 @@ ROLES = {
         ("/", "Map"), ("/stock", "Stock"), ("/settings", "Settings")],
         "sizes": ["phone"]},
     "green": {"login": {"seed": ("green", "CC East", "East", 1), "displayName": "Filip"}, "routes": [
-        ("/", "Map"), ("/requests", "Requests"), ("/photos", "Photos"), ("/crews", "Crews"), ("/trucks", "Trucks"), ("/broadcast", "Broadcast"), ("/stats", "Stats"), ("/access", "Access"), ("/invite", "Invite")],
+        ("/", "Map"), ("/wrap", "Wrap up"), ("/requests", "Requests"), ("/photos", "Photos"), ("/crews", "Crews"), ("/trucks", "Trucks"), ("/broadcast", "Broadcast"), ("/stats", "Stats"), ("/access", "Access"), ("/invite", "Invite")],
         "sizes": ["phone", "laptop"]},
     "admin": {"login": {"admin": True}, "routes": [
         ("/admin", "Event"), ("/admin/companies", "Companies"), ("/admin/crews", "Crews"), ("/admin/lots", "Lots"), ("/admin/photos", "Photos"), ("/admin/catalog", "Catalog"), ("/admin/export", "Export"), ("/admin/access", "Access"), ("/admin/invite", "Invite"), ("/admin/people", "People")],

@@ -90,6 +90,7 @@ const invalidate = (utils: Utils, kind: Kind): void => {
       void utils.green.plan.invalidate();
       void utils.green.stats.invalidate();
       void utils.green.photos.invalidate();
+      void utils.green.wrap.invalidate();
       void utils.shared.lotPhotos.invalidate();
       break;
     case "stock":

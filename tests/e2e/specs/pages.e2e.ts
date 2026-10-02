@@ -8,7 +8,7 @@ import { expect, expectNoOverflow, test, visit, type Role } from "../support/fix
 const ROUTES: Record<string, string[]> = {
   crew: ["/", "/request", "/requests", "/lots", "/cc", "/settings"],
   driver: ["/", "/stock", "/settings"],
-  green: ["/", "/flag", "/requests", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access", "/invite"],
+  green: ["/", "/wrap", "/flag", "/requests", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access", "/invite"],
   admin: ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export", "/admin/access", "/admin/invite", "/admin/people", "/admin/client-errors", "/admin/green"],
 };
 /** The planning portal is a laptop surface with one phone screen, drive mode (gate ROUTE_SIZES). */

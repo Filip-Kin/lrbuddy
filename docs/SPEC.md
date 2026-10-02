@@ -1132,3 +1132,19 @@ lots Todo.
 - The Switch sheet is a bottom sheet on phones, a popover on laptops; labels only (ui-copy).
 - Gate and e2e: switch green Day 5 to driver Truck B1 and back from the chip; a green-and-driver user
   paints on the driver map; Sign out lands on /login; an admin switches to any day.
+
+## 28. Wrap up: the After photo round (Filip, 2026-10-02, in the field)
+
+`/wrap` (green and admin's green view), nav **Wrap up** after Map.
+- Server `green.wrap`: every lot at the CC's site on the day that is Todo, In progress or Done, with
+  address, position, status, crew name, `hasBefore`, `hasAfter` and the newest thumb id of each.
+- Screen: a map strip (lots, camera badges, blue dot, **Recenter**) over a list sorted by distance
+  from the phone, by address with no position. Tabs with counts: **Needs After** (a Before, no After;
+  the default), **Not done** (Todo or In progress), **All**. A row: address, status, crew, Before and
+  After marks (the thumb when taken, a hollow camera when missing), distance. A tap opens the lot
+  sheet with its Before and After tiles and highlights the lot on the strip.
+- Camera badge: on the green map, the driver map and the strip, a lot with a Before and no After
+  carries an ink camera in a 16 px white circle (`needsAfter` on `green.overview` and `driver.lots`).
+  A photo upload emits lot.changed, so badges and the list follow live.
+- Gate: `/wrap` in the green routes; `tests/e2e/specs/wrap.e2e.ts` takes a Before, sees the lot under
+  Needs After with its badge on the strip and the green map, takes the After, sees it leave.

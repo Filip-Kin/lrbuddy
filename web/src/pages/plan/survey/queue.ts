@@ -2,7 +2,7 @@
  * Drive mode's outbox. Tags and undos post one at a time, in the order they
  * were made. A lost connection keeps them queued and retries; a refusal from
  * the server drops that one entry and reports it. Memory only: a reload
- * empties it.
+ * empties it; leaving the screen does not.
  */
 
 export interface TagInput {
@@ -89,10 +89,17 @@ export class TagQueue {
     this.deps.onRefused = h.onRefused;
   }
 
+  /**
+   * The screen is gone: drop its callbacks. Tags still queued keep retrying until they
+   * post or are refused, so leaving drive mode on a weak signal does not lose them.
+   */
   dispose(): void {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
+    if (this.ops.length === 0 && this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
     this.deps.onChange = undefined;
+    this.deps.onRefused = undefined;
   }
 
   private changed(): void {

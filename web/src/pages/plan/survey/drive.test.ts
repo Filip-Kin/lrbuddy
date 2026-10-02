@@ -157,6 +157,31 @@ describe("TagQueue", () => {
     q.dispose();
   });
 
+  // Audit 2026-10-01: dispose (drive mode unmounting) cleared the retry timer, so
+  // tags queued on a weak signal never posted once the admin left the screen.
+  test("tags still queued keep posting after the screen is gone", async () => {
+    const sent: string[] = [];
+    let online = false;
+    const q = new TagQueue({
+      sendTag: async (i) => {
+        if (!online) throw new Error("Failed to fetch");
+        sent.push(i.parcelId);
+        return { tagId: 1 };
+      },
+      sendUndo: async () => undefined,
+      isRefusal: () => false,
+      backoffMs: () => 20,
+    });
+    q.tag(input("a"));
+    await flush();
+    expect(q.pending).toBe(1);
+    q.dispose();
+    online = true;
+    await new Promise((r) => setTimeout(r, 60));
+    expect(sent).toEqual(["a"]);
+    expect(q.pending).toBe(0);
+  });
+
   test("a refusal drops that entry and the rest still post", async () => {
     const refused: string[] = [];
     const sent: string[] = [];

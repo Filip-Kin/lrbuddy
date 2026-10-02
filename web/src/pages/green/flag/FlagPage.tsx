@@ -74,8 +74,11 @@ const isRefusal = (e: unknown): boolean => {
   if (typeof e !== "object" || e === null || !("data" in e)) return false;
   const d: unknown = (e as { data: unknown }).data;
   const code = typeof d === "object" && d !== null && "code" in d ? (d as { code: unknown }).code : null;
-  return code === "FORBIDDEN" || code === "NOT_FOUND" || code === "BAD_REQUEST";
+  return code === "FORBIDDEN" || code === "NOT_FOUND" || code === "BAD_REQUEST" || code === "UNAUTHORIZED";
 };
+
+/** The server refused the photo (too big, not a JPEG, signed out): the flag stops here with the reason. */
+class PhotoRefused extends Error {}
 // #endregion
 
 /**
@@ -188,14 +191,14 @@ export const FlagPage = () => {
         form.set("photo", f.photo.photo, "photo.jpg");
         form.set("thumb", f.photo.thumb, "thumb.jpg");
         const r = await postPhoto(form, () => undefined);
-        if (!r.ok) throw new Error(r.message);
+        if (!r.ok) throw r.refused ? new PhotoRefused(r.message) : new Error(r.message);
         photoId = r.id;
       }
       patch(f.id, { phase: "done", photoId, photo: null, message: null });
       void utils.green.invalidate();
       refreshPhotos();
     } catch (e) {
-      if (isRefusal(e)) patch(f.id, { phase: "failed", message: e instanceof Error ? e.message : "Not saved" });
+      if (e instanceof PhotoRefused || isRefusal(e)) patch(f.id, { phase: "failed", message: e instanceof Error ? e.message : "Not saved" });
       else patch(f.id, { phase: "queued", tries: f.tries + 1, message: "No signal" });
     }
   }, [patch, utils, refreshPhotos]);
@@ -224,9 +227,11 @@ export const FlagPage = () => {
   useEffect(() => {
     const online = (): void => void pump();
     window.addEventListener("online", online);
+    // Leaving the screen does not drop flags still queued: the retry timer keeps running
+    // until they post or the server refuses them. Only an empty queue stops it.
     return () => {
       window.removeEventListener("online", online);
-      if (timer.current !== null) window.clearTimeout(timer.current);
+      if (timer.current !== null && !flagsRef.current.some((f) => f.phase === "queued" || f.phase === "sending")) window.clearTimeout(timer.current);
     };
   }, [pump]);
 

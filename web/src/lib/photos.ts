@@ -72,7 +72,10 @@ export const prepareFrame = async (source: CanvasImageSource, width: number, hei
 // #endregion
 
 // #region upload
-export type PostResult = { ok: true; id: number } | { ok: false; message: string };
+/** `refused`: the server answered no (a 4xx other than a timeout or rate limit); trying again cannot help. */
+export type PostResult = { ok: true; id: number } | { ok: false; message: string; refused: boolean };
+
+const refusedStatus = (status: number): boolean => status >= 400 && status < 500 && status !== 408 && status !== 429;
 
 /** `POST /photos` through XHR, the one browser API that reports upload progress. */
 export const postPhoto = (form: FormData, onProgress: (f: number) => void): Promise<PostResult> =>
@@ -92,11 +95,11 @@ export const postPhoto = (form: FormData, onProgress: (f: number) => void): Prom
       const rec = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
       const photo = typeof rec.photo === "object" && rec.photo !== null ? (rec.photo as Record<string, unknown>) : null;
       if (xhr.status >= 200 && xhr.status < 300 && photo && typeof photo.id === "number") resolve({ ok: true, id: photo.id });
-      else if (xhr.status === 401) resolve({ ok: false, message: "Signed out" });
-      else resolve({ ok: false, message: typeof rec.error === "string" && rec.error.length < 80 ? rec.error : "Not sent" });
+      else if (xhr.status === 401) resolve({ ok: false, message: "Signed out", refused: true });
+      else resolve({ ok: false, message: typeof rec.error === "string" && rec.error.length < 80 ? rec.error : "Not sent", refused: refusedStatus(xhr.status) });
     };
-    xhr.onerror = () => resolve({ ok: false, message: "No signal" });
-    xhr.ontimeout = () => resolve({ ok: false, message: "No signal" });
+    xhr.onerror = () => resolve({ ok: false, message: "No signal", refused: false });
+    xhr.ontimeout = () => resolve({ ok: false, message: "No signal", refused: false });
     xhr.timeout = 120_000;
     xhr.send(form);
   });

@@ -7,6 +7,7 @@ export type PillStatus =
   | "lot_open"
   | "in_progress"
   | "done"
+  | "not_done"
   | "do_not_touch"
   | "not_todo"
   | "idle"
@@ -24,13 +25,14 @@ export type PillStatus =
   | "expired"
   | "revoked";
 
-type Tone = "crew" | "green" | "warn" | "brand" | "plain" | "muted" | "outline";
+type Tone = "crew" | "green" | "warn" | "notDone" | "brand" | "plain" | "muted" | "outline";
 
 /** Tinted tones carry the colour in a dot and a 15 % wash; text stays ink so contrast holds. */
 const TONE: Record<Tone, { pill: string; dot: string | null }> = {
   crew: { pill: "bg-crew/15 text-ink", dot: "bg-crew" },
   green: { pill: "bg-brand-green/15 text-ink", dot: "bg-brand-green" },
   warn: { pill: "bg-warn/15 text-ink", dot: "bg-warn" },
+  notDone: { pill: "bg-not-done/15 text-ink", dot: "bg-not-done" },
   brand: { pill: "bg-brand text-on-brand", dot: null },
   plain: { pill: "bg-surface-2 text-ink ring-1 ring-inset ring-line", dot: null },
   muted: { pill: "bg-surface-2 text-muted", dot: null },
@@ -46,6 +48,7 @@ const STATUS: Record<PillStatus, { label: string; tone: Tone }> = {
   lot_open: { label: "Todo", tone: "crew" },
   in_progress: { label: "In progress", tone: "brand" },
   done: { label: "Done", tone: "green" },
+  not_done: { label: "Not done", tone: "notDone" },
   do_not_touch: { label: "Do not touch", tone: "warn" },
   not_todo: { label: "Not todo", tone: "outline" },
   idle: { label: "Idle", tone: "plain" },
@@ -65,7 +68,7 @@ const STATUS: Record<PillStatus, { label: string; tone: Tone }> = {
 };
 
 /** Lot statuses share keys with request statuses; `open` means a different thing for each. */
-export const lotPill = (s: "open" | "in_progress" | "done" | "do_not_touch" | "not_todo"): PillStatus => (s === "open" ? "lot_open" : s);
+export const lotPill = (s: "open" | "in_progress" | "done" | "not_done" | "do_not_touch" | "not_todo"): PillStatus => (s === "open" ? "lot_open" : s);
 
 export const StatusPill = ({ status, label, className = "" }: { status: PillStatus; label?: string; className?: string }) => {
   const tone = TONE[STATUS[status].tone];

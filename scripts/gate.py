@@ -1545,7 +1545,7 @@ def switch_checks() -> None:
                 page.wait_for_timeout(700)
                 if page.locator("[data-paint-bar]").count() == 0:
                     fail(f"{ptag}: Paint opened no bar")
-                for b in ("not_todo", "open", "in_progress", "done", "do_not_touch"):
+                for b in ("not_todo", "open", "in_progress", "done", "not_done", "do_not_touch"):
                     if page.locator(f'[data-brush="{b}"]').count() == 0:
                         fail(f"{ptag}: no {b} brush in the bar")
                 tri = page.evaluate(PAINT_TRIPLE_JS)

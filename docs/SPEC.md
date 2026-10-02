@@ -126,7 +126,7 @@ positions         id, kind ('crew'|'truck'), ref_id, lat, lng, accuracy, heading
 lots              id, event_id, parcel_id, address, lat, lng, source ('dlba'|'parcel'|'csv'|'manual'|'survey'|'drawn'),
                   geometry (nullable text, GeoJSON Polygon or MultiPolygon in WGS84, the parcel outline),
                   cc_id (nullable, stands for the CC's site across days, section 8), crew_id (nullable),
-                  status ('open'|'in_progress'|'done'|'do_not_touch'|'not_todo', section 21), grade ('high'|'low', nullable),
+                  status ('open'|'in_progress'|'done'|'not_done'|'do_not_touch'|'not_todo', sections 21, 28), grade ('high'|'low', nullable),
                   status_by_crew_id, status_at, note
                   unique (event_id, parcel_id) where parcel_id not null
 push_subscriptions id, session_id, endpoint (unique), p256dh, auth, created_at
@@ -444,9 +444,10 @@ Life Remodeled's brand: yellow, green, dark teal. Define these as CSS variables 
 | `--muted` | `#5b6b70` | `#9fb3b8` | Secondary text, timestamps. |
 | `--crew` | `#e5484d` | `#ff6b6b` | Crew (red shirt) markers and the crew scope chip. |
 | `--warn` | `#e55b00` | `#ff8a3d` | Low stock, urgent request age, skipped lots. |
+| `--not-done` | `#a21caf` | `#e879f9` | Lot Not done (section 28): plum, apart from every other status colour. |
 
 Status pills: open `--crew`, assigned `--ink` on `--surface-2`, en route `--brand`, delivered `--brand-green`,
-cancelled `--muted`. Lot status: the table in section 21 (Not todo outline, Todo `--crew`, In progress `--brand`, Done `--brand-green`, Do not touch `--warn` hatched).
+cancelled `--muted`. Lot status: the table in section 21 (Not todo outline, Todo `--crew`, In progress `--brand`, Done `--brand-green`, Not done `--not-done` dashed, Do not touch `--warn` hatched).
 Map markers: me = blue dot (`#2f80ed`, the one exception, so it reads as "you" like every other map),
 CC = `--ink` flag with a yellow fill, truck = yellow rounded square with the truck name, crew = red dot,
 lots = the parcel outline (2 px stroke in the status colour, same colour filled at 30 % opacity; lots
@@ -894,17 +895,18 @@ Status, one set of words everywhere, for every parcel in a CC's day area:
 | Todo | lot `open` | marked for work | `--crew` fill 30 % |
 | In progress | lot `in_progress` | a crew is on it | `--brand` |
 | Done | lot `done` | | `--brand-green` |
+| Not done | lot `not_done` | flagged work not finished, or not touched, by the end of the day (section 28) | `--not-done`, dashed outline |
 | Do not touch | lot `do_not_touch` | explicit, always visible as such | `--warn` hatched |
 
 - `skipped` is gone; migrate existing `skipped` rows to `do_not_touch`. Survey grade (`high`/`low`)
   becomes an optional field on a todo lot ("Full day" / "Light"), shown as a small tag, never a
   separate status.
 - Every parcel on the green map and the driver map is tappable, not only lots. The LotSheet opens
-  for any parcel with the five statuses as a segmented control in the words above, the grade tags
+  for any parcel with the six statuses (two rows of three on a phone) as a segmented control in the words above, the grade tags
   when Todo, the crew, photos, and a note. Choosing Todo on a bare parcel creates the lot for the
   day's CC on the spot, with the crew whose rectangle contains it. Choosing Not todo on a lot that
   was never touched deletes the row; on one with history it sets `not_todo` and keeps the history.
-- Crews can set Todo, In progress, Done and Not todo on parcels inside their own rectangle (the
+- Crews can set Todo, In progress, Done, Not done and Not todo on parcels inside their own rectangle (the
   crew map draws bare parcels inside the rectangle too). Drivers and greens anywhere at the CC.
   Do not touch: greens and admin only.
 - Green map, on-the-fly assignment: the oriented rectangle tool from Assignments lives here too.
@@ -912,11 +914,11 @@ Status, one set of words everywhere, for every parcel in a CC's day area:
   (or Build crews for a company from its headcount) and **Assign**; the parcels inside that are Todo
   move to those crews. Rectangle label sheet gains **Edit corners** (drag handles) and **Delete area**
   (lots stay, unassigned). Everything emits lot.changed and the portal Assignments page follows live.
-- Legend on the green map and the print sheets uses these five words.
+- Legend on the green map and the print sheets uses these six words. A Not done lot prints as work.
 - Gate: a parcel with no lot is tappable on the green map at zoom 17 (Playwright: tap, sheet opens,
   Todo, polygon turns red, reload shows it still red).
 - **Who sees which parcels.** Greens and admin see every parcel in the CC area (Not todo as a thin
-  outline) because they mark them. Drivers see only lots: Todo, In progress, Done, Do not touch;
+  outline) because they mark them. Drivers see only lots: Todo, In progress, Done, Not done, Do not touch;
   never the occupied parcels. Red shirts see only the lots inside their own assigned rectangle (and
   bare parcels inside it so they can mark one Todo); nothing outside it, unless a green reassigns
   them to another rectangle, which moves their view with them.
@@ -970,8 +972,8 @@ Marking lots one sheet at a time is too slow for a morning sweep or a correction
 the sharpie: pick a brush, drag across the parcels.
 
 - **Paint** button in the map's control row (green map, admin lots map, admin's green view). Tapping it
-  opens a brush bar at the bottom: the five statuses as chips in the usual words and colours
-  (Not todo, Todo, In progress, Done, Do not touch) and, on the green map, a **Crew** brush that
+  opens a brush bar at the bottom: the six statuses as chips in the usual words and colours
+  (Not todo, Todo, In progress, Done, Not done, Do not touch; two rows on a phone) and, on the green map, a **Crew** brush that
   assigns the parcel's lot to a chosen crew. One chip is active; the map cursor and a thin coloured
   border on the map show the mode is on. **Done** (exit) at the right end of the bar.
 - While painting: a tap on a parcel applies the brush to it immediately; a one-finger drag applies it
@@ -1003,7 +1005,7 @@ admin draws the shape and it becomes a lot like any other.
   parallel streets when the shape is long and thin, else "Lot"), status (default Todo), crew
   (prefilled with the rectangle that contains the centroid). **Save** creates a `lots` row with
   `source: 'drawn'`, no `parcel_id`, the drawn `geometry`, centroid lat/lng, the name in `address`.
-- Drawn lots behave like every other lot: five statuses, Paint mode, photos, crew visibility,
+- Drawn lots behave like every other lot: six statuses, Paint mode, photos, crew visibility,
   driver map, print sheets, stats, exports, Flag screen hit test (a drawn lot wins over a parcel
   when the point is inside both). Green and admin can **Edit shape** and **Delete lot** from its
   sheet; a lot with photos or history cannot be deleted, only set Not todo.
@@ -1124,7 +1126,7 @@ lots Todo.
   tap.
 - **Capabilities follow the person, not only the current screen.** A user who holds green at the
   current CC and day gets green powers on the driver screens: the driver map shows bare parcels as
-  thin outlines and has Paint (toggle brush plus Do not touch) and the parcel sheet with all five
+  thin outlines and has Paint (toggle brush plus Do not touch) and the parcel sheet with all six
   statuses. Server-side, procedures accept an actor whose user holds any approved membership granting
   the action at that CC and day, not only the session's current role.
 - Sign out signs out (Firebase and the session) and lands on /login. It never drops a person into the
@@ -1136,21 +1138,50 @@ lots Todo.
 ## 28. Wrap up: the After photo round (Filip, 2026-10-02, in the field)
 
 `/wrap` (green and admin's green view), nav **Wrap up** after Map.
-- Server `green.wrap`: every lot at the CC's site on the day that is Todo, In progress or Done, with
+- **Not done** status (Filip, 2026-10-02: "for when at the end of the day a property that we flagged was
+  not finished or not even touched"): lot `not_done`, a work lot like Todo and In progress. In every
+  status list after Done (section 21 table), plum `--not-done` with a dashed outline on the maps, a
+  Paint brush on every PaintBar, counted in Stats, the crew list, the admin lots panel and the area
+  sheets; an area's Done or Do not touch moves it like the other unfinished lots. Stored as text like
+  the other statuses: no migration, existing rows unchanged. Same role rules as Done.
+- Server `green.wrap`: every lot at the CC's site on the day that is Todo, In progress, Done or Not done, with
   address, position, status, crew name, `hasBefore`, `hasAfter` and the newest thumb id of each.
-- Screen: a map (56% of the height: lots, camera badges, blue dot, **Recenter**) over a compact list sorted by distance
-  from the phone, by address with no position. Tabs with counts: **Needs After** (a Before, no After;
-  the default), **Not done** (Todo or In progress), **All**. A row: address, status, crew, Before and
-  After marks (the thumb when taken, a hollow camera when missing), distance. A tap opens the lot
-  sheet with its Before and After tiles and highlights the lot on the strip.
+- Screen: a map (56% of the height: lots, camera badges, blue dot, **Recenter**, **Paint**) over a compact list sorted by distance
+  from the phone, by address with no position. Tabs with counts: **Needs After** (a Before, no After,
+  not Not done; the default), **Not done** (everything not Done: Todo, In progress, Not done), **All**.
+  A row: address, status, crew, Before and After marks (the thumb when taken, a hollow camera when
+  missing), distance.
+- **Tap flow** (Filip: "if I have to do extra button presses that's annoying"). A tap on a row or a
+  work lot on the map opens a chooser: the address as the heading, two big buttons **Done** and
+  **Not done**, and a small **Details** that opens the full lot sheet (photos, all statuses). Scrim,
+  Escape and the phone's Back close it with nothing written. A tap writes the status at once
+  (optimistic, `green.setLotStatus` through `useSetLot`).
+  - **Done** on a lot with a Before and no After opens the Flag screen's in-app camera full screen
+    (same camera, same Wide/Normal lens switch), headed with the address. One press of the **After**
+    shutter queues the photo as that lot's After and returns to the list at once; the upload runs
+    behind it with the Flag queue's behaviour (in order, retry 2/4/8/15 s and on `online`, a refusal
+    stops it with the reason). The row shows the local thumb while it uploads. **Close** returns
+    with no photo.
+  - **Not done** never opens the camera (Filip: "I don't care to take pictures of lots that we didn't
+    touch because there's no difference"): status, then straight back to the list. A Not done lot
+    needs no After: it leaves Needs After and its badge goes.
+  - Done on a lot with no Before, or with an After already: status only, back to the list.
+  - A lot on the strip that is not a work lot (Not todo, Do not touch) opens its lot sheet.
+- **Paint** (Filip: "any map where I'm changing status of things I need the paintbrush"): the green
+  map's Paint on the Wrap up map, same PaintBar, brushes and stroke handling (one finger paints, two
+  pan and pinch). While painting a tap paints and opens no chooser.
 - Camera badge (an ink camera in a 16 px white circle) only where photos get taken (Filip,
   2026-10-02: the day maps are not for photos):
   - Flag strip and Paint map, the morning round: a Todo or In progress lot with no Before
     (`hasBefore` on `green.overview`).
-  - Wrap up map, the afternoon round: a lot with a Before and no After (`needsAfter` on
-    `green.overview`).
+  - Wrap up map, the afternoon round: a lot with a Before and no After that is not Not done
+    (`needsAfter` on `green.overview`).
   - Never on the green map or the driver map.
   A photo upload emits lot.changed, so badges and the list follow live.
 - Gate: `/wrap` in the green routes; `tests/e2e/specs/wrap.e2e.ts` sees the badge on the Flag strip,
-  takes a Before, sees the lot under Needs After with its badge on the Wrap up strip and none on the
-  green map or the Flag strip, takes the After, sees it leave.
+  takes a Before through the chooser's Details, sees the lot under Needs After with its badge on the
+  Wrap up strip and none on the green map or the Flag strip; Escape closes the chooser with nothing
+  written; Not done sets the status with no camera and moves the lot from Needs After to Not done;
+  Done opens the camera (fake camera), Close returns with no photo, Done again and one shutter press
+  returns to the list and the After reaches the server; Done on a lot with an After opens no camera.
+  Paint on the Wrap up map shows all six status brushes and Crew, chips 44 px, overflow 0.

@@ -675,6 +675,7 @@ export const LotsPage = () => {
                     <Stat value={byStatus.get("open") ?? 0} label="Todo" tone="muted" />
                     <Stat value={byStatus.get("in_progress") ?? 0} label="In progress" tone="brand" />
                     <Stat value={byStatus.get("done") ?? 0} label="Done" tone="green" />
+                    <Stat value={byStatus.get("not_done") ?? 0} label="Not done" tone="notDone" />
                     <Stat value={byStatus.get("do_not_touch") ?? 0} label="Do not touch" tone="warn" />
                   </div>
                   {bySource.length > 0 && (

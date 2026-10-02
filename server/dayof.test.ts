@@ -151,7 +151,7 @@ describe("green day of", () => {
     const shared = p.areas.find((a) => a.id === w.shared.id)!;
     expect(shared.label).toBe("GM 1 & GM 2");
     expect(shared.streets).toBe("W Boston Blvd");
-    expect(shared.counts).toEqual({ open: 4, inProgress: 2, done: 2, doNotTouch: 0 });
+    expect(shared.counts).toEqual({ open: 4, inProgress: 2, done: 2, notDone: 0, doNotTouch: 0 });
     expect(shared.doNotTouch).toBe(false);
     expect(p.companies.map((c) => c.name)).toEqual(["DTE", "General Motors"]);
     expect(p.companies[1]!.crews.map((c) => c.name)).toEqual(["GM 1", "GM 2", "GM 3"]);

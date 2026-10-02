@@ -305,6 +305,28 @@ describe("wrap up", () => {
     expect(west.map((r) => r.id)).toEqual([theirs.id]);
   });
 
+  test("Not done is a work lot on the list and needs no After; setLotStatus takes it and Todo again", async () => {
+    const w = world();
+    const lot = db
+      .insert(s.lots)
+      .values({ eventId: w.ev.id, parcelId: "ND-1", address: "7 Harding", lat: CC_EAST.lat, lng: CC_EAST.lng, source: "manual", ccId: w.east.id, status: "open" })
+      .returning()
+      .get();
+    db.insert(s.lotPhotos).values({ lotId: lot.id, kind: "before", role: "green", ccId: w.east.id, dayId: w.day.id, at: Date.now(), width: 10, height: 10, bytes: 10 }).run();
+    expect((await w.green.overview()).lots.find((l) => l.id === lot.id)?.needsAfter).toBe(true);
+
+    const r = await w.green.setLotStatus({ lotId: lot.id, status: "not_done" });
+    expect(r.lot?.status).toBe("not_done");
+    const row = (await w.green.wrap()).find((l) => l.id === lot.id);
+    expect(row).toMatchObject({ status: "not_done", hasBefore: true, hasAfter: false });
+    // Nothing changed on the lot: no After badge on the Wrap up strip.
+    expect((await w.green.overview()).lots.find((l) => l.id === lot.id)?.needsAfter).toBe(false);
+    const stats = await w.green.stats();
+    expect(stats.lotsByStatus.not_done).toBe(1);
+
+    expect((await w.green.setLotStatus({ lotId: lot.id, status: "open" })).lot?.status).toBe("open");
+  });
+
   test("roles: admin with a CC, never driver, crew or signed out", async () => {
     const w = world();
     expect(await callerFor(mkAdmin(), w.east.id).wrap()).toEqual([]);

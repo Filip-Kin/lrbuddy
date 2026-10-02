@@ -41,9 +41,10 @@ export type LotSource = (typeof LOT_SOURCES)[number];
 
 /**
  * SPEC 21: open is "Todo"; a parcel with no lot row is "Not todo", and `not_todo`
- * is a reverted todo that keeps its history (photos, status trail).
+ * is a reverted todo that keeps its history (photos, status trail). `not_done` (SPEC 28) is a
+ * work lot that was not finished, or not touched, by the end of the day.
  */
-export const LOT_STATUSES = ["open", "in_progress", "done", "do_not_touch", "not_todo"] as const;
+export const LOT_STATUSES = ["open", "in_progress", "done", "not_done", "do_not_touch", "not_todo"] as const;
 export type LotStatus = (typeof LOT_STATUSES)[number];
 
 /** Optional work size on a todo lot (SPEC 21): high is "Full day", low is "Light". */

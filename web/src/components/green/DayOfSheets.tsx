@@ -10,7 +10,7 @@ import { errorText, useGreenInvalidate } from "./hooks.ts";
 import { Fact } from "./ui.tsx";
 
 const lots = (n: number): string => `${n.toLocaleString("en-US")} ${n === 1 ? "lot" : "lots"}`;
-const unfinished = (c: DayOfArea["counts"]): number => c.open + c.inProgress;
+const unfinished = (c: DayOfArea["counts"]): number => c.open + c.inProgress + c.notDone;
 const joinNames = (names: readonly string[]): string => (names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`);
 
 type Step = "menu" | "reassign" | "done" | "dnt" | "delete";
@@ -19,8 +19,9 @@ const DntTag = () => <span className="inline-flex rounded-full px-2.5 py-0.5 tex
 
 const Counts = ({ c }: { c: DayOfArea["counts"] }) => (
   <>
-    <Fact label="Todo">{unfinished(c)}</Fact>
+    <Fact label="Todo">{c.open + c.inProgress}</Fact>
     <Fact label="Done">{c.done}</Fact>
+    {c.notDone > 0 && <Fact label="Not done">{c.notDone}</Fact>}
     {c.doNotTouch > 0 && <Fact label="Do not touch">{c.doNotTouch}</Fact>}
   </>
 );

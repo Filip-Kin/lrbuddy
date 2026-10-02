@@ -27,9 +27,9 @@ export const Panel = ({
 );
 
 /** A number over a label, for count strips. */
-export const Stat = ({ value, label, tone }: { value: number | string; label: string; tone?: "brand" | "green" | "warn" | "crew" | "muted" }) => {
+export const Stat = ({ value, label, tone }: { value: number | string; label: string; tone?: "brand" | "green" | "warn" | "notDone" | "crew" | "muted" }) => {
   const dot =
-    tone === "brand" ? "bg-brand" : tone === "green" ? "bg-brand-green" : tone === "warn" ? "bg-warn" : tone === "crew" ? "bg-crew" : tone === "muted" ? "bg-muted" : null;
+    tone === "brand" ? "bg-brand" : tone === "green" ? "bg-brand-green" : tone === "warn" ? "bg-warn" : tone === "notDone" ? "bg-not-done" : tone === "crew" ? "bg-crew" : tone === "muted" ? "bg-muted" : null;
   return (
     <div className="min-w-0 rounded-xl bg-surface-2 px-3 py-2">
       <div className="text-xl font-bold tabular-nums">{typeof value === "number" ? value.toLocaleString("en-US") : value}</div>

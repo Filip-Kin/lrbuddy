@@ -104,7 +104,7 @@ export const printRouter = router({
     const ccPages = ccs.map((cc) => {
       const site = new Set(siteOf.get(cc.id) ?? [cc.id]);
       // Lots still to do, and Do not touch lots, which print hatched (SPEC 21).
-      const work = lotRows.filter((l) => l.ccId !== null && site.has(l.ccId) && (l.status === "open" || l.status === "in_progress" || l.status === "do_not_touch"));
+      const work = lotRows.filter((l) => l.ccId !== null && site.has(l.ccId) && (l.status === "open" || l.status === "in_progress" || l.status === "not_done" || l.status === "do_not_touch"));
       const ccAreas = areas.filter((a) => a.ccId === cc.id);
       const pts = [{ lat: cc.lat, lng: cc.lng }, ...work, ...ccAreas.flatMap((a) => areaPoints(a.area))];
       const bounds: BBox = bboxOf(pts) ?? [cc.lng, cc.lat, cc.lng, cc.lat];

@@ -140,7 +140,7 @@ test("a green-and-driver user paints on the driver map; a driver-only user gets 
     await page.locator("[data-paint]").click();
     await expect(page.locator("[data-paint-bar]")).toBeVisible();
     // All five statuses on the truck too (field report 2026-10-02).
-    for (const b of ["not_todo", "open", "in_progress", "done", "do_not_touch"]) await expect(page.locator(`[data-brush="${b}"]`)).toBeVisible();
+    for (const b of ["not_todo", "open", "in_progress", "done", "not_done", "do_not_touch"]) await expect(page.locator(`[data-brush="${b}"]`)).toBeVisible();
     const dnt = page.locator('[data-brush="do_not_touch"]');
     expect((await dnt.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await expect(page.locator("[data-queue-button]")).toHaveCount(0);

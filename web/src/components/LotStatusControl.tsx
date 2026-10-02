@@ -11,12 +11,13 @@ const ON: Record<LotStatus, string> = {
   open: "bg-crew/20 ring-2 ring-inset ring-crew",
   in_progress: "bg-brand text-on-brand ring-2 ring-inset ring-on-brand/40",
   done: "bg-brand-green/20 ring-2 ring-inset ring-brand-green",
+  not_done: "bg-not-done/20 ring-2 ring-inset ring-not-done",
   do_not_touch: "bg-warn/20 ring-2 ring-inset ring-warn",
 };
 
 /**
- * The five statuses of SPEC 21 as one row, in their order: Not todo, Todo,
- * In progress, Done, Do not touch. Do not touch is set and cleared by green
+ * The six statuses of SPEC 21 and 28 in their order: Not todo, Todo,
+ * In progress, Done, Not done, Do not touch; two rows of three on a phone. Do not touch is set and cleared by green
  * shirts and admin only (`canDnt`); for anyone else a Do not touch lot shows
  * the control with every segment off limits.
  */
@@ -33,7 +34,7 @@ export const LotStatusControl = ({
 }) => {
   const locked = !canDnt && status === "do_not_touch";
   return (
-    <div role="radiogroup" aria-label={label} className="grid grid-cols-5 gap-1 rounded-2xl bg-surface-2 p-1 ring-1 ring-inset ring-line">
+    <div role="radiogroup" aria-label={label} className="grid grid-cols-3 gap-1 nav:grid-cols-6 rounded-2xl bg-surface-2 p-1 ring-1 ring-inset ring-line">
       {STATUS_ORDER.map((s) => {
         const on = status === s;
         const off = locked || (s === "do_not_touch" && !canDnt);

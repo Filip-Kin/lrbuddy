@@ -18,9 +18,3 @@ export const STATUS_LABEL: Record<LotStatus, string> = {
 
 /** Survey grade on a Todo lot. */
 export const GRADE_LABEL: Record<LotGrade, string> = { high: "Full day", low: "Light" };
-
-/** Statuses only green shirts and admin may set or clear. */
-export const GREEN_ONLY: readonly LotStatus[] = ["do_not_touch"];
-
-/** Work lots: everything but Not todo. */
-export const isWorkStatus = (s: LotStatus): boolean => s !== "not_todo";

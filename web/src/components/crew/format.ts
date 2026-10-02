@@ -27,7 +27,6 @@ export const unitLabel = (unit: Unit): string => {
   return many.charAt(0).toUpperCase() + many.slice(1);
 };
 
-export const ACTIVE = ["open", "assigned", "en_route"] as const;
 export const isActive = (r: Pick<CrewRequest, "status">): boolean =>
   r.status === "open" || r.status === "assigned" || r.status === "en_route";
 

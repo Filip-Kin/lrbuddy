@@ -68,7 +68,13 @@ export const useWakeLock = (enabled = true): void => {
     const acquire = async (): Promise<void> => {
       if (cancelled || lock || document.visibilityState !== "visible" || !wakePreference()) return;
       try {
-        lock = await nav.wakeLock!.request("screen");
+        const got = await nav.wakeLock!.request("screen");
+        // The page went away (or the truck ran out of stops) while the request was out.
+        if (cancelled) {
+          void got.release().catch(() => undefined);
+          return;
+        }
+        lock = got;
         lock.addEventListener("release", () => {
           lock = null;
         });

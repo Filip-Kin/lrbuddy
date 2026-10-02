@@ -6,7 +6,6 @@ import { storageGet, storageSet } from "../../lib/safe.ts";
 export type GreenRequest = RouterOutputs["green"]["requests"][number];
 export type GreenTruck = RouterOutputs["green"]["trucks"][number];
 export type GreenCrew = RouterOutputs["green"]["crews"][number];
-export type GreenLot = RouterOutputs["green"]["lots"]["lots"][number];
 
 /** Re-renders every `ms` so ages and "last seen" stay current between refetches. */
 export const useNow = (ms = 30_000): number => {
@@ -101,14 +100,6 @@ export const requestWho = (r: Pick<GreenRequest, "crewName" | "label">): string 
 /** Priority 3 still waiting after 10 minutes, the same rule dispatch uses to route it first. */
 export const isUrgent = (r: Pick<GreenRequest, "priority" | "status" | "createdAt">, now: number): boolean =>
   r.priority >= 3 && (r.status === "open" || r.status === "assigned" || r.status === "en_route") && now - r.createdAt > 10 * 60_000;
-
-export const UNIT_PLURAL: Record<GreenRequest["unit"], [string, string]> = {
-  case: ["case", "cases"],
-  box: ["box", "boxes"],
-  can: ["can", "cans"],
-  each: ["", ""],
-  roll: ["roll", "rolls"],
-};
 
 /** "Water x2". */
 export const itemLine = (r: Pick<GreenRequest, "typeLabel" | "qty">): string => `${r.typeLabel} x${r.qty}`;

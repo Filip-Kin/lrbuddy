@@ -63,13 +63,6 @@ export const PlusIcon = ({ size }: { size?: number }) => (
   </Svg>
 );
 
-export const MapIcon = ({ size }: { size?: number }) => (
-  <Svg size={size}>
-    <path d="M9 4L3 6.5v13.5L9 17.5l6 2.5 6-2.5V4l-6 2.5z" />
-    <path d="M9 4v13.5M15 6.5V20" />
-  </Svg>
-);
-
 /** Arrow pointing up, turned by `angle` degrees clockwise. */
 export const ArrowIcon = ({ size, angle }: { size?: number; angle: number }) => (
   <span className="inline-grid place-items-center transition-transform duration-300" style={{ transform: `rotate(${angle}deg)` }}>

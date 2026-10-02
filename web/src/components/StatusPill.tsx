@@ -54,8 +54,6 @@ const STATUS: Record<PillStatus, { label: string; tone: Tone }> = {
   denied: { label: "Denied", tone: "muted" },
 };
 
-export const statusLabel = (s: PillStatus): string => STATUS[s].label;
-
 /** Lot statuses share keys with request statuses; `open` means a different thing for each. */
 export const lotPill = (s: "open" | "in_progress" | "done" | "do_not_touch" | "not_todo"): PillStatus => (s === "open" ? "lot_open" : s);
 

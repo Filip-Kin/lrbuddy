@@ -17,5 +17,4 @@ export const RectIcon = () => <Svg d="M4 4h16v16H4z" />;
 export const DownloadIcon = () => <Svg d="M12 4v11M7 10l5 5 5-5M5 20h14" />;
 export const PrintIcon = () => <Svg d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z" />;
 export const ChevronIcon = () => <Svg d="M9 6l6 6-6 6" />;
-export const RefreshIcon = () => <Svg d="M20 11a8 8 0 10-2.3 5.7M20 5v6h-6" />;
 export const UploadIcon = () => <Svg d="M12 20V9M7 14l5-5 5 5M5 4h14" />;

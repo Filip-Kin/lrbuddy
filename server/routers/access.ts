@@ -1,8 +1,9 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   cancelRequest,
+  candidates,
   decide,
   enterMembership,
   linkLabel,
@@ -16,8 +17,7 @@ import {
 } from "../access.ts";
 import { bus } from "../bus.ts";
 import { db } from "../db/index.ts";
-import { memberships, sessions } from "../db/schema.ts";
-import { activeEvent } from "../queries.ts";
+import { sessions } from "../db/schema.ts";
 import { adminProcedure, greenProcedure, publicProcedure, router, userProcedure } from "../trpc.ts";
 
 const id = z.number().int().positive();
@@ -62,13 +62,9 @@ export const accessRouter = router({
 
   /** Moves this session into one of the user's approved memberships (the chooser). */
   enter: userProcedure.input(z.object({ id })).mutation(({ ctx, input }) => {
-    const ev = activeEvent();
-    const m = db
-      .select()
-      .from(memberships)
-      .where(and(eq(memberships.id, input.id), eq(memberships.userId, ctx.user.id), eq(memberships.status, "approved")))
-      .get();
-    if (!m || !ev || m.eventId !== ev.id || !enterMembership(ctx.session.id, m)) throw new TRPCError({ code: "NOT_FOUND", message: "Access not found" });
+    // Only what the chooser offers: on an event day, today's memberships (SPEC 18).
+    const m = candidates(ctx.user.id).find((c) => c.id === input.id);
+    if (!m || !enterMembership(ctx.session.id, m)) throw new TRPCError({ code: "NOT_FOUND", message: "Access not found" });
     return { role: m.role };
   }),
 

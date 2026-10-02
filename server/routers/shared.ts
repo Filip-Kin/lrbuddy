@@ -73,10 +73,30 @@ const shouldEmit = (key: string, now: number): boolean => {
 };
 // #endregion
 
+/**
+ * A browser push service endpoint: https on a public host name. The server POSTs to
+ * whatever is stored here, so a loopback, private or bare IP address is refused.
+ */
+const PRIVATE_HOST = /^(localhost|.*\.localhost|.*\.local|.*\.internal|\[.*\]|\d{1,3}(\.\d{1,3}){3})$/i;
+export const isPushEndpoint = (raw: string): boolean => {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  return u.protocol === "https:" && u.hostname.includes(".") && !PRIVATE_HOST.test(u.hostname);
+};
+
 const pushRouter = router({
   key: publicProcedure.query(() => ({ publicKey: vapidPublicKey() })),
   subscribe: authedProcedure
-    .input(z.object({ endpoint: z.string().url().max(2000), keys: z.object({ p256dh: z.string().max(500), auth: z.string().max(500) }) }))
+    .input(
+      z.object({
+        endpoint: z.string().url().max(2000).refine(isPushEndpoint, "Not a push service"),
+        keys: z.object({ p256dh: z.string().max(500), auth: z.string().max(500) }),
+      }),
+    )
     .mutation(({ ctx, input }) => {
       subscribe(ctx.session.id, { endpoint: input.endpoint, p256dh: input.keys.p256dh, auth: input.keys.auth });
       return { ok: true };

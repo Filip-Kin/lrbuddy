@@ -55,7 +55,14 @@ const LINK_COOKIE = /^(crew|truck|cc):([A-Za-z0-9_-]{4,64})$/;
 const IMMUTABLE = /^\/assets\//;
 
 const serveStatic = async (pathname: string): Promise<Response> => {
-  const rel = normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/, "").replace(/^\/+/, "");
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    // A stray percent sign ("/%E0%A4%A") is a bad path, not a server error.
+    return new Response("Not found", { status: 404 });
+  }
+  const rel = normalize(decoded).replace(/^(\.\.[/\\])+/, "").replace(/^\/+/, "");
   if (rel && !rel.endsWith("/")) {
     const file = Bun.file(join(DIST, rel));
     if (await file.exists()) {
@@ -93,10 +100,50 @@ const readBody = async (req: Request): Promise<Record<string, string>> => {
 };
 // #endregion
 
+/**
+ * Largest request body: two 6 MB photos plus form overhead, and the admin's 5 MB lot CSV
+ * as JSON. Without it Bun buffers up to 128 MB per request, and one signed-in phone could
+ * push the 512 MB container over its limit with a single chunked upload.
+ */
+export const MAX_BODY_BYTES = 16 * 1024 * 1024;
+
+/**
+ * The request with its body held to MAX_BODY_BYTES, or null when it is longer. Bun's
+ * `maxRequestBodySize` checks a declared Content-Length only; a chunked body streams in
+ * unchecked, so it is read here with a running count instead.
+ */
+const boundedBody = async (req: Request): Promise<Request | null> => {
+  if (req.method === "GET" || req.method === "HEAD" || !req.body) return req;
+  const declared = Number(req.headers.get("content-length") ?? "NaN");
+  if (Number.isFinite(declared)) return declared > MAX_BODY_BYTES ? null : req;
+  const reader = req.body.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BODY_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    parts.push(value);
+  }
+  const headers = new Headers(req.headers);
+  headers.delete("transfer-encoding");
+  headers.set("content-length", String(total));
+  return new Request(req.url, { method: req.method, headers, body: Buffer.concat(parts) });
+};
+
 const server = Bun.serve({
   port: config.port,
   idleTimeout: 255,
-  async fetch(req, srv) {
+  maxRequestBodySize: MAX_BODY_BYTES,
+  async fetch(incoming, srv) {
+    // The address comes from the socket the request arrived on, before the body is re-read.
+    const ip = clientIp(incoming, srv);
+    const req = await boundedBody(incoming);
+    if (!req) return new Response("Request too large", { status: 413 });
     const url = new URL(req.url);
     const path = url.pathname;
 
@@ -131,11 +178,11 @@ const server = Bun.serve({
     }
 
     if (path === "/client-error" && req.method === "POST") {
-      return handleClientError(req, clientIp(req, srv), getSession(sessionIdFrom(req))?.role ?? null);
+      return handleClientError(req, ip, getSession(sessionIdFrom(req))?.role ?? null);
     }
 
     if (path === "/auth/login" && req.method === "POST") {
-      if (!allowLogin(clientIp(req, srv))) return json({ ok: false, error: "Too many tries" }, { status: 429 });
+      if (!allowLogin(ip)) return json({ ok: false, error: "Too many tries" }, { status: 429 });
       const body = await readBody(req);
       const session = loginWithCode(body.code ?? "", req.headers.get("user-agent"), body.displayName);
       if (!session) return json({ ok: false, error: "Unknown code" }, { status: 401 });
@@ -152,7 +199,7 @@ const server = Bun.serve({
 
     if (path === "/auth/firebase" && req.method === "POST") {
       if (!firebaseEnabled()) return json({ ok: false, error: "Sign-in unavailable" }, { status: 503 });
-      if (!allowLogin(clientIp(req, srv))) return json({ ok: false, error: "Too many tries" }, { status: 429 });
+      if (!allowLogin(ip)) return json({ ok: false, error: "Too many tries" }, { status: 429 });
       const body = await readBody(req);
       const token = await verifyIdToken(body.idToken ?? "");
       if (!token) return json({ ok: false, error: "Sign in again" }, { status: 401 });
@@ -232,7 +279,6 @@ const server = Bun.serve({
     // #endregion
 
     if (path === "/trpc" || path.startsWith("/trpc/")) {
-      const ip = clientIp(req, srv);
       const res = await fetchRequestHandler({
         endpoint: "/trpc",
         req,

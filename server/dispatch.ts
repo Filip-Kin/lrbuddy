@@ -615,13 +615,19 @@ export const adjustStock = (truckId: number, typeId: number, delta: number, now 
 // #endregion
 
 // #region routing
-const toPoint = (s: LatLng): LatLng => ({ lat: s.lat, lng: s.lng });
+/** Count of route computations started per truck; a finished one saves only if it is still the latest. */
+const routeRuns = new Map<number, number>();
+
+const toPoint =(s: LatLng): LatLng => ({ lat: s.lat, lng: s.lng });
 
 /**
  * Computes and saves a truck's route now (SPEC 7). Urgent stops go first as
  * their own trip; the rest follow from the last urgent stop.
  */
 export const computeRouteNow = async (truckId: number, now = Date.now()): Promise<Route | null> => {
+  // Computations for one truck can overlap while OSRM answers; only the newest may save.
+  const run = (routeRuns.get(truckId) ?? 0) + 1;
+  routeRuns.set(truckId, run);
   const truckRow = db.select().from(trucks).where(eq(trucks.id, truckId)).get();
   if (!truckRow) return null;
   const truck = settleStatus(truckId, now);
@@ -707,6 +713,8 @@ export const computeRouteNow = async (truckId: number, now = Date.now()): Promis
     originLat: origin.lat,
     originLng: origin.lng,
   } as const;
+  // A newer computation started while OSRM was answering: its stops are the current ones.
+  if (routeRuns.get(truckId) !== run) return null;
   // The truck may have been deleted while OSRM was answering.
   if (!db.select({ id: trucks.id }).from(trucks).where(eq(trucks.id, truckId)).get()) return null;
   const route = db

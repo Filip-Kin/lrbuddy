@@ -560,18 +560,23 @@ export const photoZipStream = (photos: readonly LotPhoto[]): ReadableStream<Uint
     },
     async pull() {
       if (!zip || ended) return;
-      const next = queue.shift();
-      if (!next) {
-        ended = true;
-        zip.end();
+      // A pull that enqueues nothing is never followed by another, so a photo whose
+      // file is gone (deleted while the zip streams) is skipped here, not by returning.
+      for (;;) {
+        const next = queue.shift();
+        if (!next) {
+          ended = true;
+          zip.end();
+          return;
+        }
+        const file = Bun.file(photoPath(next.id));
+        if (!(await file.exists())) continue;
+        const entry = new ZipPassThrough(names.get(next.id) ?? `${next.id}.jpg`);
+        entry.mtime = next.at;
+        zip.add(entry);
+        entry.push(new Uint8Array(await file.arrayBuffer()), true);
         return;
       }
-      const file = Bun.file(photoPath(next.id));
-      if (!(await file.exists())) return;
-      const entry = new ZipPassThrough(names.get(next.id) ?? `${next.id}.jpg`);
-      entry.mtime = next.at;
-      zip.add(entry);
-      entry.push(new Uint8Array(await file.arrayBuffer()), true);
     },
     cancel() {
       ended = true;

@@ -146,6 +146,23 @@ test("Paint: a stroke across three parcels makes them Todo, Undo takes them back
     await expectNoOverflow(page, "paint bar");
     await page.locator("[data-paint-undo]").click();
     for (const pid of painted) await expect(page.locator(`[data-parcel="${pid}"]`)).toBeAttached();
+    // Two fingers move the map and paint nothing (field report 2026-10-02: "needs multi touch").
+    await until(async () => !(await lotsOf(green)).some((l) => painted.includes(l.parcelId ?? "") && l.status === "open"), "the lots gone after Undo");
+    const before = await page.evaluate(() => {
+      const r = document.querySelector(".leaflet-container")!.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, pane: getComputedStyle(document.querySelector(".leaflet-map-pane")!).transform };
+    });
+    const cdp = await page.context().newCDPSession(page);
+    const pts = (dx: number, spread: number) => [
+      { x: before.x - spread + dx, y: before.y, id: 1 },
+      { x: before.x + spread + dx, y: before.y, id: 2 },
+    ];
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: pts(0, 40) });
+    for (let i = 1; i <= 8; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: pts(i * 15, 40 + i * 8) });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    const after = await page.evaluate(() => getComputedStyle(document.querySelector(".leaflet-map-pane")!).transform);
+    expect(after, "two fingers moved the map").not.toBe(before.pane);
+    await expect(page.locator("[data-paint-count]")).not.toHaveText(/[1-9] lots?$/);
     await until(async () => !(await lotsOf(green)).some((l) => painted.includes(l.parcelId ?? "") && l.status === "open"), "the lots gone after Undo");
     await page.locator("[data-paint-exit]").click();
     await expect(page.locator("[data-paint-bar]")).toHaveCount(0);

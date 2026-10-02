@@ -61,16 +61,47 @@ export const usePaintStroke = (map: L.Map | null, opts: PaintStrokeOptions): { z
     const wasDragging = map.dragging.enabled();
     const wasDbl = map.doubleClickZoom.enabled();
     const wasBox = map.boxZoom.enabled();
+    const wasTouchZoom = map.touchZoom.enabled();
     map.dragging.disable();
     map.doubleClickZoom.disable();
     map.boxZoom.disable();
+    // Two fingers pan and pinch here, not in Leaflet: its touch zoom only zooms about the centre
+    // and never pans with dragging off, so one finger paints and two move the map.
+    map.touchZoom.disable();
     // With dragging off, Leaflet leaves the container at touch-action pan-x pan-y, so Android
     // takes a one-finger drag as a scroll and fires pointercancel a few pixels in, which killed
     // every stroke. Own the touches while painting; Leaflet's pinch zoom still works.
     const prevTouchAction = el.style.touchAction;
     el.style.touchAction = "none";
 
-    const touches = new Set<number>();
+    const touches = new Map<number, L.Point>();
+    let gesture: { mid: L.Point; dist: number; zoom: number; anchor: L.LatLng; snap: number | undefined } | null = null;
+    const pair = (): [L.Point, L.Point] | null => {
+      const v = [...touches.values()];
+      return v.length >= 2 ? [v[0]!, v[1]!] : null;
+    };
+    const startGesture = (): void => {
+      const pts = pair();
+      if (!pts) return;
+      const mid = pts[0].add(pts[1]).divideBy(2);
+      gesture = { mid, dist: Math.max(1, pts[0].distanceTo(pts[1])), zoom: map.getZoom(), anchor: map.containerPointToLatLng(mid), snap: map.options.zoomSnap };
+      map.options.zoomSnap = 0;
+    };
+    const moveGesture = (): void => {
+      const pts = pair();
+      if (!gesture || !pts) return;
+      const mid = pts[0].add(pts[1]).divideBy(2);
+      const dist = Math.max(1, pts[0].distanceTo(pts[1]));
+      const zoom = Math.min(map.getMaxZoom(), Math.max(map.getMinZoom(), gesture.zoom + Math.log2(dist / gesture.dist)));
+      // Keep the spot that was under the fingers under the fingers.
+      const centre = map.unproject(map.project(gesture.anchor, zoom).subtract(mid).add(map.getSize().divideBy(2)), zoom);
+      map.setView(centre, zoom, { animate: false });
+    };
+    const endGesture = (): void => {
+      if (!gesture) return;
+      map.options.zoomSnap = gesture.snap;
+      gesture = null;
+    };
     let stroke: {
       id: number;
       touch: boolean;
@@ -158,11 +189,12 @@ export const usePaintStroke = (map: L.Map | null, opts: PaintStrokeOptions): { z
     const down = (e: PointerEvent): void => {
       if (onControl(e)) return;
       if (e.pointerType === "touch") {
-        touches.add(e.pointerId);
+        touches.set(e.pointerId, point(e));
         if (touches.size > 1) {
-          // A second finger: a pinch. Before the stroke shows it is dropped; after, it ends here.
+          // A second finger: pan and pinch. Before the stroke shows it is dropped; after, it ends here.
           if (stroke && !stroke.committed) abort();
           else finish();
+          if (!gesture) startGesture();
           return;
         }
       } else if (e.button !== 0) return;
@@ -172,6 +204,11 @@ export const usePaintStroke = (map: L.Map | null, opts: PaintStrokeOptions): { z
       visit(p);
     };
     const move = (e: PointerEvent): void => {
+      if (touches.has(e.pointerId)) touches.set(e.pointerId, point(e));
+      if (gesture) {
+        moveGesture();
+        return;
+      }
       if (!stroke || e.pointerId !== stroke.id) return;
       const p = point(e);
       along(p);
@@ -179,6 +216,11 @@ export const usePaintStroke = (map: L.Map | null, opts: PaintStrokeOptions): { z
     };
     const up = (e: PointerEvent): void => {
       touches.delete(e.pointerId);
+      // The gesture ends when a finger lifts; the one left behind does not start painting.
+      if (gesture) {
+        endGesture();
+        return;
+      }
       if (!stroke || e.pointerId !== stroke.id) return;
       if (e.type === "pointercancel" && !stroke.committed) abort();
       else finish();
@@ -204,7 +246,9 @@ export const usePaintStroke = (map: L.Map | null, opts: PaintStrokeOptions): { z
       window.removeEventListener("pointercancel", up, true);
       el.removeEventListener("click", click, true);
       el.removeEventListener("dblclick", click, true);
+      endGesture();
       el.style.touchAction = prevTouchAction;
+      if (wasTouchZoom) map.touchZoom.enable();
       if (wasDragging) map.dragging.enable();
       if (wasDbl) map.doubleClickZoom.enable();
       if (wasBox) map.boxZoom.enable();

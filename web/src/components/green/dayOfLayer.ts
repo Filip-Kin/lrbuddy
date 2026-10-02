@@ -47,6 +47,8 @@ export const useDayOfLayer = (
     };
   }, [map, areasZ]);
 
+  // `map` is a dependency so the rectangles draw when the map arrives after the plan (a fast
+  // answer, or the phone's cached copy): the group above only exists once the map does.
   useEffect(() => {
     const g = group.current;
     const r = renderer.current;
@@ -78,5 +80,5 @@ export const useDayOfLayer = (
       });
       g.addLayer(pill);
     }
-  }, [plan, visible]);
+  }, [map, areasZ, plan, visible]);
 };

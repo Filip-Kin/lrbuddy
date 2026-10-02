@@ -54,6 +54,7 @@ export const useParcelLayer = (
     };
   }, [map]);
 
+  // `map` is a dependency so the parcels draw when the map arrives after them (see dayOfLayer.ts).
   useEffect(() => {
     const g = group.current;
     const r = renderer.current;
@@ -72,5 +73,5 @@ export const useParcelLayer = (
         if (l instanceof L.Path) l.getElement()?.setAttribute("data-parcel", p.parcelId);
       });
     }
-  }, [parcels, visible, zoomOk, pending, anyZoom]);
+  }, [map, parcels, visible, zoomOk, pending, anyZoom]);
 };

@@ -168,13 +168,21 @@ test("map: lots at the CC without bare parcels, a lot set Done from its sheet", 
 
   const sheet = page.getByRole("dialog");
   // While the map follows the truck the first tap takes the map (SPEC 17); the next opens the lot.
-  for (let i = 0; i < 4 && !(await sheet.isVisible()); i++) {
+  // The map follows the truck and its rectangle pills move with the zoom, so a tap aimed at a lot can
+  // land on a pill and open that rectangle's card; close it and aim again.
+  const isLot = (t: string): boolean => lots.some((l) => l.address === t);
+  let title = "";
+  for (let i = 0; i < 6 && !isLot(title); i++) {
+    if (await sheet.isVisible()) {
+      await page.keyboard.press("Escape");
+      await expect(sheet).toBeHidden();
+    }
     const at = await until(async () => (await page.evaluate(`(${LOT_PICK})()`)) as { x: number; y: number } | null, "a Todo lot on screen to tap");
     await page.mouse.click(at.x, at.y);
     await page.waitForTimeout(600);
+    if (await sheet.isVisible()) title = (await sheet.getByRole("heading").first().innerText()).trim();
   }
   await expect(sheet).toBeVisible();
-  const title = (await sheet.getByRole("heading").first().innerText()).trim();
   const lot = lots.find((l) => l.address === title && l.status === "open");
   expect(lot, `the tapped lot "${title}" in driver.lots`).toBeTruthy();
   try {

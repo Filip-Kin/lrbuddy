@@ -87,8 +87,14 @@ test("the CC map draws lots, crew rectangles, the CC and the legend", async ({ a
   // Rectangle name pills declutter by zoom (SPEC 20): every one shows from 16 up.
   await zoomButtonTo(page, 16);
   const plan = await green.api.query<{ areas: Area[] }>("green.plan");
-  const pills = await map.getByRole("button").allInnerTexts();
-  expect(plan.areas.some((a) => pills.includes(a.label)), `a rectangle pill among ${pills.join(", ")}`).toBe(true);
+  // The declutter classes follow the zoom's end, which can come after the last button press returns.
+  let pills: string[] = [];
+  await expect
+    .poll(async () => {
+      pills = await map.getByRole("button").allInnerTexts();
+      return plan.areas.some((a) => pills.includes(a.label));
+    }, { message: "a rectangle pill on the map at zoom 16" })
+    .toBe(true);
   for (const b of ["Paint", "Draw area", "Draw lot", "Add stop"]) await expect(page.getByRole("button", { name: b, exact: true })).toBeVisible();
 });
 

@@ -35,21 +35,17 @@ test("FOUND-1: leaving the green map while it zooms throws no error and reports 
   }
   // The taps above go through Playwright's round trips, which can land after the zoom has ended.
   // These land inside the zoom for certain: the zoom and the route change from one script in the
-  // page, the route change the same pushState a nav Link makes.
+  // page, the route change the same pushState a nav Link makes. The script only schedules them and
+  // returns: an evaluate still waiting when the route changes can fail with "Execution context was
+  // destroyed" (once in a full run on 2026-10-01, the trace showing the same frame and no reload).
   for (const ms of [0, 50, 150]) {
     await visit(page, "/");
     await page.waitForTimeout(1200);
-    await page.evaluate(
-      (delay) =>
-        new Promise<void>((done) => {
-          document.querySelector<HTMLElement>(".leaflet-control-zoom-in")?.click();
-          setTimeout(() => {
-            history.pushState(null, "", "/crews");
-            done();
-          }, delay);
-        }),
-      ms,
-    );
+    await page.evaluate((delay) => {
+      document.querySelector<HTMLElement>(".leaflet-control-zoom-in")?.click();
+      setTimeout(() => history.pushState(null, "", "/crews"), delay);
+    }, ms);
+    await page.waitForURL("**/crews");
     await page.waitForTimeout(600);
   }
   expect(errors).toEqual([]);

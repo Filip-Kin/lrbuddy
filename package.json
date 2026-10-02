@@ -14,6 +14,7 @@
     "seed": "bun server/seed.ts",
     "oneway": "bun server/oneway.ts",
     "generate": "drizzle-kit generate",
+    "e2e": "playwright test",
     "shots": "/home/filip/pit-podcast-automation/.venv/bin/python scripts/shots.py"
   },
   "dependencies": {
@@ -37,6 +38,7 @@
     "zod": "^3"
   },
   "devDependencies": {
+    "@playwright/test": "1.60.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/bun": "^1.4.2",
     "@types/leaflet": "^1.9.22",

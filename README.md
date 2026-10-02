@@ -162,6 +162,32 @@ bun run shots http://127.0.0.1:3000 crew /,/requests --token demo-crew-01
 `bun run seed` again afterwards. Screenshots land in
 `/home/filip/preview-shots/lrbuddy/`.
 
+## End-to-end tests
+
+```sh
+bun run e2e                                   # whole suite, phone (390x844) and laptop (1440x900)
+bun run e2e tests/e2e/specs/driver.e2e.ts     # one file
+bun run e2e --project=phone -g "Paint"        # one test, one size
+```
+
+Playwright with the system Chromium (`/usr/bin/chromium`, no browser download). The run builds
+the web bundle into a temp folder, seeds two fresh databases there, starts two servers on free
+ports, runs `tests/e2e/specs/*.e2e.ts` and deletes the folder. It never touches `./data` or
+production. `E2E_KEEP=1` keeps the folder and the server logs; `E2E_WORKERS` sets the parallelism
+(6).
+
+- Offline. `tests/e2e/support/offline.ts` is preloaded into the seed and the servers and answers
+  ArcGIS (Land Bank and parcel layers), Overpass, OSRM and World Imagery from a made-up street grid
+  (`fake-world.ts`) around CC East, CC West and CC Webb. Browsers get a blank tile for Esri and
+  nothing else outside; any other outside request fails the test.
+- Two servers: the main one with Firebase off, and one with Firebase on through a fake Auth
+  emulator for the access request tests.
+- The phone and laptop projects run at the same time on one server, each in its own lane of the
+  seed (`support/lanes.ts`). Each test puts back what it changes where the app allows it
+  (broadcasts and events have no delete); the databases are thrown away at the end.
+- Bugs the suite found are in `tests/e2e/FOUND.md`, each with a `test.fixme` repro in
+  `specs/found.e2e.ts`.
+
 ## Deploy
 
 `docker build .` builds a two-stage `oven/bun:1` image (build arg `NPM_REGISTRY`

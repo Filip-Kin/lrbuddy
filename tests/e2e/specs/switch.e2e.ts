@@ -139,9 +139,9 @@ test("a green-and-driver user paints on the driver map; a driver-only user gets 
     await expect(page.locator(`[data-parcel="${at.parcelId}"]`)).toBeAttached();
     await page.locator("[data-paint]").click();
     await expect(page.locator("[data-paint-bar]")).toBeVisible();
-    await expect(page.locator("[data-brush]")).toHaveCount(0);
-    const dnt = page.locator("[data-flag-dnt-brush]");
-    await expect(dnt).toHaveAttribute("aria-pressed", "false");
+    // All five statuses on the truck too (field report 2026-10-02).
+    for (const b of ["not_todo", "open", "in_progress", "done", "do_not_touch"]) await expect(page.locator(`[data-brush="${b}"]`)).toBeVisible();
+    const dnt = page.locator('[data-brush="do_not_touch"]');
     expect((await dnt.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await expect(page.locator("[data-queue-button]")).toHaveCount(0);
     expect(await zoomOf(page)).toBeGreaterThanOrEqual(16);
@@ -154,11 +154,15 @@ test("a green-and-driver user paints on the driver map; a driver-only user gets 
     await expectRedTodo(page, painted);
     await expect(page.locator("[data-paint-count]")).toHaveText("3 lots");
     expect(await statuses()).toEqual(["open", "open", "open"]);
-    // Do not touch on its switch.
+    // Done and Do not touch brushes.
+    await page.locator('[data-brush="done"]').click();
+    await page.mouse.click(tri[1].x, tri[1].y);
+    await until(async () => (await statuses())[1] === "done", "the second parcel Done");
+    await page.locator("[data-paint-undo]").click();
+    await until(async () => (await statuses())[1] === "open", "Undo of Done");
     await dnt.click();
     await page.mouse.click(tri[0].x, tri[0].y);
     await until(async () => (await statuses())[0] === "do_not_touch", "the first parcel Do not touch");
-    await dnt.click();
     // Undo twice: back to bare.
     await page.locator("[data-paint-undo]").click();
     await until(async () => (await statuses())[0] === "open", "Undo of Do not touch");

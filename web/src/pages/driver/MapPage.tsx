@@ -13,11 +13,10 @@ import { useDistanceFrom, useDriverActions, useNewStopBuzz, useNow, useWakeLock,
 import { ArrowIcon, FlagIcon, LayersIcon, ListIcon, NavigateIcon, PhoneIcon, PinIcon, RecenterIcon, TruckIcon } from "../../components/driver/icons.tsx";
 import { AreaCard, DriverLotSheet } from "../../components/driver/WorkSheets.tsx";
 import { useSetLot } from "../../components/LotStatusControl.tsx";
-import { PaintFrame, PaintIcon, usePaint } from "../../components/PaintBar.tsx";
+import { PaintBar, PaintFrame, PaintIcon, usePaint } from "../../components/PaintBar.tsx";
 import type { ParcelView } from "../../components/ParcelSheet.tsx";
 import type { PaintTarget } from "../../lib/map/paintHit.ts";
 import { useMe } from "../../lib/session.ts";
-import { FlagPaintBar } from "../green/flag/FlagPaintBar.tsx";
 import { CcStopCard, ErrorLine, NewPill, StopDetails, StopRow, isNew, stopEta, useArmed } from "../../components/driver/StopCard.tsx";
 import { distance, duration, lotTitle, telHref } from "../../lib/format.ts";
 import { useMyFix } from "../../lib/position.ts";
@@ -376,7 +375,7 @@ export const MapPage = () => {
         onMap={setLeaflet}
       />
       <PaintFrame paint={paint} />
-      <FlagPaintBar paint={paint} onDone={paint.close} />
+      <PaintBar paint={paint} />
 
       <div className="pointer-events-none absolute inset-x-2 top-2 z-[1000] mx-auto max-w-lg space-y-2">
         {q &&
@@ -417,7 +416,7 @@ export const MapPage = () => {
             onClick={() => {
               setSel(null);
               setFollow(false);
-              paint.open("toggle");
+              paint.open("open");
             }}
           >
             <PaintIcon />

@@ -1545,8 +1545,9 @@ def switch_checks() -> None:
                 page.wait_for_timeout(700)
                 if page.locator("[data-paint-bar]").count() == 0:
                     fail(f"{ptag}: Paint opened no bar")
-                if page.locator("[data-flag-dnt-brush]").count() == 0:
-                    fail(f"{ptag}: no Do not touch switch in the bar")
+                for b in ("not_todo", "open", "in_progress", "done", "do_not_touch"):
+                    if page.locator(f'[data-brush="{b}"]').count() == 0:
+                        fail(f"{ptag}: no {b} brush in the bar")
                 tri = page.evaluate(PAINT_TRIPLE_JS)
                 if not tri:
                     fail(f"{ptag}: no three neighbouring bare parcels on the driver map")

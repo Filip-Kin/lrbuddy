@@ -294,38 +294,6 @@ export const LoginPage = () => {
           )
         )}
 
-        {!restoring && (
-          <div className={firebaseOn ? "border-t border-line pt-3" : ""}>
-            {showStaff ? (
-              <form onSubmit={(e) => void staff(e)} noValidate className="space-y-3">
-                <Field
-                  label="Staff password"
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoFocus={staffOpen}
-                  error={staffError ?? (firebaseOn ? null : error)}
-                />
-                <Button type="submit" variant={firebaseOn ? "secondary" : "primary"} size="lg" block busy={busy === "password"}>
-                  Sign in
-                </Button>
-              </form>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setStaffOpen(true)}
-                className="mx-auto flex min-h-10 items-center rounded-lg px-3 text-sm font-semibold text-muted underline underline-offset-4 hover:text-ink"
-              >
-                Staff password
-              </button>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

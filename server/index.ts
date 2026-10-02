@@ -182,7 +182,7 @@ const server = Bun.serve({
       return handleClientError(req, ip, getSession(sessionIdFrom(req))?.role ?? null);
     }
 
-    if (path === "/auth/login" && req.method === "POST") {
+    if (path === "/auth/login" && req.method === "POST" && process.env.LRB_TEST_AUTH === "1") {
       if (!allowLogin(ip)) return json({ ok: false, error: "Too many tries" }, { status: 429 });
       const body = await readBody(req);
       // Staff password only (SPEC 4); codes and tokens sign in through /j, /t and /g.

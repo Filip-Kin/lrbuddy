@@ -1,9 +1,12 @@
 /**
  * Shared fixtures for the e2e specs.
  *
- * `as(code)` opens a new browser context signed in with that code (truck code, green code, crew
- * token or the admin password), the way scripts/gate.py and story.py do it, and returns its page
- * plus a tRPC client on the same cookies. Every context:
+ * `as(who)` opens a new browser context signed in as `who` and returns its page plus a tRPC client
+ * on the same cookies. `who` is a QR link path (`/g/<green code>`, `/t/<truck code>`,
+ * `/j/<crew token>`), opened the way a phone opens the scanned link, or the admin password, posted
+ * to `/auth/login`. Those are the only ways in (SPEC 4): codes are never typed. On the signin
+ * server (Firebase on) a link path first signs a fresh user in, as a person scanning after sign-in.
+ * Every context:
  *
  * - carries its own X-Forwarded-For address (the servers trust one proxy hop), so the login limit
  *   of 20 a minute counts per context, as it would per phone;
@@ -13,7 +16,8 @@
  *   when the test ends.
  */
 import { test as base, expect, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "@playwright/test";
-import { LANES, type Lane, type LaneId } from "./lanes.ts";
+import { firebaseSignIn } from "./firebase.ts";
+import { laneFrom, seedCodes, type Lane, type LaneId } from "./lanes.ts";
 
 // #region tRPC over the context's cookies
 export class TrpcError extends Error {
@@ -151,17 +155,23 @@ export interface LaneOptions {
 }
 
 interface Fixtures {
+  /** The lane on the main server. */
   L: Lane;
+  /** The same lane on the signin server, which has its own generated codes. */
+  LS: Lane;
   base: string;
   /** The second server, with Firebase sign-in on (global-setup.ts). */
   signin: string;
   admin: string;
-  as: (code: string, opts?: AsOptions) => Promise<Role>;
+  as: (who: string, opts?: AsOptions) => Promise<Role>;
 }
+
+let userSerial = 0;
 
 export const test = base.extend<Fixtures & LaneOptions>({
   lane: ["a", { option: true }],
-  L: async ({ lane }, use) => use(LANES[lane]),
+  L: async ({ lane }, use) => use(laneFrom(lane, seedCodes("E2E_CODES"))),
+  LS: async ({ lane }, use) => use(laneFrom(lane, seedCodes("E2E_SIGNIN_CODES"))),
   base: async ({}, use) => {
     const url = process.env.E2E_BASE_URL;
     if (!url) throw new Error("E2E_BASE_URL unset: run the suite with `bun run e2e`");
@@ -199,8 +209,22 @@ export const test = base.extend<Fixtures & LaneOptions>({
         },
       );
       if (!opts.anon) {
-        const res = await ctx.request.post(`${url}/auth/login`, { data: { code, displayName: opts.name ?? "E2E" } });
-        expect(res.status(), `login with ${code === process.env.E2E_ADMIN_PASSWORD ? "admin password" : code}`).toBe(200);
+        const name = opts.name ?? "E2E";
+        if (code.startsWith("/")) {
+          const firebaseOn = url === process.env.E2E_SIGNIN_URL;
+          if (firebaseOn) {
+            userSerial++;
+            const uid = `e2e-link-${process.pid}-${process.env.TEST_PARALLEL_INDEX ?? 0}-${userSerial}-${Date.now()}`;
+            await firebaseSignIn(ctx, url, uid, name, "");
+          }
+          const res = await ctx.request.get(`${url}${code}`, { maxRedirects: 0 });
+          expect(res.status(), `QR link ${code}`).toBe(302);
+          expect(res.headers()["location"], `QR link ${code}`).toBe("/");
+          if (!firebaseOn) expect((await ctx.request.post(`${url}/auth/name`, { data: { displayName: name } })).status()).toBe(200);
+        } else {
+          const res = await ctx.request.post(`${url}/auth/login`, { data: { code, displayName: name } });
+          expect(res.status(), "login with the admin password").toBe(200);
+        }
       }
       const page = await ctx.newPage();
       const role: Role = { ctx, page, api: new Api(ctx, url), allowPageErrors: false };

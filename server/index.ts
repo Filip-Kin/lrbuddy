@@ -11,7 +11,8 @@ import {
   getSession,
   JOIN_COOKIE,
   joinCookie,
-  loginWithCode,
+  loginWithLink,
+  loginWithPassword,
   parseCookies,
   sessionCookie,
   sessionIdFrom,
@@ -184,8 +185,9 @@ const server = Bun.serve({
     if (path === "/auth/login" && req.method === "POST") {
       if (!allowLogin(ip)) return json({ ok: false, error: "Too many tries" }, { status: 429 });
       const body = await readBody(req);
-      const session = loginWithCode(body.code ?? "", req.headers.get("user-agent"), body.displayName);
-      if (!session) return json({ ok: false, error: "Unknown code" }, { status: 401 });
+      // Staff password only (SPEC 4); codes and tokens sign in through /j, /t and /g.
+      const session = loginWithPassword(body.code ?? "", req.headers.get("user-agent"), body.displayName);
+      if (!session) return json({ ok: false, error: "Wrong password" }, { status: 401 });
       deleteSession(sessionIdFrom(req));
       return json({ ok: true, role: session.role }, { headers: { "set-cookie": sessionCookie(session.id) } });
     }
@@ -241,8 +243,8 @@ const server = Bun.serve({
       if (!linkTarget(kind, raw)) return redirect("/login?link=unknown");
       if (!firebaseEnabled()) {
         // No Firebase project yet: the printed QR still signs in on the spot, as before SPEC 18.
-        const session = loginWithCode(raw, req.headers.get("user-agent"));
-        if (!session || session.role === "admin") return redirect("/login?link=unknown");
+        const session = loginWithLink(kind, raw, req.headers.get("user-agent"));
+        if (!session) return redirect("/login?link=unknown");
         deleteSession(sessionIdFrom(req));
         return redirect("/", sessionCookie(session.id));
       }

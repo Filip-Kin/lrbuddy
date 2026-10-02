@@ -1,16 +1,21 @@
 /**
  * Demo event for SPEC 11. Wipes and recreates "Demo 2026" on every run, so it
- * is safe to run again. Prints every code and join link at the end.
+ * is safe to run again. Codes and tokens are generated (setup.ts); the join
+ * links are printed at the end and written to $DATA_DIR/seed-codes.json.
  */
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { config } from "./config.ts";
 import { db } from "./db/index.ts";
 import {
   broadcasts,
+  commandCenters,
   companies,
   crews,
   days,
   events,
+  greenCodes,
   greenShirts,
   lots,
   positions,
@@ -108,6 +113,44 @@ const loadLots = async (eventId: number): Promise<"dlba" | "synthetic"> => {
 };
 // #endregion
 
+// #region seed codes
+/** One generated code and its QR link, as written to `$DATA_DIR/seed-codes.json`. */
+interface SeedCode {
+  role: "green" | "driver" | "crew";
+  /** Day number in the event (sort), 1 to 6. */
+  day: number;
+  /** CC name without "CC ". */
+  cc: string;
+  /** "CC East", "Truck 1", "FORD 1". */
+  name: string;
+  /** Green code, truck code or crew token, as generated. */
+  code: string;
+  /** Path of the QR link: /g/<code>, /t/<code>, /j/<token>. */
+  path: string;
+  link: string;
+}
+
+/** Every green code, truck code and crew token of the event, read back from the database. */
+const seedCodes = (eventId: number): SeedCode[] => {
+  const out: SeedCode[] = [];
+  const base = config.publicUrl;
+  const add = (role: SeedCode["role"], day: number, cc: string, name: string, prefix: string, code: string): void => {
+    const path = `/${prefix}/${code}`;
+    out.push({ role, day, cc, name, code, path, link: `${base}${path}` });
+  };
+  const dayRows = db.select().from(days).where(eq(days.eventId, eventId)).orderBy(asc(days.sort)).all();
+  for (const day of dayRows) {
+    for (const cc of db.select().from(commandCenters).where(eq(commandCenters.dayId, day.id)).orderBy(asc(commandCenters.id)).all()) {
+      const green = db.select().from(greenCodes).where(eq(greenCodes.ccId, cc.id)).get();
+      if (green) add("green", day.sort, cc.name, `CC ${cc.name}`, "g", green.code);
+      for (const t of db.select().from(trucks).where(eq(trucks.ccId, cc.id)).orderBy(asc(trucks.id)).all()) add("driver", day.sort, cc.name, t.name, "t", t.code);
+      for (const cr of db.select().from(crews).where(eq(crews.ccId, cc.id)).orderBy(asc(crews.number)).all()) add("crew", day.sort, cc.name, cr.name, "j", cr.token);
+    }
+  }
+  return out;
+};
+// #endregion
+
 const main = async (): Promise<void> => {
   wipe();
   const now = Date.now();
@@ -117,8 +160,8 @@ const main = async (): Promise<void> => {
   const typeId = (key: string): number => types.find((t) => t.key === key)!.id;
 
   // #region command centers
-  const east = createCc({ dayId: day1.id, name: "East", lat: 42.3786, lng: -82.9911, address: "Anchor Detroit, East Warren Ave", code: "EAST01", letter: "A" });
-  const west = createCc({ dayId: day1.id, name: "West", lat: 42.3701, lng: -83.0209, address: "Chandler Park Dr and Conner St", code: "WEST01", letter: "B" });
+  const east = createCc({ dayId: day1.id, name: "East", lat: 42.3786, lng: -82.9911, address: "Anchor Detroit, East Warren Ave", letter: "A" });
+  const west = createCc({ dayId: day1.id, name: "West", lat: 42.3701, lng: -83.0209, address: "Chandler Park Dr and Conner St", letter: "B" });
   const shirts: Array<[number, string, string, string]> = [
     [east.id, "Dana Brooks", "313-555-0101", "Site lead"],
     [east.id, "Marcus Hill", "313-555-0102", "Supplies"],
@@ -155,16 +198,15 @@ const main = async (): Promise<void> => {
         leadPhone: `313-555-${String(1100 + i).padStart(4, "0")}`,
         headcount: 8 + (i % 5),
         number: i + 1,
-        token: `demo-crew-${String(i + 1).padStart(2, "0")}`,
       }),
     );
   }
   // #endregion
 
   // #region trucks
-  const t1 = createTruck({ dayId: day1.id, ccId: east.id, name: "Truck 1", driverName: "Chris Young", driverPhone: "313-555-0301", code: "TRUCK1" });
-  const t2 = createTruck({ dayId: day1.id, ccId: east.id, name: "Truck 2", driverName: "Pat Ortiz", driverPhone: "313-555-0302", code: "TRUCK2" });
-  const t3 = createTruck({ dayId: day1.id, ccId: west.id, name: "Truck 3", driverName: "Kim Walsh", driverPhone: "313-555-0303", code: "TRUCK3" });
+  const t1 = createTruck({ dayId: day1.id, ccId: east.id, name: "Truck 1", driverName: "Chris Young", driverPhone: "313-555-0301" });
+  const t2 = createTruck({ dayId: day1.id, ccId: east.id, name: "Truck 2", driverName: "Pat Ortiz", driverPhone: "313-555-0302" });
+  const t3 = createTruck({ dayId: day1.id, ccId: west.id, name: "Truck 3", driverName: "Kim Walsh", driverPhone: "313-555-0303" });
   // #endregion
 
   // #region lots: CC by nearest, about half to crews in clusters
@@ -333,23 +375,14 @@ const main = async (): Promise<void> => {
   if (alleyLoad.error) console.warn(`[seed] alleys for CC B failed: ${alleyLoad.error}`);
   // #endregion
 
-  // #region report
-  const base = config.publicUrl;
+  // #region report: every generated code and join link, printed and written to $DATA_DIR/seed-codes.json
+  const codes = seedCodes(ev.id);
+  const file = join(config.dataDir, "seed-codes.json");
+  mkdirSync(config.dataDir, { recursive: true });
+  writeFileSync(file, `${JSON.stringify(codes, null, 2)}\n`);
   const rows: Array<[string, string, string]> = [
-    ["admin", "Admin", "(ADMIN_PASSWORD)"],
-    ["green", "CC East", `EAST01  ${base}/g/EAST01`],
-    ["green", "CC West", `WEST01  ${base}/g/WEST01`],
-    ["driver", "Truck 1 (East)", `TRUCK1  ${base}/t/TRUCK1`],
-    ["driver", "Truck 2 (East)", `TRUCK2  ${base}/t/TRUCK2`],
-    ["driver", "Truck 3 (West)", `TRUCK3  ${base}/t/TRUCK3`],
-    ["green", "Day 4 CC B (Webb)", `DURFB1  ${base}/g/DURFB1`],
-    ["driver", "Truck B1 (Webb)", `TRUCKB1  ${base}/t/TRUCKB1`],
-    ["driver", "Truck B2 (Webb)", `TRUCKB2  ${base}/t/TRUCKB2`],
-    ...crewRows.map((cr): [string, string, string] => [
-      "crew",
-      `${cr.name} (${cr.ccId === east.id ? "East" : "West"})`,
-      `${base}/j/${cr.token}`,
-    ]),
+    ["admin", "Admin", `(ADMIN_PASSWORD)  ${config.publicUrl}/login`],
+    ...codes.map((c): [string, string, string] => [c.role, c.role === "green" ? `Day ${c.day} CC ${c.cc}` : `Day ${c.day} CC ${c.cc}: ${c.name}`, c.link]),
   ];
   const w0 = Math.max(...rows.map((r) => r[0].length));
   const w1 = Math.max(...rows.map((r) => r[1].length));
@@ -357,10 +390,10 @@ const main = async (): Promise<void> => {
   console.log(`Plan: ${plan.parcels}, ${plan.tags} survey tags, ${plan.assigned} block sides assigned, ${plan.shared} shared areas, ${plan.published} lots published, ${plan.areas} crew areas\n`);
   console.log(`Day 4 CC B: ${ccb.parcels}, ${ccb.tags} survey tags, ${ccb.sides} block sides, ${ccb.areas} rectangles, ${ccb.lots} lots, ${ccb.crews.length} crews`);
   console.log(`One-way ways: ${oneway.join(", ")}; CC B alleys: ${alleyLoad.error ? "unavailable" : alleyLoad.alleys}\n`);
-  console.log(`${"role".padEnd(w0)}  ${"who".padEnd(w1)}  code or join link`);
+  console.log(`${"role".padEnd(w0)}  ${"who".padEnd(w1)}  join link`);
   console.log(`${"-".repeat(w0)}  ${"-".repeat(w1)}  ${"-".repeat(40)}`);
-  for (const [role, who, code] of rows) console.log(`${role.padEnd(w0)}  ${who.padEnd(w1)}  ${code}`);
-  console.log(`\nLog in at ${base}/login\n`);
+  for (const [role, who, link] of rows) console.log(`${role.padEnd(w0)}  ${who.padEnd(w1)}  ${link}`);
+  console.log(`\nCodes and links in ${file}\n`);
   // #endregion
 };
 

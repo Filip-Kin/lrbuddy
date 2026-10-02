@@ -48,8 +48,8 @@ const Brand = () => (
 
 /**
  * SPEC 18 sign-in: Name and Mobile number, Continue sends a text with a
- * six-digit code; Google below a divider; "Staff password" reveals the old
- * password and code login. A Firebase user already signed in on this phone
+ * six-digit code; Google below a divider; "Staff password" reveals the admin
+ * password field (truck, green and crew codes sign in only through their QR links). A Firebase user already signed in on this phone
  * goes straight through. Without Firebase (no config here or on the server)
  * only the staff password shows.
  */
@@ -190,7 +190,7 @@ export const LoginPage = () => {
       return;
     }
     setBusy(null);
-    setStaffError(res.error === "Unknown code" ? "Wrong password" : res.error);
+    setStaffError(res.error);
   };
 
   const showStaff = staffOpen || (decided && !firebaseOn);

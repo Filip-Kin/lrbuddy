@@ -30,9 +30,10 @@ to approve it.
 | Admin | none; the Staff password link on `/login` (`ADMIN_PASSWORD`) | Event, Day, Companies, Crews, Lots, Photos, Catalog, Export, Green view, Access, and the planning portal (Plan) |
 
 Green shirts approve requests for their CC at `/access` (a count shows in the
-nav); admin sees every CC at `/admin/access`. The truck and green codes still
-work in the Staff password field, and `POST /auth/login` still takes every code,
-which is how the gate and the scripts sign in.
+nav); admin sees every CC at `/admin/access`. Typed codes are not a way in:
+`POST /auth/login` (the Staff password field) takes only `ADMIN_PASSWORD`, and a
+truck code, green code or crew token works only through its `/t`, `/g` or `/j`
+link. The gate, the scripts and the e2e suite sign in through those links.
 
 ## Sign-in setup (Firebase)
 
@@ -107,7 +108,7 @@ rotate handles. It exists because the east side's streets run on a diagonal.
 ```sh
 bun install
 cp .env.example .env          # set SESSION_SECRET and ADMIN_PASSWORD
-bun run seed                  # demo event; prints every code and crew join link
+bun run seed                  # demo event; prints every QR join link, writes $DATA_DIR/seed-codes.json
 bun run dev                   # server on :3000 with watch, vite on :5173
 ```
 
@@ -118,14 +119,19 @@ bun run build                 # web build into web/dist
 bun run start                 # API and web/dist on $PORT
 ```
 
-`bun run seed` wipes and recreates the event "Demo 2026": two CCs (codes `EAST01`,
-`WEST01`, QR links `/g/EAST01`, `/g/WEST01`), three trucks (`TRUCK1`, `TRUCK2`,
-`TRUCK3`, QR links `/t/TRUCK1` and so on), twelve crews
-(`/j/demo-crew-01` to `/j/demo-crew-12`), 300 Land Bank lots with parcel outlines
+`bun run seed` wipes and recreates the event "Demo 2026": two CCs (East and West), three
+trucks, twelve crews, Day 4's CC Webb with two trucks and twenty crews, 300 Land Bank lots with parcel outlines
 (150 generated lots when the Land Bank does not answer), eight requests and one
 broadcast. For the portal it caches the assessor parcels for the seed area (about
 19,000; the first seed takes about a minute), tags a survey by "Kelsey" and gives
 the twelve crews block sides and areas, without publishing.
+
+Every green code, truck code and crew token is generated on each run, the same way the admin
+pages make them. The seed prints the QR join links (`/g/<code>`, `/t/<code>`, `/j/<token>`) and
+writes them to `$DATA_DIR/seed-codes.json` (role, day, cc, name, code, path, link), where the
+scripts and the e2e suite read them. That file stays in the data folder, never in the repo.
+People sign in only by QR link or, after phone or Google sign-in, by access request; the staff
+password is the only thing `/auth/login` takes.
 
 ## Environment
 
@@ -155,10 +161,11 @@ PY=/home/filip/pit-podcast-automation/.venv/bin/python
 $PY scripts/gate.py http://127.0.0.1:3000 <admin password>     # release gate, must exit 0
 $PY scripts/story.py http://127.0.0.1:3000 <admin password>    # full flow across all four roles, on a fresh seed
 $PY scripts/access.py http://127.0.0.1:3000 http://127.0.0.1:9099 <admin password>   # sign-in and approvals, emulator only
-bun run shots http://127.0.0.1:3000 crew /,/requests --token demo-crew-01
+bun run shots http://127.0.0.1:3000 crew /,/requests --link "$(jq -r '.[] | select(.name=="FORD 1") | .path' data/seed-codes.json)"
 ```
 
-`story.py` changes data (one request, one green stop, a Land Bank import); run
+The scripts read the QR links from `$DATA_DIR/seed-codes.json` (`SEED_CODES` names another file),
+so run them with the `DATA_DIR` the server was seeded into. `story.py` changes data (one request, one green stop, a Land Bank import); run
 `bun run seed` again afterwards. Screenshots land in
 `/home/filip/preview-shots/lrbuddy/`.
 

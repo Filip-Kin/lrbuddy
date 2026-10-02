@@ -2,7 +2,7 @@
 
     docker compose up -d                      # emulator on :9099 (FIREBASE_AUTH_PORT to move it)
     VITE_FIREBASE_EMULATOR=http://127.0.0.1:9099 bun run build
-    bun run seed
+    bun run seed                              # writes $DATA_DIR/seed-codes.json, read here for the QR links
     FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 bun run start
     /home/filip/pit-podcast-automation/.venv/bin/python scripts/access.py http://127.0.0.1:3000 http://127.0.0.1:9099 <admin pw>
 
@@ -16,6 +16,8 @@ import time
 import urllib.request
 
 from playwright.sync_api import Page, expect, sync_playwright
+
+import seedcodes
 
 BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://127.0.0.1:3000"
 EMU = sys.argv[2].rstrip("/") if len(sys.argv) > 2 else "http://127.0.0.1:9099"
@@ -69,11 +71,6 @@ def phone_sign_in(page: Page, name: str, typed: str, e164: str, tag: str) -> Non
     page.get_by_role("button", name="Sign in", exact=True).first.click()
 
 
-def code_login(ctx, code: str) -> None:
-    r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps({"code": code, "displayName": "Dana"}), headers={"content-type": "application/json"})
-    check(r.status == 200, f"code login {code} -> {r.status}")
-
-
 def main() -> None:
     # Start clean: no users or codes left in the emulator from an earlier run.
     emulator(f"/emulator/v1/projects/{PROJECT}/accounts", "DELETE")
@@ -81,7 +78,7 @@ def main() -> None:
         browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
         opts = dict(viewport=PHONE, device_scale_factor=2, is_mobile=True, has_touch=True)
 
-        # region 1. Phone sign-in, request ROCKET 1 as a red shirt, EAST01 approves, the crew map opens.
+        # region 1. Phone sign-in, request ROCKET 1 as a red shirt, a CC East green shirt approves, the crew map opens.
         red = browser.new_context(**opts)
         page = red.new_page()
         errors: list[str] = []
@@ -108,9 +105,13 @@ def main() -> None:
         shot(page, "red-5-pending")
         check(page.get_by_role("link", name="Call").count() > 0, "pending screen shows the CC's green shirts with Call")
 
+        # The green shirt signs in by phone, then scans CC East's QR.
         green = browser.new_context(**opts)
-        code_login(green, "EAST01")
         gpage = green.new_page()
+        phone_sign_in(gpage, "Dana Brooks", "(313) 555-0144", "+13135550144", "green")
+        gpage.wait_for_url(BASE + "/", timeout=15000)
+        gpage.goto(BASE + seedcodes.path("green", "CC East", "East", 1), wait_until="networkidle")
+        check("CC East" in gpage.locator("header").inner_text(), "green QR after sign-in lands on CC East")
         gpage.goto(BASE + "/access", wait_until="networkidle")
         expect(gpage.locator("[data-access-request]")).to_have_count(1, timeout=10000)
         shot(gpage, "green-1-access")
@@ -157,10 +158,10 @@ def main() -> None:
         green.close()
         # endregion
 
-        # region 2. QR path: scan DTE 1's code before sign-in, sign in, land in DTE 1.
+        # region 2. QR path: scan DTE 1's link before sign-in, sign in, land in DTE 1.
         qr = browser.new_context(**opts)
         qpage = qr.new_page()
-        qpage.goto(BASE + "/j/demo-crew-03", wait_until="networkidle")
+        qpage.goto(BASE + seedcodes.path("crew", "DTE 1", "East", 1), wait_until="networkidle")
         check(qpage.url.endswith("/login"), f"crew QR before sign-in goes to /login ({qpage.url})")
         expect(qpage.get_by_text("DTE 1, DTE, CC East")).to_be_visible(timeout=5000)
         shot(qpage, "qr-1-login-with-link")
@@ -171,10 +172,10 @@ def main() -> None:
         check("DTE 1" in scope, f"QR join lands on DTE 1 ({scope.splitlines()!r})")
         shot(qpage, "qr-2-crew-map")
         # Scanning again after sign-in joins at once and keeps one membership.
-        qpage.goto(BASE + "/j/demo-crew-03", wait_until="networkidle")
+        qpage.goto(BASE + seedcodes.path("crew", "DTE 1", "East", 1), wait_until="networkidle")
         check(qpage.url == BASE + "/", f"second scan goes straight in ({qpage.url})")
         # Truck QR on the same signed-in phone: now a driver.
-        qpage.goto(BASE + "/t/TRUCK2", wait_until="networkidle")
+        qpage.goto(BASE + seedcodes.path("driver", "Truck 2", "East", 1), wait_until="networkidle")
         qpage.wait_for_timeout(1000)
         scope = qpage.locator("header").inner_text()
         check("Truck 2" in scope, f"truck QR signs in as Truck 2 ({scope.splitlines()!r})")
@@ -185,7 +186,7 @@ def main() -> None:
         # region 3. Google through the emulator's account picker, after scanning the green QR.
         gg = browser.new_context(**opts)
         gp = gg.new_page()
-        gp.goto(BASE + "/g/EAST01", wait_until="networkidle")
+        gp.goto(BASE + seedcodes.path("green", "CC East", "East", 1), wait_until="networkidle")
         with gp.expect_popup() as popup:
             gp.get_by_role("button", name="Google").click()
         win = popup.value

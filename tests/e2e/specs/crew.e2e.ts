@@ -29,8 +29,8 @@ interface GreenLot {
 }
 
 /** Signs in as the crew with the phone standing on one of its lots. */
-const crewOnLot = async (as: (code: string, o?: object) => Promise<Role>, token: string): Promise<{ crew: Role; lots: CrewLot[] }> => {
-  const crew = await as(token, { geo: { latitude: 42.37, longitude: -83.0, accuracy: 8 } });
+const crewOnLot = async (as: (who: string, o?: object) => Promise<Role>, link: string): Promise<{ crew: Role; lots: CrewLot[] }> => {
+  const crew = await as(link, { geo: { latitude: 42.37, longitude: -83.0, accuracy: 8 } });
   const lots = await crew.api.query<CrewLot[]>("crew.lots");
   expect(lots.length, "the seed gives every crew lots in its rectangle").toBeGreaterThan(3);
   await crew.ctx.setGeolocation({ latitude: lots[0]!.lat, longitude: lots[0]!.lng, accuracy: 8 });
@@ -38,7 +38,7 @@ const crewOnLot = async (as: (code: string, o?: object) => Promise<Role>, token:
 };
 
 test("map shows the crew's lots, its CC and the Request button", async ({ as, L }) => {
-  const { crew, lots } = await crewOnLot(as, L.crews[0]!.token);
+  const { crew, lots } = await crewOnLot(as, L.crews[0]!.link);
   await visit(crew.page, "/");
   const map = crew.page.getByRole("region", { name: "Crew map" });
   await expect(map).toBeVisible();
@@ -48,7 +48,7 @@ test("map shows the crew's lots, its CC and the Request button", async ({ as, L 
 });
 
 test("request water, see the truck it went to, cancel it", async ({ as, L }) => {
-  const { crew } = await crewOnLot(as, L.crews[0]!.token);
+  const { crew } = await crewOnLot(as, L.crews[0]!.link);
   const page = crew.page;
   const before = new Set((await crew.api.query<CrewRequest[]>("crew.myRequests")).map((r) => r.id));
   await visit(page, "/");
@@ -82,7 +82,7 @@ test("request water, see the truck it went to, cancel it", async ({ as, L }) => 
 });
 
 test("lots page: Todo to Done and back on a lot in the crew's rectangle", async ({ as, L }) => {
-  const { crew, lots } = await crewOnLot(as, L.crews[0]!.token);
+  const { crew, lots } = await crewOnLot(as, L.crews[0]!.link);
   const lot = lots.find((l) => l.status === "open" && l.address);
   expect(lot, "a Todo lot in the rectangle").toBeTruthy();
   await visit(crew.page, "/lots");
@@ -103,7 +103,7 @@ test("lots page: Todo to Done and back on a lot in the crew's rectangle", async 
 });
 
 test("a lot outside the crew's rectangle is not on its map and cannot be changed", async ({ as, L }) => {
-  const { crew, lots } = await crewOnLot(as, L.crews[0]!.token);
+  const { crew, lots } = await crewOnLot(as, L.crews[0]!.link);
   const green = await as(L.green);
   const ids = new Set(lots.map((l) => l.id));
   const outside = (await green.api.query<{ lots: GreenLot[] }>("green.overview")).lots.find((l) => !ids.has(l.id) && l.status === "open");
@@ -119,7 +119,7 @@ test("a lot outside the crew's rectangle is not on its map and cannot be changed
 });
 
 test("before and after photos from the lots list", async ({ as, L }) => {
-  const { crew, lots } = await crewOnLot(as, L.crews[0]!.token);
+  const { crew, lots } = await crewOnLot(as, L.crews[0]!.link);
   const lot = lots.find((l) => l.address && !/BUCKINGHAM|ALTER/.test(l.address)) ?? lots[1]!;
   const initial = new Set((await crew.api.query<LotPhotos>("shared.lotPhotos", { lotId: lot.id })).photos.map((p) => p.id));
   await visit(crew.page, "/lots");
@@ -147,7 +147,7 @@ test("before and after photos from the lots list", async ({ as, L }) => {
 });
 
 test("CC page and settings: green shirts to call, the crew card", async ({ as, L }) => {
-  const crew = await as(L.crews[0]!.token);
+  const crew = await as(L.crews[0]!.link);
   await visit(crew.page, "/");
   await navTo(crew.page, "Command center");
   await expect(crew.page.getByRole("heading", { level: 1, name: `CC ${L.cc}` })).toBeVisible();

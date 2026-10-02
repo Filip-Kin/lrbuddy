@@ -160,23 +160,29 @@ Default request types seeded for every new event, in this order:
 
 ## 4. Auth
 
-Section 18 puts phone and Google sign-in in front of this. Everything below still holds for the
-codes, which now sit behind QR links and the Staff password field. A session cookie names a role
-and a scope.
+Section 18 puts phone and Google sign-in in front of this. People sign in only by QR link (`/j`
+crew, `/t` truck, `/g` command center) or by an access request after phone or Google sign-in.
+Typed codes are not a sign-in method: the only thing anyone types is the staff password. The
+system generates every truck code, green code and crew token at random when a day is prepared
+(admin create and regenerate, Copy from previous day, CSV import, the seed); none is ever fixed in
+the code or the docs. A session cookie names a role and a scope.
 
 | Role | How they get in | Scope |
 |---|---|---|
 | crew | Open `/j/<token>` (printed as a QR on the crew's sheet). Enter a display name and a mobile number once; the number is stored on the crew (`lead_phone`, overwriting an import only when that field was blank) so greens can call and text the red shirt. | That crew, its CC, its day |
-| driver | `/login`, enter the truck code | That truck, its CC, its day |
-| green | `/login`, enter the CC code | That CC and day |
-| admin | `/login`, enter the admin password (`ADMIN_PASSWORD`) | Everything |
+| driver | Open `/t/<truck code>` (a QR on the CC sheet) | That truck, its CC, its day |
+| green | Open `/g/<green code>` (the QR on the CC sheet) | That CC and day |
+| admin | `/login`, Staff password (`ADMIN_PASSWORD`) | Everything |
 
 - Cookie `lrb_session`: HttpOnly, SameSite=Lax, Secure when `PUBLIC_URL` starts with https, 30 days.
   Value is the `sessions.id` uuid. Nothing is signed; the id is the secret. `SESSION_SECRET` is still
   required and used to HMAC push payload signatures and QR tokens if needed.
-- Auth routes are plain `Bun.serve` routes, not tRPC: `POST /auth/login {code, displayName?}` (tries admin
-  password, truck code, green code, crew token in that order; JSON body; 200 with `{role}` or 401),
-  `GET /j/:token` (sets session, 302 to `/`), `POST /auth/logout`, `POST /auth/name {displayName}`.
+- Auth routes are plain `Bun.serve` routes, not tRPC: `POST /auth/login {code, displayName?}` takes the
+  admin password only (JSON body; 200 with `{role: 'admin'}`, else 401 "Wrong password"); a truck code,
+  green code or crew token posted there is refused like any wrong password. `GET /j/:token`,
+  `GET /t/:code`, `GET /g/:code` (each takes only its own kind: a truck code under `/j` or `/g` is
+  unknown; with Firebase off they set the session and 302 to `/`, an unknown one 302s to
+  `/login?link=unknown`; with Firebase on see section 18), `POST /auth/logout`, `POST /auth/name {displayName}`.
 - `shared.me` returns `{ role, displayName, crew?, truck?, cc?, day?, event }` or `{ role: 'anon' }`.
 - Role procedures throw `UNAUTHORIZED` when the session is missing and `FORBIDDEN` when the role is
   wrong. Green procedures are also allowed for admin. Every procedure scopes its queries by the
@@ -389,17 +395,20 @@ has content. Idempotent: wipes and recreates the event named "Demo 2026".
 
 - Event "Demo 2026", six days starting 2026-09-28.
 - Day 1: CC "East" at 42.3786, -82.9911 and CC "West" at 42.3701, -83.0209 (Detroit east side near
-  Anchor Detroit). Three green shirts each with fake 313 numbers. Green codes `EAST01`, `WEST01`.
+  Anchor Detroit). Three green shirts each with fake 313 numbers.
 - Companies: Ford, Rocket, DTE, Henry Ford Health, GM.
-- Twelve crews on day 1, six per CC, spread across companies. Tokens are deterministic
-  (`demo-crew-01` ... `demo-crew-12`) so the seed output can be pasted into a browser.
-- Trucks: East has `TRUCK1` and `TRUCK2`, West has `TRUCK3`. Full stock.
+- Twelve crews on day 1, six per CC, spread across companies.
+- Trucks: East has Truck 1 and Truck 2, West has Truck 3. Full stock.
+- Codes and tokens: none fixed. Every green code, truck code and crew token comes from the same
+  generators the admin paths use (`uniqueCode`, `newCrewToken`), new on every run.
 - Lots: try the DLBA query for the bbox `-83.03,42.36,-82.98,42.39` and keep the first 300 (the bbox
   holds more than 2000); if it fails or returns nothing, generate 150 synthetic lots on a jittered
   grid. Assign about half to crews.
 - Requests: eight in mixed states with realistic timestamps, one of them a green-entered crewless stop, positions for every crew and truck near
   their lots, one broadcast.
-- Prints a table of every code and join URL at the end.
+- Prints a table of every join link at the end and writes the same rows to `$DATA_DIR/seed-codes.json`
+  (role, day, cc, name, code, path, link) for the tests and scripts. That file lives in the data
+  folder, never in the repo.
 
 ## 12. Definition of done for v1
 
@@ -748,8 +757,9 @@ Access
   Red shirt, FORD 2").
 - Roles map to the existing scopes unchanged. Switching role or day = a new membership; the session
   picks the approved membership for today, and a user with several gets a chooser.
-- Codes: truck and CC codes stay for the QR links and as a fallback staff can read out, but no screen
-  leads with a code field.
+- Codes: truck codes, green codes and crew tokens exist only inside the QR links. They are not typed
+  anywhere: `POST /auth/login` takes only the staff password and refuses every code and token, and no
+  screen has a code field. Each is generated at random when the day is prepared (section 4).
 
 Setup outside the repo: a Firebase project on the Blaze plan (phone sign-in on the free plan is capped
 at a handful of SMS a day) with Phone and Google providers enabled and `lrbuddy.filipkin.com` as an
@@ -956,7 +966,7 @@ the sharpie: pick a brush, drag across the parcels.
   hit testing uses the parcel polygons, not markers. Minimum zoom to paint is 16; below that the bar
   says "Zoom in to paint" as a label and the chips are disabled.
 - Red shirts and drivers do not get Paint.
-- Gate: at 1440 and at 390 as DURFB1, Paint opens the bar, a drag across three parcels sets them
+- Gate: at 1440 and at 390 as CC Webb's green shirt, Paint opens the bar, a drag across three parcels sets them
   Todo (count reads 3), Undo returns them, overflow 0, chips at least 44 px tall.
 
 ## 24. Draw lot: custom parcels for alleys and odd spaces (Filip, 2026-10-01 15:35)
@@ -980,7 +990,7 @@ admin draws the shape and it becomes a lot like any other.
   shown as a thin dashed centreline only (no 3 m polygon, no status, no sheet), there as a hint for
   where to draw. The `alleys` table and its status sheet are removed; existing rows are dropped by the
   migration (none were marked in the field yet).
-- Gate: as DURFB1 at zoom 17, Draw lot with four taps along a mid-block gap, Save, the lot appears
+- Gate: as CC Webb's green shirt at zoom 17, Draw lot with four taps along a mid-block gap, Save, the lot appears
   red, is in the driver's lot list, and is tappable; overflow 0 at 390 and 1440.
 
 Flag screen map strip (Filip, 2026-10-01 16:29)
@@ -1000,7 +1010,7 @@ Flag screen: Paint on the expanded map (Filip, 2026-10-01 16:54)
   the Todo / Do not touch / Wrong lot row while painting; Done returns that row. Strokes use the same
   `green.paint` batch and Undo history. Collapse while painting ends paint mode first.
 - The strip itself never paints; Paint needs the expanded map.
-- Gate: as DURFB1 on /flag, Expand, Paint, drag over three parcels at zoom 18 sets Todo with count 3,
+- Gate: as CC Webb's green shirt on /flag, Expand, Paint, drag over three parcels at zoom 18 sets Todo with count 3,
   Undo returns them, Done brings the flag buttons back, overflow 0 at 390.
 
 ## 25. Load speed and crash visibility (Filip, 2026-10-01, on 5G in the field)

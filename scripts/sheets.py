@@ -3,7 +3,8 @@
     /home/filip/pit-podcast-automation/.venv/bin/python scripts/sheets.py https://lrbuddy.filipkin.com <admin password>
 
 Phone screens are shot at 390x844 with a 2x device scale factor (780 px wide on the sheet).
-Laptop screens for green and admin are shot at 1440x900 at 1x. Output:
+Laptop screens for green and admin are shot at 1440x900 at 1x. Crew, driver and green sign in by
+their QR links from `$DATA_DIR/seed-codes.json` (scripts/seedcodes.py). Output:
 /home/filip/preview-shots/lrbuddy-sheets/<role>-<size>-<scheme>.png
 """
 import json
@@ -13,6 +14,8 @@ import sys
 from PIL import Image, ImageDraw, ImageFont
 from playwright.sync_api import sync_playwright
 
+import seedcodes
+
 BASE = sys.argv[1].rstrip("/")
 ADMIN = sys.argv[2]
 OUT = pathlib.Path("/home/filip/preview-shots/lrbuddy-sheets")
@@ -20,13 +23,13 @@ RAW = OUT / "raw"
 RAW.mkdir(parents=True, exist_ok=True)
 
 ROLES = {
-    "crew": {"login": {"code": "demo-crew-01", "displayName": "Filip"}, "routes": [
+    "crew": {"login": {"seed": ("crew", "FORD 1", "East", 1), "displayName": "Filip"}, "routes": [
         ("/", "Map"), ("/request", "Request"), ("/requests", "Requests"), ("/lots", "Lots"), ("/cc", "Command center"), ("/settings", "Settings")],
         "sizes": ["phone"]},
-    "driver": {"login": {"code": "TRUCK1", "displayName": "Filip"}, "routes": [
+    "driver": {"login": {"seed": ("driver", "Truck 1", "East", 1), "displayName": "Filip"}, "routes": [
         ("/", "Map"), ("/stock", "Stock"), ("/settings", "Settings")],
         "sizes": ["phone"]},
-    "green": {"login": {"code": "EAST01", "displayName": "Filip"}, "routes": [
+    "green": {"login": {"seed": ("green", "CC East", "East", 1), "displayName": "Filip"}, "routes": [
         ("/", "Map"), ("/requests", "Requests"), ("/photos", "Photos"), ("/crews", "Crews"), ("/trucks", "Trucks"), ("/broadcast", "Broadcast"), ("/stats", "Stats"), ("/access", "Access")],
         "sizes": ["phone", "laptop"]},
     "admin": {"login": {"code": ADMIN}, "routes": [
@@ -53,7 +56,7 @@ def shoot() -> dict[tuple[str, str, str], list[tuple[str, pathlib.Path]]]:
                     ctx = browser.new_context(viewport={"width": w, "height": h}, color_scheme=scheme,
                                               device_scale_factor=dsf, is_mobile=(size == "phone"), has_touch=(size == "phone"))
                     if cfg["login"]:
-                        ctx.request.post(f"{BASE}/auth/login", data=json.dumps(cfg["login"]), headers={"content-type": "application/json"})
+                        seedcodes.sign_in(ctx, BASE, cfg["login"])
                     page = ctx.new_page()
                     for route, label in cfg["routes"]:
                         page.goto(BASE + route, wait_until="networkidle", timeout=60000)

@@ -15,6 +15,7 @@ export const isSignedIn = (me: Me | undefined): me is SignedIn => !!me && me.rol
 
 export type LoginResult = { ok: true; role: Role } | { ok: false; error: string };
 
+/** Staff password sign-in (`POST /auth/login`). Codes and tokens sign in only through /j, /t and /g. */
 export const login = async (code: string, displayName?: string): Promise<LoginResult> => {
   const res = await fetch("/auth/login", {
     method: "POST",
@@ -27,7 +28,7 @@ export const login = async (code: string, displayName?: string): Promise<LoginRe
     return { ok: true, role: (body as { role: Role }).role };
   }
   if (res.status === 429) return { ok: false, error: "Too many tries" };
-  return { ok: false, error: "Unknown code" };
+  return { ok: false, error: "Wrong password" };
 };
 
 export type FirebaseState = "entered" | "choose" | "request";

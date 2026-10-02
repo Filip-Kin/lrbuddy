@@ -20,8 +20,6 @@ interface Stop {
   items: Array<{ id: number }>;
 }
 
-const TRUCK_CODES: Record<string, string> = { "Truck 1": "TRUCK1", "Truck 2": "TRUCK2", "Truck 3": "TRUCK3" };
-
 const gasFrom = async (crew: Role): Promise<number> => {
   const typeId = (await crew.api.query<Array<{ id: number; key: string }>>("shared.catalog")).find((c) => c.key === "gas_mower")!.id;
   const lots = await crew.api.query<Array<{ lat: number; lng: number }>>("crew.lots");
@@ -29,7 +27,7 @@ const gasFrom = async (crew: Role): Promise<number> => {
 };
 
 test("a crew marks a lot Done on its phone; the green map recolours it", async ({ as, L }) => {
-  const crew = await as(L.crews[3]!.token);
+  const crew = await as(L.crews[3]!.link);
   const green = await as(L.green);
   const lot = (await crew.api.query<CrewLot[]>("crew.lots")).find((l) => l.status === "open" && l.address)!;
   await visit(green.page, "/");
@@ -48,7 +46,7 @@ test("a crew marks a lot Done on its phone; the green map recolours it", async (
 });
 
 test("the green shirt changes a crew's lot; the crew's Lots screen follows", async ({ as, L }) => {
-  const crew = await as(L.crews[3]!.token);
+  const crew = await as(L.crews[3]!.link);
   const green = await as(L.green);
   const lot = (await crew.api.query<CrewLot[]>("crew.lots")).filter((l) => l.status === "open" && l.address)[1]!;
   await visit(crew.page, "/lots");
@@ -64,7 +62,7 @@ test("the green shirt changes a crew's lot; the crew's Lots screen follows", asy
 });
 
 test("a crew's new request rings on the green map, and En route and Delivered reach the crew's screen", async ({ as, L }) => {
-  const crew = await as(L.crews[3]!.token);
+  const crew = await as(L.crews[3]!.link);
   const green = await as(L.green);
   await visit(green.page, "/");
   const rings = green.page.locator(".lrb-req");
@@ -77,7 +75,7 @@ test("a crew's new request rings on the green map, and En route and Delivered re
     const req = await until(async () => (await crew.api.query<CrewRequest[]>("crew.myRequests")).find((r) => r.id === requestId && r.truckName), "a truck for the request");
     const card = crew.page.locator("article", { hasText: "Gas, mower" }).filter({ hasText: req.truckName! }).first();
     await expect(card).toContainText("Assigned");
-    const driver = await as(TRUCK_CODES[req.truckName!]!);
+    const driver = await as(L.trucks[req.truckName!]!);
     const stop = await until(async () => (await driver.api.query<{ stops: Stop[] }>("driver.queue")).stops.find((s) => s.items.some((i) => i.id === requestId)), "the stop");
     await driver.api.mutate("driver.enRoute", { stopKey: stop.key });
     await expect(card, "En route without a reload").toContainText("En route");

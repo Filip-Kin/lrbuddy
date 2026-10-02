@@ -85,10 +85,10 @@ test("Day: a CC placed on the map, a green shirt and a truck; the codes sign in;
     const cc = await until(async () => (await adm.api.query<DayData>("admin.days.get", { id: day.id })).ccs.find((c) => c.id === ccId && c.trucks.length === 1), "the new truck");
     await expectNoOverflow(page);
 
-    const green = await as(cc.greenCode!);
+    const green = await as(`/g/${cc.greenCode!}`);
     await visit(green.page, "/");
     await expect(green.page.locator("header")).toContainText(`CC ${ccName}`);
-    const driver = await as(cc.trucks[0]!.code);
+    const driver = await as(`/t/${cc.trucks[0]!.code}`);
     await visit(driver.page, "/stock");
     await expect(driver.page.locator("header")).toContainText(cc.trucks[0]!.name);
 
@@ -100,7 +100,8 @@ test("Day: a CC placed on the map, a green shirt and a truck; the codes sign in;
     }, "a new green code");
     await expect(card).toContainText(fresh);
     expect((await green.api.query<{ role: string }>("shared.me")).role, "the old code's phone is signed out").toBe("anon");
-    expect((await green.ctx.request.post("/auth/login", { data: { code: cc.greenCode } })).status()).toBe(401);
+    const old = await green.ctx.request.get(`/g/${cc.greenCode!}`, { maxRedirects: 0 });
+    expect(old.headers()["location"], "the old green link").toBe("/login?link=unknown");
   } finally {
     if (ccId !== null) await adm.api.mutate("admin.ccs.delete", { id: ccId });
   }
@@ -156,7 +157,7 @@ test("Crews: CSV import adds crews to a day's CC", async ({ as, admin, L }) => {
 test("Lots: Import DLBA by rectangle (Land Bank answered offline), the new lots land at the chosen CC", async ({ as, admin, L }) => {
   const adm = await as(admin);
   const page = adm.page;
-  const webb = await as("DURFB1");
+  const webb = await as(L.webbGreen);
   const area = (await webb.api.query<{ areas: Array<{ label: string; ring: Array<[number, number]> }> }>("green.plan")).areas.find((a) => a.label === L.importArea)!;
   const [w, s, e, n] = [Math.min(...area.ring.map((p) => p[0])), Math.min(...area.ring.map((p) => p[1])), Math.max(...area.ring.map((p) => p[0])), Math.max(...area.ring.map((p) => p[1]))];
   const mid = { lat: (s + n) / 2, lng: (w + e) / 2 };

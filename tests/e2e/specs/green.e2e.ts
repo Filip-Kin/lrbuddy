@@ -17,8 +17,6 @@ interface Queue {
   stops: Array<{ key: string; items: Array<{ id: number }> }>;
 }
 
-const TRUCK_CODES: Record<string, string> = { "Truck 1": "TRUCK1", "Truck 2": "TRUCK2", "Truck 3": "TRUCK3" };
-
 const waterFrom = async (crew: Role, qty = 1): Promise<number> => {
   const typeId = (await crew.api.query<Array<{ id: number; key: string }>>("shared.catalog")).find((c) => c.key === "water")!.id;
   const lots = await crew.api.query<Array<{ lat: number; lng: number }>>("crew.lots");
@@ -28,7 +26,7 @@ const waterFrom = async (crew: Role, qty = 1): Promise<number> => {
 test("requests board: a crew's request arrives live, Assign and Cancel from its card", async ({ as, L }) => {
   const crewInfo = L.crews[2]!;
   const green = await as(L.green);
-  const crew = await as(crewInfo.token);
+  const crew = await as(crewInfo.link);
   const page = green.page;
   await visit(page, "/requests");
   await expect(page.getByRole("heading", { level: 1, name: "Requests" })).toBeVisible();
@@ -91,7 +89,7 @@ test("Add stop: a pin on the map becomes a crewless stop in a truck's queue", as
   try {
     expect(text, "dispatched to a truck").toMatch(/^Stop sent, Truck \d/);
     const truckName = text.replace(/^Stop sent, /, "");
-    const driver = await as(TRUCK_CODES[truckName]!);
+    const driver = await as(L.trucks[truckName]!);
     await until(async () => (await driver.api.query<Queue>("driver.queue")).stops.some((s) => s.items.some((i) => i.id === made.id)), `the stop in ${truckName}'s queue`);
     await visit(driver.page, "/");
     await driver.page.locator("[data-queue-button]").click();
@@ -103,7 +101,7 @@ test("Add stop: a pin on the map becomes a crewless stop in a truck's queue", as
 
 test("Broadcast reaches a crew and a driver at the CC without a reload", async ({ as, L }) => {
   const green = await as(L.green);
-  const crew = await as(L.crews[2]!.token);
+  const crew = await as(L.crews[2]!.link);
   const driver = await as(L.truck);
   await visit(crew.page, "/lots");
   await visit(driver.page, "/stock");

@@ -1,7 +1,7 @@
 /**
  * Sign-in on the main server, where Firebase is off (SPEC 4, and SPEC 18's fallback): the staff
- * password field, the QR links that sign in on the spot, codes typed into the password field,
- * revoked codes and tokens, sign out, the login limit. Firebase on is access.e2e.ts.
+ * password field, the QR links that sign in on the spot, codes typed into the password field
+ * refused, revoked codes and tokens, sign out, the login limit. Firebase on is access.e2e.ts.
  */
 import { expect, expectNoOverflow, test, visit } from "../support/fixtures.ts";
 
@@ -57,7 +57,7 @@ test("staff password signs in as admin, Sign out ends the session", async ({ as,
 test("crew QR /j/<token> signs the phone into the crew", async ({ as, L }) => {
   const crew = L.crews[4]!;
   const { page, api } = await as("", { anon: true });
-  await page.goto(`/j/${crew.token}`);
+  await page.goto(crew.link);
   await page.waitForURL((u) => u.pathname === "/");
   await expect(page.locator("header")).toContainText(crew.name);
   await expect(page.getByRole("region", { name: "Crew map" })).toBeVisible();
@@ -69,14 +69,14 @@ test("crew QR /j/<token> signs the phone into the crew", async ({ as, L }) => {
 
 test("truck QR /t/<code> and CC QR /g/<code> sign in as driver and green", async ({ as, L }) => {
   const driver = await as("", { anon: true });
-  await driver.page.goto(`/t/${L.truck}`);
+  await driver.page.goto(L.truck);
   await driver.page.waitForURL((u) => u.pathname === "/");
   await expect(driver.page.locator("header")).toContainText(L.truckName);
   await expect(driver.page.getByRole("region", { name: "Route map" })).toBeVisible();
   expect((await driver.api.query<Me>("shared.me")).role).toBe("driver");
 
   const green = await as("", { anon: true });
-  await green.page.goto(`/g/${L.green}`);
+  await green.page.goto(L.green);
   await green.page.waitForURL((u) => u.pathname === "/");
   await expect(green.page.locator("header")).toContainText(`CC ${L.cc}`);
   await expect(green.page.getByRole("region", { name: "Command center map" })).toBeVisible();
@@ -84,20 +84,29 @@ test("truck QR /t/<code> and CC QR /g/<code> sign in as driver and green", async
   await expectNoOverflow(green.page);
 });
 
-test("codes typed into the staff password field: crew token, truck code, green code", async ({ as, L }) => {
-  for (const [code, role, scope] of [
-    [L.crews[4]!.token, "crew", L.crews[4]!.name],
-    [L.truck, "driver", L.truckName],
-    [L.green, "green", `CC ${L.cc}`],
-  ] as const) {
-    const { page, api } = await as("", { anon: true });
+test("codes typed into the staff password field are refused: crew token, truck code, green code", async ({ as, L, base }) => {
+  const codeOf = (path: string): string => path.split("/")[2]!;
+  for (const code of [L.crews[4]!.token, codeOf(L.truck), codeOf(L.green)]) {
+    const { page, api, ctx } = await as("", { anon: true });
     await visit(page, "/login");
     await page.getByLabel("Staff password").fill(code);
     await page.getByRole("button", { name: "Sign in" }).last().click();
-    await page.waitForURL((u) => u.pathname === "/");
-    await expect(page.locator("header")).toContainText(scope);
-    expect((await api.query<Me>("shared.me")).role).toBe(role);
+    await expect(page.getByRole("alert")).toHaveText("Wrong password");
+    expect(new URL(page.url()).pathname).toBe("/login");
+    expect((await api.query<Me>("shared.me")).role).toBe("anon");
+    expect((await ctx.request.post(`${base}/auth/login`, { data: { code } })).status()).toBe(401);
   }
+});
+
+test("a QR link signs in only as its own kind", async ({ as, L, base }) => {
+  const codeOf = (path: string): string => path.split("/")[2]!;
+  const { ctx, api } = await as("", { anon: true });
+  for (const path of [`/j/${codeOf(L.truck)}`, `/g/${codeOf(L.truck)}`, `/t/${codeOf(L.green)}`, `/t/${L.crews[4]!.token}`]) {
+    const res = await ctx.request.get(`${base}${path}`, { maxRedirects: 0 });
+    expect(res.status(), path).toBe(302);
+    expect(res.headers()["location"], path).toBe("/login?link=unknown");
+  }
+  expect((await api.query<Me>("shared.me")).role).toBe("anon");
 });
 
 test("an unknown QR lands on the sign-in page with the reason", async ({ as }) => {
@@ -114,7 +123,7 @@ test("a new truck code locks out the old code and every phone that used it", asy
   const ccId = (await green.api.query<Overview>("green.overview")).cc.id;
   const truck = await adm.api.mutate<{ id: number; code: string }>("admin.trucks.create", { ccId, name: `E2E auth ${L.id}` });
   try {
-    const driver = await as(truck.code);
+    const driver = await as(`/t/${truck.code}`);
     await visit(driver.page, "/stock");
     await expect(driver.page.getByRole("heading", { name: "Stock" })).toBeVisible();
     const fresh = await adm.api.mutate<{ code: string }>("admin.trucks.regenerateCode", { id: truck.id });
@@ -122,10 +131,11 @@ test("a new truck code locks out the old code and every phone that used it", asy
     expect((await driver.api.query<Me>("shared.me")).role).toBe("anon");
     await driver.page.reload();
     await driver.page.waitForURL("**/login**");
-    const old = await driver.ctx.request.post("/auth/login", { data: { code: truck.code } });
-    expect(old.status()).toBe(401);
-    const now = await driver.ctx.request.post("/auth/login", { data: { code: fresh.code } });
-    expect(now.status()).toBe(200);
+    const old = await driver.ctx.request.get(`/t/${truck.code}`, { maxRedirects: 0 });
+    expect(old.headers()["location"]).toBe("/login?link=unknown");
+    const now = await driver.ctx.request.get(`/t/${fresh.code}`, { maxRedirects: 0 });
+    expect(now.headers()["location"]).toBe("/");
+    expect((await driver.api.query<Me>("shared.me")).role).toBe("driver");
   } finally {
     await adm.api.mutate("admin.trucks.delete", { id: truck.id });
   }
@@ -154,7 +164,7 @@ test("a new crew link locks out the old link and its phones", async ({ as, admin
 
 test("Leave crew on the settings page signs a code session out", async ({ as, L }) => {
   const crew = L.crews[4]!;
-  const { page, api } = await as(crew.token);
+  const { page, api } = await as(crew.link);
   await visit(page, "/settings");
   await page.getByRole("button", { name: "Leave crew" }).first().click();
   const dialog = page.getByRole("dialog");

@@ -58,7 +58,7 @@ test("FOUND-1: leaving the green map while it zooms throws no error and reports 
 
 // FOUND-2 (tests/e2e/FOUND.md#found-2-land-bank-addresses-keep-the-land-banks-capitals)
 test("FOUND-2: a crew's lots list writes every address the same way", async ({ as, L }) => {
-  const crew = await as(L.crews[0]!.token);
+  const crew = await as(L.crews[0]!.link);
   const shouting = (await crew.api.query<CrewLot[]>("crew.lots")).map((l) => l.address ?? "").filter((a) => /[A-Z]{3,}/.test(a) && !/[a-z]/.test(a));
   expect(shouting, "addresses in capitals next to title case ones").toEqual([]);
 });

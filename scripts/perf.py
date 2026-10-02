@@ -6,12 +6,15 @@ Chromium with CDP network throttling at Slow 4G (1.6 Mbps down, 750 kbps up, 150
 context per run (cold HTTP cache, empty IndexedDB), 390x844. Times are from navigation start:
 
 - login paint: the sign-in form's first input is visible, signed out.
-- green map: as DURFB1, at least one lot outline drawn on the map at `/`.
-- driver map: as TRUCKB1, at least one lot outline drawn at `/`.
-- flag ready: as DURFB1 standing on a bare parcel, `/flag` names the parcel (not "No parcel").
+- green map: as CC Webb's green shirt, at least one lot outline drawn on the map at `/`.
+- driver map: as Truck B1, at least one lot outline drawn at `/`.
+- flag ready: as CC Webb's green shirt standing on a bare parcel, `/flag` names the parcel (not "No parcel").
 
 Warm rows open the same screen a second time in the same context (HTTP cache and IndexedDB kept
 from the first open), throttled the same way: a phone reopening the app.
+
+Both sign in by their QR links from `$DATA_DIR/seed-codes.json` (scripts/seedcodes.py); run
+with the DATA_DIR the server was seeded into.
 
 Also counts the `/trpc` requests and the bytes received up to that moment. Prints the median of
 `runs` (default 3) per row. Local numbers on a local server; production adds its own latency.
@@ -23,10 +26,12 @@ import urllib.request
 
 from playwright.sync_api import sync_playwright
 
+import seedcodes
+
 BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://127.0.0.1:3061"
 RUNS = int(sys.argv[2]) if len(sys.argv) > 2 else 3
-GREEN = {"code": "DURFB1", "displayName": "Perf"}
-DRIVER = {"code": "TRUCKB1", "displayName": "Perf"}
+GREEN = {"seed": ("green", "CC Webb", "Webb", 4), "displayName": "Perf"}
+DRIVER = {"seed": ("driver", "Truck B1", "Webb", 4), "displayName": "Perf"}
 SLOW_4G = {"offline": False, "latency": 150, "downloadThroughput": 1_600_000 / 8, "uploadThroughput": 750_000 / 8}
 
 LOTS_DRAWN = "() => document.querySelectorAll('.leaflet-container path[class*=\"lrb-lot-shape-\"]').length > 0 && performance.now()"
@@ -39,7 +44,7 @@ def bare_parcel() -> dict:
     with sync_playwright() as pw:
         b = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
         ctx = b.new_context()
-        ctx.request.post(f"{BASE}/auth/login", data=json.dumps(GREEN), headers={"content-type": "application/json"})
+        seedcodes.sign_in(ctx, BASE, GREEN)
         body = ctx.request.get(f"{BASE}/trpc/green.parcels").json()
         b.close()
     rows = body["result"]["data"]["json"]
@@ -50,15 +55,16 @@ SESSIONS: dict[str, dict] = {}
 
 
 def session(browser, login: dict) -> dict:
-    """One sign-in per code for the whole run (the server allows 20 sign-ins a minute per address)."""
-    if login["code"] not in SESSIONS:
+    """One sign-in per place for the whole run, its cookies reused by every context."""
+    key = json.dumps(login["seed"])
+    if key not in SESSIONS:
         ctx = browser.new_context()
-        r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(login), headers={"content-type": "application/json"})
-        if r.status >= 400:
-            raise RuntimeError(f"login {login['code']} returned {r.status}")
-        SESSIONS[login["code"]] = ctx.storage_state()
+        status = seedcodes.sign_in(ctx, BASE, login)
+        if status != 200:
+            raise RuntimeError(f"login {login['seed']} returned {status}")
+        SESSIONS[key] = ctx.storage_state()
         ctx.close()
-    return SESSIONS[login["code"]]
+    return SESSIONS[key]
 
 
 def run(browser, login: dict | None, path: str, ready: str, geo: dict | None = None, warm: bool = False) -> tuple[float, int, int]:
@@ -96,9 +102,9 @@ def main() -> None:
     geo = {"latitude": p["lat"], "longitude": p["lng"], "accuracy": 5}
     rows = [
         ("Login paint", None, "/login", LOGIN_PAINT, None),
-        ("Green map, lots drawn (DURFB1)", GREEN, "/", LOTS_DRAWN, None),
-        ("Driver map, lots drawn (TRUCKB1)", DRIVER, "/", LOTS_DRAWN, None),
-        ("/flag ready (DURFB1)", GREEN, "/flag", FLAG_READY, geo),
+        ("Green map, lots drawn (CC Webb)", GREEN, "/", LOTS_DRAWN, None),
+        ("Driver map, lots drawn (Truck B1)", DRIVER, "/", LOTS_DRAWN, None),
+        ("/flag ready (CC Webb)", GREEN, "/flag", FLAG_READY, geo),
         ("Warm: green map, lots drawn", GREEN, "/", LOTS_DRAWN, None),
         ("Warm: /flag ready", GREEN, "/flag", FLAG_READY, geo),
     ]

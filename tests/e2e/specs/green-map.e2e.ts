@@ -1,5 +1,5 @@
 /**
- * Green shirt on the CC map (SPEC 21 to 24) at CC Webb (DURFB1), as the gate does it: tap a bare
+ * Green shirt on the CC map (SPEC 21 to 24) at CC Webb (L.webbGreen), as the gate does it: tap a bare
  * parcel to Todo, a paint stroke and Undo, Draw lot and Delete lot, Draw area for crews and the
  * rectangle's sheet, the Flag screen with a fake camera. Each lane works only on parcels inside
  * its own rectangles (lanes.ts webbAreas); each test puts its parcels back to Not todo and deletes
@@ -34,9 +34,6 @@ interface Overview {
   lots: Lot[];
   companies: Array<{ id: number; name: string }>;
 }
-
-const WEBB = "DURFB1";
-const WEBB_TRUCK = "TRUCKB1";
 
 const allowed = async (green: Role, labels: readonly string[]): Promise<string[]> => {
   const [bare, plan] = await Promise.all([green.api.query<Bare[]>("green.parcels"), green.api.query<{ areas: Area[] }>("green.plan")]);
@@ -78,8 +75,8 @@ const mapAt17 = async (green: Role, ok: string[], paint = false): Promise<string
   return first;
 };
 
-test("the CC map draws lots, crew rectangles, the CC and the legend", async ({ as }) => {
-  const green = await as(WEBB);
+test("the CC map draws lots, crew rectangles, the CC and the legend", async ({ as, L }) => {
+  const green = await as(L.webbGreen);
   const page = green.page;
   await visit(page, "/");
   const map = page.getByRole("region", { name: "Command center map" });
@@ -96,7 +93,7 @@ test("the CC map draws lots, crew rectangles, the CC and the legend", async ({ a
 });
 
 test("tap a bare parcel: Todo turns it red and it stays red after a reload", async ({ as, L }) => {
-  const green = await as(WEBB);
+  const green = await as(L.webbGreen);
   const page = green.page;
   const ok = await allowed(green, L.webbAreas);
   const pid = await mapAt17(green, ok);
@@ -123,7 +120,7 @@ test("tap a bare parcel: Todo turns it red and it stays red after a reload", asy
 });
 
 test("Paint: a stroke across three parcels makes them Todo, Undo takes them back", async ({ as, L }) => {
-  const green = await as(WEBB);
+  const green = await as(L.webbGreen);
   const page = green.page;
   const ok = await allowed(green, L.webbAreas);
   await mapAt17(green, ok, true);
@@ -152,7 +149,7 @@ test("Paint: a stroke across three parcels makes them Todo, Undo takes them back
 });
 
 test("Draw lot: four taps round a strip, Save; red, on the driver's list, Delete lot", async ({ as, L }) => {
-  const green = await as(WEBB);
+  const green = await as(L.webbGreen);
   const page = green.page;
   const ok = await allowed(green, L.webbAreas);
   await mapAt17(green, ok);
@@ -191,7 +188,7 @@ test("Draw lot: four taps round a strip, Save; red, on the driver's list, Delete
     await expect(shape).toHaveClass(/lrb-lot-shape-open/);
     expect(await shape.evaluate((e) => getComputedStyle(e).fill)).toBe(RED);
 
-    const driver = await as(WEBB_TRUCK);
+    const driver = await as(L.webbTruck);
     expect((await driver.api.query<{ lots: Lot[] }>("driver.lots")).lots.some((l) => l.id === made!.id), "drawn lot on the driver's list").toBe(true);
 
     const at = await centreOf(page, `[data-lot-id="${made.id}"]`);
@@ -208,7 +205,7 @@ test("Draw lot: four taps round a strip, Save; red, on the driver's list, Delete
 });
 
 test("Draw area over three Todo lots for a crew; Reassign, Done, Do not touch, Delete area", async ({ as, L, admin }) => {
-  const green = await as(WEBB);
+  const green = await as(L.webbGreen);
   const adm = await as(admin);
   const page = green.page;
   const ov = await green.api.query<Overview>("green.overview");
@@ -287,11 +284,11 @@ test("Draw area over three Todo lots for a crew; Reassign, Done, Do not touch, D
 });
 
 test("Flag: fake camera and GPS on a bare parcel, Todo makes it a Todo lot with a Before photo, Undo", async ({ as, L }) => {
-  const probe = await as(WEBB);
+  const probe = await as(L.webbGreen);
   const ok = new Set(await allowed(probe, L.webbAreas));
   const bare = (await probe.api.query<Bare[]>("green.parcels")).filter((p) => ok.has(p.parcelId));
   const target = bare[Math.floor(bare.length / 2)]!;
-  const green = await as(WEBB, { camera: true, geo: { latitude: target.lat, longitude: target.lng, accuracy: 5 } });
+  const green = await as(L.webbGreen, { camera: true, geo: { latitude: target.lat, longitude: target.lng, accuracy: 5 } });
   const page = green.page;
   let lotId: number | null = null;
   try {

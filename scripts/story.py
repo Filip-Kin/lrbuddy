@@ -2,13 +2,14 @@
 
     /home/filip/pit-podcast-automation/.venv/bin/python scripts/story.py http://127.0.0.1:3000 <admin password>
 
-Run against a freshly seeded server (`bun run seed`). It changes data: one
+Run against a freshly seeded server (`bun run seed`, same DATA_DIR: the crew, truck and green
+sign in by their QR links from `$DATA_DIR/seed-codes.json`). It changes data: one
 request, one green stop and a DLBA import. Every step prints PASS or FAIL;
 exit 1 on any FAIL. Screenshots of each step land in
 /home/filip/preview-shots/lrbuddy/story/.
 
-1. FORD 1 (demo-crew-01) sends Water x2.
-2. Green EAST01 sees it on the board and a request ring on the map.
+1. FORD 1 (its /j/ link) sends Water x2.
+2. Green at CC East (its /g/ link) sees it on the board and a request ring on the map.
 3. The truck's queue shows it, and the driver map draws a route.
 4. Driver taps En route; the crew sees En route without a reload.
 5. Driver taps Delivered; the crew sees Delivered, truck water drops by 2,
@@ -23,6 +24,8 @@ import time
 import urllib.parse
 
 from playwright.sync_api import Page, BrowserContext, sync_playwright
+
+import seedcodes
 
 BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://127.0.0.1:3000"
 ADMIN = sys.argv[2] if len(sys.argv) > 2 else None
@@ -67,15 +70,17 @@ def wait_for(fn, timeout_s: float = 15, every_s: float = 0.5):
     return last
 
 
-def new_role(browser, code: str, size: tuple[int, int], geo: dict | None = None, name: str = "Sam") -> tuple[BrowserContext, Page]:
+def new_role(browser, who: str, size: tuple[int, int], geo: dict | None = None, name: str = "Sam") -> tuple[BrowserContext, Page]:
+    """`who` is a QR link path (`/j/...`, `/t/...`, `/g/...`) or the admin password."""
+    code = who if who.startswith("/") else "admin"
     opts: dict = {"viewport": {"width": size[0], "height": size[1]}, "device_scale_factor": 1}
     if geo:
         opts["geolocation"] = geo
         opts["permissions"] = ["geolocation"]
     ctx = browser.new_context(**opts)
-    res = ctx.request.post(BASE + "/auth/login", data={"code": code, "displayName": name})
-    if not res.ok:
-        raise SystemExit(f"login {code}: HTTP {res.status}")
+    status = seedcodes.sign_in(ctx, BASE, {"link": who, "displayName": name} if who.startswith("/") else {"code": who, "displayName": name})
+    if status != 200:
+        raise SystemExit(f"login {code}: HTTP {status}")
     page = ctx.new_page()
     page.on("console", lambda m: console_errors.append(f"{code}: {m.text}") if m.type == "error" else None)
     page.on("pageerror", lambda e: console_errors.append(f"{code}: {e}"))
@@ -109,9 +114,9 @@ def stop_for(page: Page, name: str):
 
 with sync_playwright() as pw:
     browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
-    crew_ctx, crew = new_role(browser, "demo-crew-01", (390, 844), CREW1)
-    drv_ctx, drv = new_role(browser, "TRUCK1", (390, 844), {**CREW1, "latitude": CREW1["latitude"] + 0.0004})
-    green_ctx, green = new_role(browser, "EAST01", (1440, 900))
+    crew_ctx, crew = new_role(browser, seedcodes.path("crew", "FORD 1", "East", 1), (390, 844), CREW1)
+    drv_ctx, drv = new_role(browser, seedcodes.path("driver", "Truck 1", "East", 1), (390, 844), {**CREW1, "latitude": CREW1["latitude"] + 0.0004})
+    green_ctx, green = new_role(browser, seedcodes.path("green", "CC East", "East", 1), (1440, 900))
 
     # The driver's phone is open first so Truck 1 counts as seen and has a fresh fix.
     go(drv, "/")
@@ -215,8 +220,8 @@ with sync_playwright() as pw:
     check(text.startswith("Stop sent"), f"green stop: {text}")
     shot(green, "6-green-stop")
     stop_truck = text.split(", ", 1)[1] if ", " in text else None
-    code = {"Truck 1": "TRUCK1", "Truck 2": "TRUCK2"}.get(stop_truck or "", "TRUCK1")
-    t_ctx, _ = new_role(browser, code, (390, 844))
+    truck = stop_truck if stop_truck in ("Truck 1", "Truck 2") else "Truck 1"
+    t_ctx, _ = new_role(browser, seedcodes.path("driver", truck, "East", 1), (390, 844))
     new_ids = {r["id"] for r in api(green_ctx, "green.requests") if r["crewId"] is None} - crewless_before
     pinned = wait_for(lambda: [s for s in api(t_ctx, "driver.queue")["stops"] if any(i["id"] in new_ids for i in s["items"])], 10)
     check(len(new_ids) == 1 and bool(pinned), f"{stop_truck} queue has the new pinned stop, {pinned[0]['name'] if pinned else '?'}")

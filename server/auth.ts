@@ -123,26 +123,29 @@ const cleanName = (n: string | null | undefined): string | null => {
 };
 
 /**
- * Tries the admin password, then a truck code, then a green code, then a crew
- * token. `displayName` names the session when given.
+ * The staff password, the only thing `POST /auth/login` takes (SPEC 4). Truck
+ * codes, green codes and crew tokens sign in only through their QR links.
  */
-export const loginWithCode = (raw: string, userAgent: string | null, displayName?: string | null): Session | null => {
+export const loginWithPassword = (raw: string, userAgent: string | null, displayName?: string | null): Session | null => {
   const code = raw.trim();
+  if (!code || !safeEqual(code, config.adminPassword)) return null;
+  return createSession({ role: "admin", displayName: cleanName(displayName) ?? "Admin", userAgent });
+};
+
+/**
+ * A scanned QR with Firebase off: `/t/<truck code>`, `/g/<green code>` or
+ * `/j/<crew token>` signs in on the spot, each link only with its own kind.
+ */
+export const loginWithLink = (kind: "crew" | "truck" | "cc", raw: string, userAgent: string | null): Session | null => {
+  if (kind === "crew") return joinWithToken(raw, userAgent);
+  const code = raw.trim().toUpperCase();
   if (!code) return null;
-  const name = cleanName(displayName);
-  if (safeEqual(code, config.adminPassword)) {
-    return createSession({ role: "admin", displayName: name ?? "Admin", userAgent });
+  if (kind === "truck") {
+    const truck = db.select().from(trucks).where(eq(trucks.code, code)).get();
+    return truck ? createSession({ role: "driver", truckId: truck.id, ccId: truck.ccId, displayName: truck.driverName, userAgent }) : null;
   }
-  const upper = code.toUpperCase();
-  const truck = db.select().from(trucks).where(eq(trucks.code, upper)).get();
-  if (truck) {
-    return createSession({ role: "driver", truckId: truck.id, ccId: truck.ccId, displayName: name ?? truck.driverName, userAgent });
-  }
-  const green = db.select().from(greenCodes).where(eq(greenCodes.code, upper)).get();
-  if (green) {
-    return createSession({ role: "green", ccId: green.ccId, displayName: name ?? "Green shirt", userAgent });
-  }
-  return joinWithToken(code, userAgent, name);
+  const green = db.select().from(greenCodes).where(eq(greenCodes.code, code)).get();
+  return green ? createSession({ role: "green", ccId: green.ccId, displayName: "Green shirt", userAgent }) : null;
 };
 
 export const joinWithToken = (token: string, userAgent: string | null, displayName?: string | null): Session | null => {

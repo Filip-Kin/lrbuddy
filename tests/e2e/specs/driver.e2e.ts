@@ -39,8 +39,8 @@ interface DriverLot {
 }
 
 /** The driver's phone, standing at its CC: the map follows it there, among the CC's lots. */
-const driverAtCc = async (as: (code: string, o?: object) => Promise<Role>, code: string): Promise<Role> => {
-  const driver = await as(code, { geo: { latitude: 42.37, longitude: -83.0, accuracy: 8 } });
+const driverAtCc = async (as: (who: string, o?: object) => Promise<Role>, link: string): Promise<Role> => {
+  const driver = await as(link, { geo: { latitude: 42.37, longitude: -83.0, accuracy: 8 } });
   const { cc } = await driver.api.query<{ cc: { lat: number; lng: number } }>("driver.queue");
   await driver.ctx.setGeolocation({ latitude: cc.lat, longitude: cc.lng, accuracy: 8 });
   return driver;
@@ -60,7 +60,7 @@ const waterRequest = async (crew: Role, green: Role, truckId: number, qty: numbe
 
 test("a crew's request in the queue with its route: Next, En route, Delivered, stock down", async ({ as, L }) => {
   const crewInfo = L.crews[1]!;
-  const crew = await as(crewInfo.token);
+  const crew = await as(crewInfo.link);
   const green = await as(L.green);
   const driver = await driverAtCc(as, L.truck);
   const truckId = (await driver.api.query<Queue>("driver.queue")).truck.id;

@@ -7,8 +7,9 @@
  *   (`accounts:lookup`), so a test can sign in with an unsigned ID token and reach the Access
  *   request and approval screens without SMS or Google.
  *
- * The returned function stops both servers and deletes the temp folder. URLs and the admin
- * password reach the workers through process.env.
+ * The returned function stops both servers and deletes the temp folder. URLs, the admin
+ * password and each server's generated codes (`seed-codes.json` in its data folder, E2E_CODES
+ * and E2E_SIGNIN_CODES) reach the workers through process.env.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -102,6 +103,8 @@ const fakeEmulator = (): Promise<{ server: Server; port: number }> =>
 interface Started {
   proc: ChildProcess;
   url: string;
+  /** The seed's generated codes and links. */
+  codes: string;
   log: () => string;
 }
 
@@ -117,7 +120,7 @@ const start = async (name: string, dir: string, dist: string, extra: Record<stri
   proc.stderr?.on("data", (d: Buffer) => (out += d.toString()));
   const log = (): string => out;
   await waitHealthy(url, proc, log);
-  return { proc, url, log };
+  return { proc, url, codes: join(data, "seed-codes.json"), log };
 };
 
 const stop = (p: ChildProcess): Promise<void> =>
@@ -160,6 +163,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   }
   process.env.E2E_BASE_URL = main.url;
   process.env.E2E_SIGNIN_URL = signin.url;
+  process.env.E2E_CODES = main.codes;
+  process.env.E2E_SIGNIN_CODES = signin.codes;
   process.env.E2E_ADMIN_PASSWORD = ADMIN_PASSWORD;
   process.env.E2E_FIREBASE_PROJECT = PROJECT_ID;
   process.env.E2E_DIR = dir;

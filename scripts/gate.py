@@ -17,6 +17,8 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
+import seedcodes
+
 BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://127.0.0.1:3000"
 ADMIN = sys.argv[2] if len(sys.argv) > 2 else None
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -170,9 +172,9 @@ def bundle_checks() -> None:
 
 ROLES = {
     "anon": {"login": None, "routes": ["/login"]},
-    "crew": {"login": {"code": "demo-crew-01", "displayName": "Gate"}, "routes": ["/", "/request", "/requests", "/lots", "/cc", "/settings"]},
-    "driver": {"login": {"code": "TRUCK1", "displayName": "Gate"}, "routes": ["/", "/stock", "/settings"]},
-    "green": {"login": {"code": "EAST01", "displayName": "Gate"}, "routes": ["/", "/flag", "/requests", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access"]},
+    "crew": {"login": {"seed": ("crew", "FORD 1", "East", 1), "displayName": "Gate"}, "routes": ["/", "/request", "/requests", "/lots", "/cc", "/settings"]},
+    "driver": {"login": {"seed": ("driver", "Truck 1", "East", 1), "displayName": "Gate"}, "routes": ["/", "/stock", "/settings"]},
+    "green": {"login": {"seed": ("green", "CC East", "East", 1), "displayName": "Gate"}, "routes": ["/", "/flag", "/requests", "/photos", "/crews", "/trucks", "/broadcast", "/stats", "/access"]},
     "admin": {"login": {"code": ADMIN}, "routes": ["/admin", "/admin/companies", "/admin/crews", "/admin/lots", "/admin/photos", "/admin/catalog", "/admin/export",
                                                   "/admin/access", "/admin/client-errors", "/plan/survey", "/plan/blocks", "/plan/assignments", "/plan/print", "/plan/survey/drive"]},
 }
@@ -268,7 +270,18 @@ LOGIN_JS = """() => {
 
 
 def login_checks(browser) -> None:
-    """SPEC 18: nobody faces a Code box. Reads the page; never presses Continue, so no SMS is sent."""
+    """SPEC 18: nobody faces a Code box. Reads the page; never presses Continue, so no SMS is sent.
+
+    SPEC 4: `POST /auth/login` takes only the staff password. A truck code, a green code and a crew
+    token posted there are refused; each signs in through its own QR link.
+    """
+    ctx = browser.new_context()
+    for role, name, cc, day in (("driver", "Truck 1", "East", 1), ("green", "CC East", "East", 1), ("crew", "FORD 1", "East", 1)):
+        code = seedcodes.find(role, name, cc, day)["code"]
+        r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps({"code": code}), headers={"content-type": "application/json"})
+        if r.status != 401:
+            fail(f"login: {role} code typed at /auth/login answered {r.status} (expected 401)")
+    ctx.close()
     for scheme in ("light", "dark"):
         ctx = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme, is_mobile=True, has_touch=True)
         page = ctx.new_page()
@@ -333,10 +346,9 @@ def dynamic_checks() -> None:
                                               device_scale_factor=1, has_touch=(size == "phone"),
                                               is_mobile=(size == "phone"))
                     if cfg["login"]:
-                        r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(cfg["login"]),
-                                             headers={"content-type": "application/json"})
-                        if r.status >= 400:
-                            fail(f"{role}: login returned {r.status}")
+                        r_status = seedcodes.sign_in(ctx, BASE, cfg["login"])
+                        if r_status != 200:
+                            fail(f"{role}: login returned {r_status}")
                             ctx.close()
                             continue
                     page = ctx.new_page()
@@ -554,9 +566,9 @@ def parcel_status_checks() -> None:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
         ctx = browser.new_context(viewport={"width": 1440, "height": 900}, device_scale_factor=1, color_scheme="light")
-        r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(ROLES["green"]["login"]), headers={"content-type": "application/json"})
-        if r.status >= 400:
-            fail(f"green parcel status: login returned {r.status}")
+        r_status = seedcodes.sign_in(ctx, BASE, ROLES["green"]["login"])
+        if r_status != 200:
+            fail(f"green parcel status: login returned {r_status}")
             ctx.close()
             browser.close()
             return
@@ -689,9 +701,9 @@ def flag_checks() -> None:
                                      args=["--no-sandbox", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
         ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=1, has_touch=True, is_mobile=True,
                                   permissions=["camera", "geolocation"], geolocation={"latitude": 42.0, "longitude": -83.0})
-        r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(ROLES["green"]["login"]), headers={"content-type": "application/json"})
-        if r.status >= 400:
-            fail(f"green /flag: login returned {r.status}")
+        r_status = seedcodes.sign_in(ctx, BASE, ROLES["green"]["login"])
+        if r_status != 200:
+            fail(f"green /flag: login returned {r_status}")
             ctx.close()
             browser.close()
             return
@@ -786,7 +798,7 @@ def flag_checks() -> None:
         ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=1, has_touch=True, is_mobile=True, color_scheme="dark",
                                   permissions=["camera", "geolocation"], geolocation={"latitude": 42.0, "longitude": -83.0})
         try:
-            ctx.request.post(f"{BASE}/auth/login", data=json.dumps(ROLES["green"]["login"]), headers={"content-type": "application/json"})
+            seedcodes.sign_in(ctx, BASE, ROLES["green"]["login"])
             bare = trpc_get(ctx, "green.parcels")
             if bare:
                 p = bare[len(bare) // 2]
@@ -875,9 +887,9 @@ def stock_expected_checks() -> None:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path="/usr/bin/chromium", args=["--no-sandbox"])
         ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=1, has_touch=True, is_mobile=True)
-        r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(ROLES["driver"]["login"]), headers={"content-type": "application/json"})
-        if r.status >= 400:
-            fail(f"driver stock expected: login returned {r.status}")
+        r_status = seedcodes.sign_in(ctx, BASE, ROLES["driver"]["login"])
+        if r_status != 200:
+            fail(f"driver stock expected: login returned {r_status}")
         else:
             page = ctx.new_page()
             try:
@@ -904,10 +916,10 @@ def stock_expected_checks() -> None:
 # endregion
 
 # region Paint mode (SPEC 23)
-# As DURFB1 (CC Webb, the real day) at 1440 and 390: Paint opens the brush bar with chips at least
+# As CC Webb's green link (the real day) at 1440 and 390: Paint opens the brush bar with chips at least
 # 44 px tall, a mouse drag across three neighbouring bare parcels at zoom 17 makes them Todo with the
 # counter reading "3 lots", and Undo takes them back to bare. Overflow 0. Undo leaves the data as found.
-PAINT_GREEN = {"code": "DURFB1", "displayName": "Gate"}
+PAINT_GREEN = {"seed": ("green", "CC Webb", "Webb", 4), "displayName": "Gate"}
 CHIP_MIN_PX = 44
 
 PAINT_TRIPLE_JS = """() => {
@@ -985,9 +997,9 @@ def paint_checks() -> None:
             tag = f"green paint {size}"
             phone = size == "phone"
             ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=1, color_scheme="light", is_mobile=phone, has_touch=phone)
-            r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(PAINT_GREEN), headers={"content-type": "application/json"})
-            if r.status >= 400:
-                fail(f"{tag}: DURFB1 login returned {r.status}")
+            r_status = seedcodes.sign_in(ctx, BASE, PAINT_GREEN)
+            if r_status != 200:
+                fail(f"{tag}: CC Webb login returned {r_status}")
                 ctx.close()
                 continue
             page = ctx.new_page()
@@ -1065,7 +1077,7 @@ def paint_checks() -> None:
         browser.close()
 
 
-# Flag screen, Paint on the expanded map (SPEC 22, last paragraph). As DURFB1 on /flag at 390x844,
+# Flag screen, Paint on the expanded map (SPEC 22, last paragraph). As CC Webb's green on /flag at 390x844,
 # light and dark: the strip has no Paint; Expand shows Paint next to Collapse (44 px); Paint swaps the
 # flag buttons for the brush bar; a drag over three bare parcels at zoom 18 sets them Todo with
 # "3 lots"; Undo returns them; Done brings the flag buttons back; Paint then Collapse ends paint mode
@@ -1095,9 +1107,9 @@ def flag_paint_checks() -> None:
             tag = f"green /flag paint {scheme}"
             ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=1, has_touch=True, is_mobile=True, color_scheme=scheme,
                                       permissions=["camera", "geolocation"], geolocation={"latitude": 42.0, "longitude": -83.0})
-            r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(PAINT_GREEN), headers={"content-type": "application/json"})
-            if r.status >= 400:
-                fail(f"{tag}: DURFB1 login returned {r.status}")
+            r_status = seedcodes.sign_in(ctx, BASE, PAINT_GREEN)
+            if r_status != 200:
+                fail(f"{tag}: CC Webb login returned {r_status}")
                 ctx.close()
                 continue
             page = ctx.new_page()
@@ -1209,10 +1221,10 @@ def flag_paint_checks() -> None:
 # endregion
 
 # region Draw lot (SPEC 24)
-# As DURFB1 at zoom 17 on a phone and a laptop: Draw lot, four taps round a thin strip across
-# neighbouring parcels, Close, Save; the lot appears red, is on the driver's lot list (TRUCKB1),
+# As CC Webb's green at zoom 17 on a phone and a laptop: Draw lot, four taps round a thin strip across
+# neighbouring parcels, Close, Save; the lot appears red, is on the driver's lot list (Truck B1),
 # and a tap on it opens its sheet with Delete lot. Overflow 0. The lot is deleted afterwards.
-DRAW_DRIVER = {"code": "TRUCKB1", "displayName": "Gate"}
+DRAW_DRIVER = {"seed": ("driver", "Truck B1", "Webb", 4), "displayName": "Gate"}
 
 LOT_BOX_JS = """(id) => { const el = document.querySelector(`[data-lot-id="${id}"]`); if (!el) return null;
   const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2,
@@ -1229,9 +1241,9 @@ def draw_lot_checks() -> None:
             tag = f"green draw lot {size}"
             phone = size == "phone"
             ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=1, color_scheme="light", is_mobile=phone, has_touch=phone)
-            r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps(PAINT_GREEN), headers={"content-type": "application/json"})
-            if r.status >= 400:
-                fail(f"{tag}: DURFB1 login returned {r.status}")
+            r_status = seedcodes.sign_in(ctx, BASE, PAINT_GREEN)
+            if r_status != 200:
+                fail(f"{tag}: CC Webb login returned {r_status}")
                 ctx.close()
                 continue
             page = ctx.new_page()
@@ -1301,9 +1313,9 @@ def draw_lot_checks() -> None:
                 if not red or red["fill"] != RED:
                     fail(f"{tag}: drawn lot not drawn red ({red})")
                 dctx = browser.new_context()
-                dr = dctx.request.post(f"{BASE}/auth/login", data=json.dumps(DRAW_DRIVER), headers={"content-type": "application/json"})
-                if dr.status >= 400 or not any(l["id"] == made["id"] for l in trpc_get(dctx, "driver.lots")["lots"]):
-                    fail(f"{tag}: drawn lot {made['id']} not on TRUCKB1's lot list")
+                dr_status = seedcodes.sign_in(dctx, BASE, DRAW_DRIVER)
+                if dr_status != 200 or not any(l["id"] == made["id"] for l in trpc_get(dctx, "driver.lots")["lots"]):
+                    fail(f"{tag}: drawn lot {made['id']} not on Truck B1's lot list")
                 dctx.close()
                 if red:
                     page.mouse.click(red["x"], red["y"])
@@ -1337,9 +1349,9 @@ def crash_checks() -> None:
         for scheme in ("light", "dark"):
             tag = f"crash-test-phone-{scheme}"
             ctx = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme=scheme, is_mobile=True, has_touch=True, device_scale_factor=1)
-            r = ctx.request.post(f"{BASE}/auth/login", data=json.dumps({"code": ADMIN}), headers={"content-type": "application/json"})
-            if r.status >= 400:
-                fail(f"{tag}: admin login returned {r.status}")
+            r_status = seedcodes.sign_in(ctx, BASE, {"code": ADMIN})
+            if r_status != 200:
+                fail(f"{tag}: admin login returned {r_status}")
                 ctx.close()
                 continue
             page = ctx.new_page()

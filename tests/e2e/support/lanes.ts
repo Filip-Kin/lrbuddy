@@ -10,20 +10,54 @@
  * The driver and live specs deliver whole stops, so crews[1] and crews[3] are crews the seed gave
  * no open, assigned or en route request (delivering would close the seed's request too).
  *
- * The green map tests that make and delete lots (green-map.e2e) run at Day 4's CC Webb (DURFB1),
- * which no other spec reads, each lane inside its own rectangles of the middle column. The admin
- * Land Bank import draws its rectangle over another rectangle of the east column.
+ * The green map tests that make and delete lots (green-map.e2e) run at Day 4's CC Webb, which no
+ * other spec reads, each lane inside its own rectangles of the middle column. The admin Land Bank
+ * import draws its rectangle over another rectangle of the east column.
+ *
+ * The seed generates every code and token (SPEC 11) and writes them to `$DATA_DIR/seed-codes.json`;
+ * global-setup.ts passes each server's file in E2E_CODES and E2E_SIGNIN_CODES. A lane names its
+ * places by CC and crew or truck name and reads the QR link paths from that file. Sign-in is by
+ * link path (`/g/...`, `/t/...`, `/j/...`) or the admin password (fixtures.ts `as`).
  */
+import { readFileSync } from "node:fs";
+
 export type LaneId = "a" | "b";
+
+/** One row of `$DATA_DIR/seed-codes.json` (server/seed.ts). */
+export interface SeedCode {
+  role: "green" | "driver" | "crew";
+  day: number;
+  cc: string;
+  name: string;
+  code: string;
+  path: string;
+  link: string;
+}
+
+export interface LaneCrew {
+  name: string;
+  token: string;
+  /** `/j/<token>` */
+  link: string;
+}
 
 export interface Lane {
   id: LaneId;
   /** CC name as the screens show it, without "CC ". */
   cc: string;
+  /** The lane CC's QR link path, `/g/<code>`. */
   green: string;
+  /** The lane truck's QR link path, `/t/<code>`. */
   truck: string;
   truckName: string;
-  crews: ReadonlyArray<{ token: string; name: string }>;
+  crews: readonly LaneCrew[];
+  /** Day 1 truck QR link paths by truck name, both CCs. */
+  trucks: Readonly<Record<string, string>>;
+  /** Day 1 green QR link paths by "CC <name>", plus Day 4's "CC Webb". */
+  greens: Readonly<Record<string, string>>;
+  /** Day 4 CC Webb's green link and Truck B1's link. */
+  webbGreen: string;
+  webbTruck: string;
   /** A day of Demo 2026 with nothing on it, for the admin set-up test. */
   freeDay: number;
   /** Phone numbers for the access test users. */
@@ -34,31 +68,77 @@ export interface Lane {
   importArea: string;
 }
 
-const crew = (n: number, name: string): { token: string; name: string } => ({ token: `demo-crew-${String(n).padStart(2, "0")}`, name });
+interface LaneShape {
+  cc: string;
+  truckName: string;
+  crews: readonly string[];
+  freeDay: number;
+  phone: string;
+  webbAreas: readonly string[];
+  importArea: string;
+}
 
-export const LANES: Record<LaneId, Lane> = {
+const SHAPES: Record<LaneId, LaneShape> = {
   a: {
-    id: "a",
     cc: "East",
-    green: "EAST01",
-    truck: "TRUCK1",
     truckName: "Truck 1",
-    crews: [crew(1, "FORD 1"), crew(2, "ROCKET 1"), crew(3, "DTE 1"), crew(6, "FORD 2"), crew(5, "GM 1"), crew(4, "HFH 1")],
+    crews: ["FORD 1", "ROCKET 1", "DTE 1", "FORD 2", "GM 1", "HFH 1"],
     freeDay: 2,
     phone: "+1313555071",
     webbAreas: ["GM 3", "GM 5"],
     importArea: "GM 1",
   },
   b: {
-    id: "b",
     cc: "West",
-    green: "WEST01",
-    truck: "TRUCK3",
     truckName: "Truck 3",
-    crews: [crew(7, "ROCKET 2"), crew(9, "HFH 2"), crew(8, "DTE 2"), crew(11, "FORD 3"), crew(12, "ROCKET 3"), crew(10, "GM 2")],
+    crews: ["ROCKET 2", "HFH 2", "DTE 2", "FORD 3", "ROCKET 3", "GM 2"],
     freeDay: 6,
     phone: "+1313555072",
     webbAreas: ["GM 7", "GM 12 & GM 13"],
     importArea: "GM 14",
   },
+};
+
+const cache = new Map<string, SeedCode[]>();
+
+/** The seed's codes for one server: `E2E_CODES` (main) or `E2E_SIGNIN_CODES` (signin). */
+export const seedCodes = (env: "E2E_CODES" | "E2E_SIGNIN_CODES"): SeedCode[] => {
+  const file = process.env[env];
+  if (!file) throw new Error(`${env} unset: run the suite with \`bun run e2e\``);
+  let rows = cache.get(file);
+  if (!rows) {
+    rows = JSON.parse(readFileSync(file, "utf8")) as SeedCode[];
+    cache.set(file, rows);
+  }
+  return rows;
+};
+
+const pick = (codes: readonly SeedCode[], role: SeedCode["role"], day: number, cc: string, name: string): SeedCode => {
+  const row = codes.find((c) => c.role === role && c.day === day && c.cc === cc && c.name === name);
+  if (!row) throw new Error(`seed-codes.json has no ${role} "${name}" at Day ${day} CC ${cc}`);
+  return row;
+};
+
+export const laneFrom = (id: LaneId, codes: readonly SeedCode[]): Lane => {
+  const s = SHAPES[id];
+  const day1 = codes.filter((c) => c.day === 1);
+  return {
+    id,
+    cc: s.cc,
+    green: pick(codes, "green", 1, s.cc, `CC ${s.cc}`).path,
+    truck: pick(codes, "driver", 1, s.cc, s.truckName).path,
+    truckName: s.truckName,
+    crews: s.crews.map((name) => {
+      const row = pick(codes, "crew", 1, s.cc, name);
+      return { name, token: row.code, link: row.path };
+    }),
+    trucks: Object.fromEntries(day1.filter((c) => c.role === "driver").map((c) => [c.name, c.path])),
+    greens: Object.fromEntries([...day1, ...codes.filter((c) => c.day === 4)].filter((c) => c.role === "green").map((c) => [c.name, c.path])),
+    webbGreen: pick(codes, "green", 4, "Webb", "CC Webb").path,
+    webbTruck: pick(codes, "driver", 4, "Webb", "Truck B1").path,
+    freeDay: s.freeDay,
+    phone: s.phone,
+    webbAreas: s.webbAreas,
+    importArea: s.importArea,
+  };
 };

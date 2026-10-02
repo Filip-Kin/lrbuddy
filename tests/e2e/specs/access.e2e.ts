@@ -8,9 +8,7 @@
 import { expect, expectNoOverflow, test, visit } from "../support/fixtures.ts";
 import { firebaseSignIn } from "../support/firebase.ts";
 
-const GREEN_CODE: Record<string, string> = { "CC East": "EAST01", "CC West": "WEST01", "CC Webb": "DURFB1" };
-
-test("sign in, request a red shirt role, the green shirt approves, the phone moves into the crew", async ({ as, L, signin, admin }) => {
+test("sign in, request a red shirt role, the green shirt approves, the phone moves into the crew", async ({ as, L, LS, signin, admin }) => {
   const uid = `e2e-red-${L.id}-${Date.now()}`;
   const name = `Jordan Reed ${L.id.toUpperCase()}`;
   const red = await as("", { anon: true, base: signin });
@@ -44,7 +42,8 @@ test("sign in, request a red shirt role, the green shirt approves, the phone mov
   await expect(page.getByRole("link", { name: "Call" }).first()).toHaveAttribute("href", /^tel:/);
   await expectNoOverflow(page, "pending");
 
-  const green = await as(GREEN_CODE[ccName]!, { base: signin });
+  // The green shirt signs in and scans the CC's QR.
+  const green = await as(LS.greens[ccName]!, { base: signin });
   const gp = green.page;
   await visit(gp, "/access");
   const req = gp.locator("[data-access-request]").filter({ hasText: name });
@@ -80,11 +79,11 @@ test("sign in, request a red shirt role, the green shirt approves, the phone mov
   await expect(adm.page.getByRole("main")).toContainText(name);
 });
 
-test("a crew QR scanned before sign-in completes after it; a truck QR then makes the phone a driver", async ({ as, L, signin }) => {
+test("a crew QR scanned before sign-in completes after it; a truck QR then makes the phone a driver", async ({ as, LS: L, signin }) => {
   const crew = L.crews[2]!;
   const qr = await as("", { anon: true, base: signin });
   const page = qr.page;
-  await page.goto(`/j/${crew.token}`);
+  await page.goto(crew.link);
   await page.waitForURL("**/login");
   await expect(page.getByText(new RegExp(`${crew.name}, .*CC ${L.cc}`))).toBeVisible();
   await expectNoOverflow(page);
@@ -93,15 +92,15 @@ test("a crew QR scanned before sign-in completes after it; a truck QR then makes
   await expect(page.getByRole("region", { name: "Crew map" })).toBeVisible();
   await expect(page.locator("header")).toContainText(crew.name);
 
-  await page.goto(`/t/${L.truck}`);
+  await page.goto(L.truck);
   await page.waitForURL((u) => u.pathname === "/");
   await expect(page.locator("header")).toContainText(L.truckName);
   await expect(page.getByRole("region", { name: "Route map" })).toBeVisible();
 });
 
-test("with Firebase on, /j before sign-in remembers the link instead of signing in", async ({ as, L, signin }) => {
+test("with Firebase on, /j before sign-in remembers the link instead of signing in", async ({ as, LS, signin }) => {
   const anon = await as("", { anon: true, base: signin });
-  const res = await anon.ctx.request.get(`${signin}/j/${L.crews[2]!.token}`, { maxRedirects: 0 });
+  const res = await anon.ctx.request.get(`${signin}${LS.crews[2]!.link}`, { maxRedirects: 0 });
   expect(res.status()).toBe(302);
   expect(res.headers()["location"]).toBe("/login");
   expect(res.headers()["set-cookie"] ?? "").toContain("lrb_join=");

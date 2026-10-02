@@ -45,7 +45,7 @@ const checkScreen = async (role: Role, path: string, phone: boolean): Promise<vo
 
 for (const [role, routes] of Object.entries(ROUTES)) {
   test(`${role}: every screen opens and fits`, async ({ as, admin, L, isMobile }) => {
-    const code = role === "crew" ? L.crews[4]!.token : role === "driver" ? L.truck : role === "green" ? L.green : admin;
+    const code = role === "crew" ? L.crews[4]!.link : role === "driver" ? L.truck : role === "green" ? L.green : admin;
     // No location permission: a position would move the crew or truck on everyone else's map.
     const r = await as(code, { camera: role === "green" });
     for (const path of routes) await checkScreen(r, path, isMobile);

@@ -135,7 +135,7 @@ export const seedCcB = async (input: { eventId: number; day: Day; rocketId: numb
   // #region the CC, at the centre of the 3201 Webb parcel
   const home = cached.find((p) => p.address?.toUpperCase().startsWith("3201 WEBB")) ?? null;
   const at = home ? { lat: home.lat, lng: home.lng } : CC_FALLBACK;
-  const cc = createCc({ dayId: day.id, name: "Webb", letter: "B", address: "3201 Webb St, Detroit", lat: at.lat, lng: at.lng, code: "DURFB1" });
+  const cc = createCc({ dayId: day.id, name: "Webb", letter: "B", address: "3201 Webb St, Detroit", lat: at.lat, lng: at.lng });
   const shirts: Array<[string, string, string]> = [
     ["Kelsey Ward", "313-555-0401", "Site lead"],
     ["Andre Banks", "313-555-0402", "Supplies"],
@@ -143,8 +143,8 @@ export const seedCcB = async (input: { eventId: number; day: Day; rocketId: numb
   ];
   for (const [name, phone, roleLabel] of shirts) db.insert(greenShirts).values({ ccId: cc.id, name, phone, roleLabel }).run();
   // A live day (SPEC 20): no positions and no requests, so nothing on the map is a fake person.
-  createTruck({ dayId: day.id, ccId: cc.id, name: "Truck B1", driverName: "Luis Romero", driverPhone: "313-555-0411", code: "TRUCKB1" });
-  createTruck({ dayId: day.id, ccId: cc.id, name: "Truck B2", driverName: "Erin Shaw", driverPhone: "313-555-0412", code: "TRUCKB2" });
+  createTruck({ dayId: day.id, ccId: cc.id, name: "Truck B1", driverName: "Luis Romero", driverPhone: "313-555-0411" });
+  createTruck({ dayId: day.id, ccId: cc.id, name: "Truck B2", driverName: "Erin Shaw", driverPhone: "313-555-0412" });
   // #endregion
 
   // #region companies and crews: ROCKET 1 to 5, then GM 1 to 15, 20 people each
@@ -164,7 +164,6 @@ export const seedCcB = async (input: { eventId: number; day: Day; rocketId: numb
       headcount: 20,
       leadName: LEADS[i] ?? null,
       leadPhone: `313-555-${String(1300 + i).padStart(4, "0")}`,
-      token: `demo-ccb-${String(i + 1).padStart(2, "0")}`,
     });
     made.push(crew);
     crewOf.set(`${short} ${n}`, crew);

@@ -19,7 +19,7 @@ in the list Filip reads after a field day. Seen first in the suite on the green 
 
 Repro (any role with a map; green shown):
 
-1. Sign in as a green shirt (`EAST01`) at 1440 x 900, open `/`.
+1. Sign in as a green shirt (CC East's `/g/` link from `$DATA_DIR/seed-codes.json`) at 1440 x 900, open `/`.
 2. Tap the map's **+** and within 200 ms tap **Crews** in the nav.
 3. The page logs the TypeError; `/admin/client-errors` lists it with url `/` or `/crews`.
 
@@ -48,7 +48,7 @@ crew's Lots list (and the green map sheets, the print sheets and the exports) mi
     4114 DEVONSHIRE    Done
 
 Repro: the e2e seed (its fake Land Bank answers in capitals, as `titleCase`'s comment describes the
-real one), sign in as
-`demo-crew-07`, open `/lots`. Or Import DLBA on `/admin/lots` and open a new lot's sheet.
+real one), open
+ROCKET 2's `/j/` link (from `$DATA_DIR/seed-codes.json`), open `/lots`. Or Import DLBA on `/admin/lots` and open a new lot's sheet.
 
 Test: `found.e2e.ts` "FOUND-2 ...".

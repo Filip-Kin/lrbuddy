@@ -404,7 +404,7 @@ export const MapPage = () => {
         )}
         {target && at && <GuidanceBanner target={target} at={at} heading={follow ? heading : null} line={line} steps={steps} />}
               <div className="flex justify-end">
-          <MapLegend />
+          <MapLegend osmAlleys />
         </div>
       </div>
 

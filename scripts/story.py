@@ -220,6 +220,8 @@ with sync_playwright() as pw:
     box = green.locator(".leaflet-container").bounding_box()
     green.mouse.click(box["x"] + box["width"] * 0.55, box["y"] + box["height"] * 0.45)
     add = green.get_by_role("dialog")
+    add.get_by_role("button", name="Water", exact=True).click()
+    add.get_by_label("Crew").select_option("")
     add.get_by_role("button", name="Send").click()
     toast = green.get_by_text("Stop sent").or_(green.get_by_text("Stop open"))
     toast.first.wait_for(timeout=10_000)

@@ -68,7 +68,7 @@ test("requests board: a crew's request arrives live, Assign and Cancel from its 
   }
 });
 
-test("Add stop: a pin on the map becomes a crewless stop in a truck's queue", async ({ as, L }) => {
+test("Add stop: two items at one pin become two crewless stops in a truck queue", async ({ as, L }) => {
   const green = await as(L.green);
   const page = green.page;
   const before = new Set((await green.api.query<GreenRequest[]>("green.requests")).map((r) => r.id));
@@ -79,23 +79,34 @@ test("Add stop: a pin on the map becomes a crewless stop in a truck's queue", as
   await page.mouse.click(box.x + box.width * 0.55, box.y + box.height * 0.45);
   const sheet = page.getByRole("dialog", { name: "Add stop" });
   await expect(sheet).toBeVisible();
+  await expect(sheet.getByLabel("Label")).toHaveCount(0);
+  await expect(sheet.getByRole("button", { name: "Send" })).toBeDisabled();
+  for (const item of ["Water", "Snacks"]) {
+    await sheet.getByRole("button", { name: item, exact: true }).click();
+    await expect(sheet.getByRole("button", { name: item, exact: true })).toHaveAttribute("aria-pressed", "true");
+  }
+  await expect(sheet.locator("[data-stop-items] li")).toHaveCount(2);
+  await sheet.getByLabel("Crew").selectOption("");
   await expectNoOverflow(page, "add stop sheet");
-  await sheet.getByLabel("Label").fill(`E2E stop ${L.id}`);
   await sheet.getByRole("button", { name: "Send" }).click();
-  const toast = page.getByText(/^Stop (sent|open)/).first();
+  const toast = page.getByText(/^2 stops (sent|open)/).first();
   await expect(toast).toBeVisible();
   const text = (await toast.innerText()).trim();
-  const made = await until(async () => (await green.api.query<GreenRequest[]>("green.requests")).find((r) => !before.has(r.id) && r.crewId === null), "the new crewless request");
+  const made = await until(async () => {
+    const fresh = (await green.api.query<GreenRequest[]>("green.requests")).filter((r) => !before.has(r.id) && r.crewId === null);
+    return fresh.length === 2 ? fresh : undefined;
+  }, "the two new crewless requests");
   try {
-    expect(text, "dispatched to a truck").toMatch(/^Stop sent, Truck \d/);
-    const truckName = text.replace(/^Stop sent, /, "");
+    expect(text, "dispatched to a truck").toMatch(/^2 stops sent, Truck \d/);
+    const truckName = text.replace(/^2 stops sent, /, "");
     const driver = await as(L.trucks[truckName]!);
-    await until(async () => (await driver.api.query<Queue>("driver.queue")).stops.some((s) => s.items.some((i) => i.id === made.id)), `the stop in ${truckName}'s queue`);
-    await visit(driver.page, "/");
-    await driver.page.locator("[data-queue-button]").click();
-    await expect(driver.page.getByRole("dialog").getByText(`E2E stop ${L.id}`).first()).toBeVisible();
+    await until(
+      // Crewless requests are a stop each (a crew's requests share one stop).
+      async () => (await driver.api.query<Queue>("driver.queue")).stops.flatMap((s) => s.items.map((i) => i.id)).filter((id) => made.some((m) => m.id === id)).length === 2,
+      `both items in ${truckName}'s queue`,
+    );
   } finally {
-    await green.api.mutate("green.cancel", { requestId: made.id });
+    for (const m of made) await green.api.mutate("green.cancel", { requestId: m.id });
   }
 });
 

@@ -230,7 +230,7 @@ all its requests and decrements stock by each qty (floor at 0).
 
 | Route | Contents |
 |---|---|
-| `/` Map | Every crew, truck, lot and open request at this CC. Filters: Company, Crew, Requests, Lots, Trucks. Tap anything for a card. **Add stop** button: tap the map to drop a pin, then a sheet with request type, quantity, optional crew (defaults to none), optional label and note, **Send**. Creates a request with `created_by: 'green'` at that point; it is dispatched like any other. |
+| `/` Map | Every crew, truck, lot, area, alley and open request at this CC, always shown (no layer buttons, Filip 2026-10-03). Filters: Company, Crew. Tap anything for a card. **Add stop** button: tap the map to drop a pin, then a sheet: items (several can be picked, each with its own quantity), crew (starts as the crew of the area holding the pin, `green.stopCrew`; No crew or another crew overrides), note, **Send**. No label (Filip 2026-10-03). One request per item with `created_by: 'green'` at that point, each dispatched like any other; a crew's requests share a stop, crewless ones are a stop each. |
 | `/requests` Requests | Board grouped by status. Each card: crew, company, item, qty, age, truck. Actions: **Assign** (pick truck), **Cancel**, **Delivered**. Filter by company. Sound off by default, **Sound** toggle for new-request chime. |
 | `/lots` Lots | Table of lots at this CC with status and crew. Bulk **Assign** to a crew by drawing a rectangle on the map or selecting rows. Counts by status per crew. |
 | `/crews` Crews | Every crew at this CC: lead, company, headcount, last seen, open requests, lots done. **Call** / **Text** the lead. |

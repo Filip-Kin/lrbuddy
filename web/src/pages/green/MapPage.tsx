@@ -16,7 +16,6 @@ import { useSetLot } from "../../components/LotStatusControl.tsx";
 import { insideRect, rectFromRing, rectPolygon, STEP_LABEL, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
 import { useParcelLayer } from "../../lib/map/parcelLayer.ts";
 import { FilterSelect, PinIcon, useFlash } from "../../components/green/ui.tsx";
-import { ToggleChip } from "../../components/Segmented.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
 import { trpc } from "../../lib/trpc.ts";
@@ -48,11 +47,12 @@ export const MapPage = () => {
   }, []);
   const [company, setCompany] = useState<number | null>(null);
   const [crewFilter, setCrewFilter] = useState<number | null>(null);
-  const [showRequests, setShowRequests] = useState(true);
-  const [showLots, setShowLots] = useState(true);
-  const [showTrucks, setShowTrucks] = useState(true);
-  const [showAreas, setShowAreas] = useState(true);
-  const [showOsmAlleys, setShowOsmAlleys] = useState(false);
+  // Every layer is always on (Filip, 2026-10-03: no layer buttons, alleys always visible).
+  const showRequests = true;
+  const showLots = true;
+  const showTrucks = true;
+  const showAreas = true;
+  const showOsmAlleys = true;
   const [map, setMap] = useState<LeafletMap | null>(null);
   // Recenter: follow the blue dot until the map is moved by hand.
   const [follow, setFollow] = useState(false);
@@ -224,7 +224,6 @@ export const MapPage = () => {
       : null;
   const selStop = selected?.kind === "stop" ? (openRequests.find((r) => r.id === selected.id) ?? null) : null;
   const close = (): void => setSelected(null);
-  const openCount = openRequests.length;
 
   if (overview.isError && !d) {
     return (
@@ -262,26 +261,6 @@ export const MapPage = () => {
               </option>
             ))}
           </FilterSelect>
-        </div>
-        <div className="flex gap-2 overflow-x-auto">
-          <ToggleChip on={showRequests} onChange={setShowRequests}>
-            Requests
-            {openCount > 0 && <span className="rounded-full bg-crew/20 px-1.5 text-xs tabular-nums ring-1 ring-inset ring-crew">{openCount}</span>}
-          </ToggleChip>
-          <ToggleChip on={showLots} onChange={setShowLots}>
-            Lots
-          </ToggleChip>
-          <ToggleChip on={showTrucks} onChange={setShowTrucks}>
-            Trucks
-          </ToggleChip>
-          {(plan.data?.areas.length ?? 0) > 0 && (
-            <ToggleChip on={showAreas} onChange={setShowAreas}>
-              Areas
-            </ToggleChip>
-          )}
-          <ToggleChip on={showOsmAlleys} onChange={setShowOsmAlleys}>
-            OSM alleys
-          </ToggleChip>
         </div>
       </div>
       <div className={`relative min-h-0 flex-1 ${placing || drawing || painting || lotDrawing ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>

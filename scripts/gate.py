@@ -199,12 +199,11 @@ REDIRECTS = {"admin": {"/admin/print": "/plan/print"}, "driver": {"/map": "/"}}
 DRIVER_CARD_MAX = 0.36
 QUEUE_MIN_PX = 56
 # The Lots toggle beside Recenter (SPEC 17) is a primary control on a moving truck.
-LOTS_TOGGLE_MIN_PX = 44
 
 DRIVER_HOME_JS = """() => {
   const box = (sel) => { const e = document.querySelector(sel); if (!e || e.offsetParent === null) return null;
     const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, w: r.width, h: r.height }; };
-  return { card: box('[data-next-card]'), banner: box('[data-guidance]'), queue: box('[data-queue-button]'), lots: box('[data-lots-toggle]'), vh: window.innerHeight };
+  return { card: box('[data-next-card]'), banner: box('[data-guidance]'), queue: box('[data-queue-button]'), vh: window.innerHeight };
 }"""
 
 LUM_JS = """() => {
@@ -442,11 +441,6 @@ def dynamic_checks() -> None:
                                 fail(f"{tag}: no [data-queue-button] on the driver map")
                             elif q["h"] < QUEUE_MIN_PX or q["w"] < QUEUE_MIN_PX:
                                 fail(f"{tag}: Queue button is {q['w']:.0f}x{q['h']:.0f}px (<{QUEUE_MIN_PX})")
-                            lt = dh["lots"]
-                            if lt is None:
-                                fail(f"{tag}: no [data-lots-toggle] on the driver map")
-                            elif lt["h"] < LOTS_TOGGLE_MIN_PX or lt["w"] < LOTS_TOGGLE_MIN_PX:
-                                fail(f"{tag}: Lots toggle is {lt['w']:.0f}x{lt['h']:.0f}px (<{LOTS_TOGGLE_MIN_PX})")
                         for c in page.evaluate(CAMERA_JS):
                             if c["h"] < 44 or c["w"] < 44:
                                 fail(f"{tag}: camera button '{c['t']}' is {c['w']:.0f}x{c['h']:.0f}px (<44)")

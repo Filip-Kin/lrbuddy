@@ -120,7 +120,7 @@ test("a green-and-driver user paints on the driver map; a driver-only user gets 
   const plain = await as(L.webbTruck, { geo: { latitude: at.lat, longitude: at.lng, accuracy: 5 } });
   await visit(plain.page, "/");
   await expect(plain.page.getByRole("region", { name: "Route map" })).toBeVisible();
-  await expect(plain.page.locator("[data-lots-toggle]")).toBeVisible();
+  await expect(plain.page.locator("[data-queue-button]")).toBeVisible();
   await expect(plain.page.locator("[data-paint]")).toHaveCount(0);
   await expect(plain.page.locator("[data-parcel]")).toHaveCount(0);
   expect(await plain.api.refusal("query", "green.parcels")).toBe("FORBIDDEN");

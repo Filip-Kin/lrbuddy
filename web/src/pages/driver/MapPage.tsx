@@ -10,7 +10,7 @@ import { DriverMap, type DriverMapCrew, type DriverMapLot, type DriverMapStop } 
 import { etaText, itemsSummary } from "../../components/driver/format.ts";
 import { compass, manoeuvreAngle, manoeuvreLabel, nextManoeuvre, straightLine, type Manoeuvre } from "../../components/driver/guidance.ts";
 import { useDistanceFrom, useDriverActions, useNewStopBuzz, useNow, useWakeLock, type DriverActions, type DriverQueue, type QueueStop } from "../../components/driver/hooks.ts";
-import { ArrowIcon, FlagIcon, LayersIcon, ListIcon, NavigateIcon, PhoneIcon, PinIcon, RecenterIcon, TruckIcon } from "../../components/driver/icons.tsx";
+import { ArrowIcon, FlagIcon, ListIcon, NavigateIcon, PhoneIcon, PinIcon, RecenterIcon, TruckIcon } from "../../components/driver/icons.tsx";
 import { AreaCard, DriverLotSheet } from "../../components/driver/WorkSheets.tsx";
 import { useSetLot } from "../../components/LotStatusControl.tsx";
 import { PaintBar, PaintFrame, PaintIcon, usePaint } from "../../components/PaintBar.tsx";
@@ -282,7 +282,8 @@ export const MapPage = () => {
   const [cancelKey, setCancelKey] = useState<string | null>(null);
   const work = trpc.driver.lots.useQuery(undefined, { refetchInterval: 60_000 });
   const crewList = trpc.driver.crews.useQuery(undefined, { refetchInterval: 30_000 });
-  const [showLots, setShowLots] = useState(true);
+  // Lots always shown (Filip, 2026-10-03: no layer buttons on the maps).
+  const showLots = true;
   const [sel, setSel] = useState<{ lotId: number } | { parcelId: string } | null>(null);
   const lotWrites = useSetLot("driver");
   const [areaId, setAreaId] = useState<number | null>(null);
@@ -415,7 +416,8 @@ export const MapPage = () => {
             data-paint
             variant="secondary"
             size="lg"
-            className="pointer-events-auto bg-surface! px-4 shadow-lg"
+            aria-label="Paint"
+            className="pointer-events-auto size-14 rounded-full bg-surface! p-0! shadow-lg"
             disabled={!leaflet || !work.data}
             onClick={() => {
               setSel(null);
@@ -424,24 +426,11 @@ export const MapPage = () => {
             }}
           >
             <PaintIcon />
-            Paint
           </Button>
         )}
-        <Button
-          data-lots-toggle
-          variant="secondary"
-          size="lg"
-          aria-pressed={showLots}
-          className={`pointer-events-auto px-4 shadow-lg ${showLots ? "bg-surface! ring-2! ring-ink!" : "bg-surface! text-muted!"}`}
-          onClick={() => setShowLots((v) => !v)}
-        >
-          <LayersIcon />
-          Lots
-        </Button>
         {!follow && (
-          <Button variant="secondary" size="lg" className="pointer-events-auto bg-surface! px-4 shadow-lg" onClick={() => setFollow(true)}>
+          <Button variant="secondary" size="lg" data-recenter aria-label="Recenter" className="pointer-events-auto size-14 rounded-full bg-surface! p-0! shadow-lg" onClick={() => setFollow(true)}>
             <RecenterIcon />
-            Recenter
           </Button>
         )}
       </div>

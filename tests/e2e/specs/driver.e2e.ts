@@ -141,7 +141,7 @@ test("stock goes above capacity with plus, Expected sets the capacity", async ({
  */
 const LOT_PICK = `() => {
   const map = document.querySelector('.leaflet-container').getBoundingClientRect();
-  const block = [...document.querySelectorAll('[data-next-card], [data-guidance], [data-queue-button], [data-lots-toggle], header, [role=status]')].map((e) => e.getBoundingClientRect());
+  const block = [...document.querySelectorAll('[data-next-card], [data-guidance], [data-queue-button], header, [role=status]')].map((e) => e.getBoundingClientRect());
   const vw = window.innerWidth, vh = window.innerHeight;
   for (const el of document.querySelectorAll('path.lrb-lot-shape-open')) {
     const r = el.getBoundingClientRect();
@@ -164,7 +164,7 @@ test("map: lots at the CC without bare parcels, a lot set Done from its sheet", 
   const map = page.getByRole("region", { name: "Route map" });
   await expect(map.locator("path.lrb-lot-shape").first()).toBeAttached();
   await expect(map.locator("path.lrb-parcel-shape"), "bare parcels on the driver map (SPEC 21: drivers see lots only)").toHaveCount(0);
-  await expect(page.locator("[data-lots-toggle]")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-lots-toggle]"), "no layer buttons on the truck map").toHaveCount(0);
 
   const sheet = page.getByRole("dialog");
   // While the map follows the truck the first tap takes the map (SPEC 17); the next opens the lot.
@@ -194,16 +194,3 @@ test("map: lots at the CC without bare parcels, a lot set Done from its sheet", 
   }
 });
 
-test("Lots toggle hides the lots and brings them back", async ({ as, L }) => {
-  const driver = await driverAtCc(as, L.truck);
-  const page = driver.page;
-  await visit(page, "/");
-  const toggle = page.locator("[data-lots-toggle]");
-  const shapes = page.getByRole("region", { name: "Route map" }).locator("path.lrb-lot-shape");
-  await expect(shapes.first()).toBeAttached();
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-pressed", "false");
-  await expect(shapes).toHaveCount(0);
-  await toggle.click();
-  await expect(shapes.first()).toBeAttached();
-});

@@ -1,5 +1,6 @@
 import { Redirect, Route, Switch } from "wouter";
 import { BroadcastBanner } from "../../components/BroadcastBanner.tsx";
+import { PushPrompt } from "../../components/PushPrompt.tsx";
 import { CcPage } from "./CcPage.tsx";
 import { LotsPage } from "./LotsPage.tsx";
 import { MapPage } from "./MapPage.tsx";
@@ -11,6 +12,7 @@ import { SettingsPage } from "./SettingsPage.tsx";
 export const CrewRoutes = () => (
   <div className="flex h-full flex-col">
     <BroadcastBanner ccHref="/cc" />
+    <PushPrompt />
     <div className="relative min-h-0 flex-1 overflow-y-auto">
       <Switch>
         <Route path="/" component={MapPage} />

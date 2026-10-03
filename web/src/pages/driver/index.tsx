@@ -1,5 +1,6 @@
 import { Redirect, Route, Switch } from "wouter";
 import { BroadcastBanner } from "../../components/BroadcastBanner.tsx";
+import { PushPrompt } from "../../components/PushPrompt.tsx";
 import { MapPage } from "./MapPage.tsx";
 import { SettingsPage } from "./SettingsPage.tsx";
 import { StockPage } from "./StockPage.tsx";
@@ -8,6 +9,7 @@ import { StockPage } from "./StockPage.tsx";
 export const DriverRoutes = () => (
   <div className="flex h-full flex-col">
     <BroadcastBanner />
+    <PushPrompt />
     <div className="relative min-h-0 flex-1 overflow-y-auto">
       <Switch>
         <Route path="/" component={MapPage} />

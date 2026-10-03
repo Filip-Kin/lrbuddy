@@ -151,6 +151,12 @@ export const TruckIcon = (p: P) => (
     <circle cx="16.5" cy="17.5" r="1.8" />
   </Svg>
 );
+export const BellIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" />
+    <path d="M10 20.5a2 2 0 0 0 4 0" />
+  </Svg>
+);
 export const CloseIcon = (p: P) => (
   <Svg {...p}>
     <path d="M6 6l12 12M18 6 6 18" />

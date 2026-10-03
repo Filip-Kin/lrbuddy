@@ -3,6 +3,11 @@
  * GPS fix along the compass heading, 4 to 30 m ahead, and the first parcel it
  * enters; with no heading, the parcel under the fix or the nearest centre
  * within 25 m. Pure functions on [lng, lat] GeoJSON outlines, in local metres.
+ *
+ * Alleys (SPEC 22, alleys): standing at the mouth of an alley and pointing the
+ * phone down it picks the alley half it points into. The alley wins when the
+ * bearing runs along it (within 25 degrees, either way) and the phone is
+ * within 15 m of its centreline or its end; otherwise the parcels as above.
  */
 import type { LotGeometry } from "../../../../../server/db/schema.ts";
 
@@ -97,6 +102,72 @@ export const pickParcel = <T extends Candidate>(at: LatLng | null, heading: numb
   }
   return pickNearest(at, items);
 };
+
+// #region alleys
+export const ALLEY_ALONG_DEG = 25;
+export const ALLEY_NEAR_M = 15;
+
+/** An alley half: its centreline as [[lat, lng], ...] along the way. */
+export interface AlleyCandidate {
+  line: ReadonlyArray<readonly [number, number]>;
+}
+
+/** Nearest point of a polyline (local metres) to the origin: distance, arc position, length, and the direction there. */
+const nearestOnLine = (xy: ReadonlyArray<readonly [number, number]>): { d: number; s: number; length: number; u: [number, number] } => {
+  let best = { d: Infinity, s: 0, u: [0, 0] as [number, number] };
+  let acc = 0;
+  for (let i = 1; i < xy.length; i++) {
+    const a = xy[i - 1]!;
+    const b = xy[i]!;
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy);
+    if (len === 0) continue;
+    const t = Math.max(0, Math.min(1, (-a[0] * dx - a[1] * dy) / (len * len)));
+    const d = Math.hypot(a[0] + dx * t, a[1] + dy * t);
+    if (d < best.d) best = { d, s: acc + t * len, u: [dx / len, dy / len] };
+    acc += len;
+  }
+  return { ...best, length: acc };
+};
+
+/**
+ * The alley half the phone points into, or null. A half qualifies when the
+ * phone is within 15 m of it and the bearing runs along it within 25 degrees,
+ * either way; and the half is the one the phone stands in, or starts at the
+ * phone's end and runs away from it along the bearing. The nearest wins: the
+ * half the phone stands in before the one it looks into.
+ */
+export const pickAlley = <T extends AlleyCandidate>(at: LatLng, heading: number, halves: readonly T[]): T | null => {
+  const h: [number, number] = [Math.sin(heading * RAD), Math.cos(heading * RAD)];
+  const cosMax = Math.cos(ALLEY_ALONG_DEG * RAD);
+  const END_M = 0.5;
+  let best: { c: T; score: number } | null = null;
+  for (const c of halves) {
+    if (c.line.length < 2) continue;
+    const near = nearestOnLine(c.line.map(([lat, lng]) => xyOf(at, lng, lat)));
+    if (near.d > ALLEY_NEAR_M) continue;
+    const along = h[0] * near.u[0] + h[1] * near.u[1];
+    if (Math.abs(along) < cosMax) continue;
+    const forward = along > 0;
+    const inside = near.s > END_M && near.s < near.length - END_M;
+    // At an end, the half must run away from the phone along the bearing.
+    if (!inside && (near.s <= END_M ? !forward : forward)) continue;
+    const score = inside ? near.d / 1000 : near.d;
+    if (!best || score < best.score) best = { c, score };
+  }
+  return best?.c ?? null;
+};
+
+/** SPEC 22: an alley half pointed down wins; otherwise the parcel pick. */
+export const pickFlag = <T extends Candidate, A extends AlleyCandidate>(at: LatLng | null, heading: number | null, halves: readonly A[], items: readonly T[]): T | A | null => {
+  if (at && heading !== null) {
+    const alley = pickAlley(at, heading, halves);
+    if (alley) return alley;
+  }
+  return pickParcel(at, heading, items);
+};
+// #endregion
 
 /** "NE": the heading as one of eight compass points. */
 export const compassPoint = (heading: number): string => {

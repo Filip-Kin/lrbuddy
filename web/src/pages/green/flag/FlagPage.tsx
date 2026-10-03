@@ -9,7 +9,7 @@ import { FlagMap } from "./FlagMap.tsx";
 import { FlagPaintBar } from "./FlagPaintBar.tsx";
 import { postPhoto, useInvalidatePhotos } from "../../../lib/photos.ts";
 import { trpc } from "../../../lib/trpc.ts";
-import { compassPoint, pickParcel, type Candidate } from "./pick.ts";
+import { compassPoint, pickFlag, type Candidate } from "./pick.ts";
 import { LensSwitch } from "./LensSwitch.tsx";
 import { grabFrame, useCamera, useCompass, useFix } from "./sensors.ts";
 import { CompassAsk, ExpandIcon, useExpanded, useNow, usePaintFollowsExpand } from "./screen.tsx";
@@ -24,6 +24,9 @@ const MAP_KEY = "lrb.flag.map";
 interface Target extends Candidate {
   lotId: number | null;
   parcelId: string | null;
+  /** An alley half (SPEC 22, alleys): its key, and its centreline for the pick along it. */
+  alleyKey: string | null;
+  line: Array<[number, number]> | null;
   address: string | null;
   status: LotStatus | null;
   grade: LotGrade | null;
@@ -92,6 +95,7 @@ export const FlagPage = () => {
   const overview = trpc.green.overview.useQuery(undefined, { refetchInterval: 60_000 });
   const parcels = trpc.green.parcels.useQuery(undefined, { refetchInterval: 120_000 });
   const plan = trpc.green.plan.useQuery(undefined, { refetchInterval: 120_000 });
+  const alleys = trpc.green.alleyHalves.useQuery(undefined, { refetchInterval: 120_000 });
   // Full-screen map: the camera pauses and the map is Paint. Kept for the session.
   const [expanded, setExpandedState] = useExpanded(MAP_KEY);
   const camera = useCamera(expanded);
@@ -118,6 +122,8 @@ export const FlagPage = () => {
       drawn: l.source === "drawn",
       lotId: l.id,
       parcelId: l.parcelId,
+      alleyKey: l.alleyKey,
+      line: null,
       address: l.address,
       status: l.status,
       grade: l.grade,
@@ -130,16 +136,47 @@ export const FlagPage = () => {
       geometry: p.geometry,
       lotId: null,
       parcelId: p.parcelId,
+      alleyKey: null,
+      line: null,
       address: p.address,
       status: null,
       grade: null,
       crewName: areaName(p.lat, p.lng),
     }));
-    return [...lots, ...bare];
-  }, [overview.data, parcels.data, crewName, areaName]);
+    // Alley halves with no lot yet; a half with a lot is that lot.
+    const lotIds = new Set(lots.map((l) => l.lotId));
+    const halves: Target[] = (alleys.data ?? [])
+      .filter((h) => h.lotId === null || !lotIds.has(h.lotId))
+      .map((h) => ({
+        key: `a:${h.key}`,
+        lat: h.lat,
+        lng: h.lng,
+        geometry: h.geometry,
+        drawn: true,
+        lotId: null,
+        parcelId: null,
+        alleyKey: h.key,
+        line: h.line,
+        address: h.name,
+        status: null,
+        grade: null,
+        crewName: areaName(h.lat, h.lng),
+      }));
+    return [...lots, ...bare, ...halves];
+  }, [overview.data, parcels.data, alleys.data, crewName, areaName]);
+  // The ray picks parcels and lots, never an alley (an alley wins only pointed down, SPEC 22 alleys).
+  const rayTargets = useMemo(() => targets.filter((t) => t.alleyKey === null), [targets]);
+  // Every half along its centreline: a bare half as itself, a half with a lot as that lot.
+  const alleyTargets = useMemo(() => {
+    const byKey = new Map(targets.map((t) => [t.key, t]));
+    return (alleys.data ?? []).flatMap((h) => {
+      const t = byKey.get(h.lotId !== null && byKey.has(`l:${h.lotId}`) ? `l:${h.lotId}` : `a:${h.key}`);
+      return t ? [{ ...t, line: h.line }] : [];
+    });
+  }, [targets, alleys.data]);
 
   // Recomputed every second (the `now` tick) from the latest fix and heading.
-  const aimed = useMemo(() => pickParcel(fix, heading, targets), [fix, heading, targets, now]);
+  const aimed = useMemo(() => pickFlag(fix, heading, alleyTargets, rayTargets), [fix, heading, alleyTargets, rayTargets, now]);
   // A parcel tapped on the strip holds the pick (the ray pick pauses) until Clear, a second tap
   // on it, a flag, or Expand.
   const [tapped, setTapped] = useState<string | null>(null);
@@ -170,8 +207,14 @@ export const FlagPage = () => {
     try {
       let lotId = f.lotId;
       if (lotId === null) {
-        const r = await utils.client.green.setLotStatus.mutate({ lotId: f.target.lotId, parcelId: f.target.lotId === null ? f.target.parcelId : null, status: f.status });
-        lotId = r.lot?.id ?? null;
+        if (f.target.lotId === null && f.target.alleyKey !== null) {
+          // An alley half: the first flag makes its lot, the next finds it.
+          const r = await utils.client.green.flagAlley.mutate({ key: f.target.alleyKey, status: f.status });
+          lotId = r.lot.id;
+        } else {
+          const r = await utils.client.green.setLotStatus.mutate({ lotId: f.target.lotId, parcelId: f.target.lotId === null ? f.target.parcelId : null, status: f.status });
+          lotId = r.lot?.id ?? null;
+        }
         patch(f.id, { lotId });
       }
       let photoId: number | null = null;
@@ -299,6 +342,8 @@ export const FlagPage = () => {
     return out;
   }, [flags]);
   const mapLots = useMemo(() => overview.data?.lots ?? [], [overview.data]);
+  // Alley halves that are not lots yet: a tap on one in the strip picks it.
+  const mapAlleys = useMemo(() => targets.filter((t) => t.key.startsWith("a:") && t.line).map((t) => ({ key: t.key, line: t.line! })), [targets]);
 
   // The expanded map is Paint (SPEC 22): the toggle brush, or Do not touch, on the same green.paint
   // batch and Undo history as the green map. Every lot and bare parcel at the CC is a target.
@@ -378,6 +423,7 @@ export const FlagPage = () => {
         <FlagMap
           lots={mapLots}
           parcels={parcels.data}
+          alleys={mapAlleys}
           plan={plan.data}
           cc={cc}
           fix={fix}

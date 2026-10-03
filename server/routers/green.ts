@@ -20,6 +20,7 @@ import {
 import { assignDrawnArea, dayOfMap, deleteArea, markArea, moveArea, reassignArea } from "../dayof.ts";
 import { paint, paintDepth, paintInput, undoPaint } from "../paint.ts";
 import { createDrawnLot, deleteDrawnLot, drawnPolygon, editDrawnShape, suggestDrawn } from "../drawn.ts";
+import { alleyHalvesFor, flagAlley } from "../alley-lots.ts";
 import { bareParcelsFor, setLot, type Actor } from "../parcel-status.ts";
 import { buildCrewsFor } from "./plan/assignments.ts";
 import { areaInput } from "./plan/common.ts";
@@ -331,6 +332,15 @@ export const greenRouter = router({
     .input(z.object({ lotId: z.number().int(), polygon: drawnPolygon }))
     .mutation(({ ctx, input }) => editDrawnShape(greenActor(ctx), input.lotId, input.polygon)),
   deleteLot: greenProcedure.input(z.object({ lotId: z.number().int() })).mutation(({ ctx, input }) => deleteDrawnLot(greenActor(ctx), input.lotId)),
+  // #endregion
+
+  // #region Flag on alleys (SPEC 22, alleys)
+  /** Halves of the cached OSM alleys in the CC's day area, named, with outlines and their lot when there is one. */
+  alleyHalves: greenProcedure.query(({ ctx }) => alleyHalvesFor(greenActor(ctx))),
+  /** The Flag shutter on an alley half: the half's lot, made on the first flag, set Todo or Do not touch. */
+  flagAlley: greenProcedure
+    .input(z.object({ key: z.string().min(5).max(40), status: z.enum(["open", "do_not_touch"]) }))
+    .mutation(({ ctx, input }) => flagAlley(greenActor(ctx), input.key, input.status, ctx.session.displayName)),
   // #endregion
 
   /** Draw area, then Assign: the crews take the rectangle and the Todo lots inside it. */

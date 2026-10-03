@@ -438,9 +438,15 @@ export const lots = sqliteTable(
     statusByCrewId: integer("status_by_crew_id").references(() => crews.id, { onDelete: "set null" }),
     statusAt: integer("status_at"),
     note: text("note"),
+    /**
+     * A drawn lot the Flag screen made for one half of an OpenStreetMap alley (SPEC 22, alleys):
+     * `<osm way id>:<block>:<half>` (`server/alley-halves.ts`). Flagging the half again finds it.
+     */
+    alleyKey: text("alley_key"),
   },
   (t) => [
     uniqueIndex("lots_event_parcel").on(t.eventId, t.parcelId).where(sql`parcel_id is not null`),
+    uniqueIndex("lots_event_alley").on(t.eventId, t.alleyKey).where(sql`alley_key is not null`),
     index("lots_cc_idx").on(t.ccId),
     index("lots_crew_idx").on(t.crewId),
   ],

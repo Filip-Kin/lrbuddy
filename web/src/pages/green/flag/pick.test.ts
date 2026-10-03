@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { compassPoint, pickByRay, pickNearest, pickParcel, type Candidate } from "./pick.ts";
+import { compassPoint, pickAlley, pickByRay, pickFlag, pickNearest, pickParcel, type Candidate } from "./pick.ts";
 
 // A street running east-west at lat 42.38; parcels north of it, 10 m wide, 30 m deep.
 const AT = { lat: 42.38, lng: -83.1 };
@@ -69,5 +69,57 @@ describe("drawn lots", () => {
     expect(pickNearest(AT, [big, drawn])?.key).toBe("l:9");
     expect(pickByRay(AT, 0, [big, drawn])?.key).toBe("l:9");
     expect(pickByRay(AT, 0, [big])?.key).toBe("p:1");
+  });
+});
+
+describe("alleys (SPEC 22, alleys)", () => {
+  // An east-west alley 20 m north of AT, from x = 10 to x = 210 m, in two halves of 100 m.
+  const pt = (x: number, y: number): [number, number] => [AT.lat + y / M_LAT, AT.lng + x / kx];
+  const west = { key: "a:1:0:0", line: [pt(10, 20), pt(110, 20)] };
+  const east = { key: "a:1:0:1", line: [pt(110, 20), pt(210, 20)] };
+  const halves = [west, east];
+  // Parcels north of the street, the alley running across their backs.
+  const backs = [parcel("p1", 0, 8, 12, 10), parcel("p2", 12, 8, 12, 10), parcel("p3", 0, 22, 12, 10)];
+  const at = (x: number, y: number) => ({ lat: AT.lat + y / M_LAT, lng: AT.lng + x / kx });
+
+  test("at the mouth, pointing down the alley, picks the half it points into", () => {
+    expect(pickAlley(at(4, 20), 90, halves)?.key).toBe("a:1:0:0");
+    // From the far end, looking back west: the east half.
+    expect(pickAlley(at(216, 20), 270, halves)?.key).toBe("a:1:0:1");
+  });
+
+  test("within 25 degrees either side of the alley's direction; not beyond", () => {
+    expect(pickAlley(at(4, 20), 90 + 24, halves)?.key).toBe("a:1:0:0");
+    expect(pickAlley(at(4, 20), 90 - 24, halves)?.key).toBe("a:1:0:0");
+    expect(pickAlley(at(4, 20), 90 + 30, halves)).toBeNull();
+    expect(pickAlley(at(4, 20), 0, halves)).toBeNull();
+  });
+
+  test("within 15 m of the centreline or its end; not beyond", () => {
+    expect(pickAlley(at(50, 34), 90, halves)?.key).toBe("a:1:0:0");
+    expect(pickAlley(at(50, 37), 90, halves)).toBeNull();
+    expect(pickAlley(at(-4, 20), 90, halves)?.key).toBe("a:1:0:0");
+    expect(pickAlley(at(-8, 20), 90, halves)).toBeNull();
+  });
+
+  test("pointing away from the alley at its mouth picks nothing", () => {
+    expect(pickAlley(at(4, 20), 270, halves)).toBeNull();
+  });
+
+  test("inside a half, the half the phone stands in; at the middle, the half ahead", () => {
+    expect(pickAlley(at(100, 20), 90, halves)?.key).toBe("a:1:0:0");
+    expect(pickAlley(at(100, 20), 270, halves)?.key).toBe("a:1:0:0");
+    expect(pickAlley(at(110, 20), 90, halves)?.key).toBe("a:1:0:1");
+    expect(pickAlley(at(110, 20), 270, halves)?.key).toBe("a:1:0:0");
+  });
+
+  test("pickFlag: the alley when pointing along it, the parcel when pointing across it, the parcel with no heading", () => {
+    expect(pickFlag(at(4, 20), 90, halves, backs)?.key).toBe("a:1:0:0");
+    // Standing in the alley facing south: the parcel behind the house row.
+    expect(pickFlag(at(6, 20), 180, halves, backs)?.key).toBe("p1");
+    // Facing north across it: the parcel on the other side.
+    expect(pickFlag(at(6, 18), 0, halves, backs)?.key).toBe("p3");
+    expect(pickFlag(at(4, 20), null, halves, backs)?.key).not.toBe("a:1:0:0");
+    expect(pickFlag(null, 90, halves, backs)).toBeNull();
   });
 });

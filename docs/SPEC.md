@@ -127,8 +127,10 @@ lots              id, event_id, parcel_id, address, lat, lng, source ('dlba'|'pa
                   geometry (nullable text, GeoJSON Polygon or MultiPolygon in WGS84, the parcel outline),
                   cc_id (nullable, stands for the CC's site across days, section 8), crew_id (nullable),
                   status ('open'|'in_progress'|'done'|'not_done'|'do_not_touch'|'not_todo', sections 21, 28), grade ('high'|'low', nullable),
-                  status_by_crew_id, status_at, note
+                  status_by_crew_id, status_at, note, alley_key (nullable, section 22 alleys:
+                  '<osm way id>:<block>:<half>' of the alley half a Flag made this drawn lot for)
                   unique (event_id, parcel_id) where parcel_id not null
+                  unique (event_id, alley_key) where alley_key not null
 push_subscriptions id, session_id, endpoint (unique), p256dh, auth, created_at
 broadcasts        id, cc_id, day_id, body, sent_by (session display_name), at
 routes            truck_id PK, computed_at, stop_order (json array of request ids), geometry (json [[lat,lng]...]),
@@ -984,6 +986,48 @@ foot or from the truck window. Not red shirts.
   and landscape) and checks the chip and the ray pick, then a strip tap, Clear and a flag on the
   tapped parcel.
 
+Flag screen: alleys (Filip, 2026-10-03, in the field, Day 6: "as intuitive as flagging parcels: just
+point your phone down the alley and take a picture")
+- Alleys come from the OSM centrelines cached in `osm_alleys` (section 24). The Flag path reads the
+  cache only and never waits on Overpass.
+- Halves (`server/alley-halves.ts`, pure, tested). Filip: "we usually like to break up an alley in two
+  so split it halfway down the block". Each cached way is cut into block-long pieces where it crosses a
+  street, and each piece is cut at its middle into two halves. A half is one flaggable target. The
+  cache has no streets, so the cuts come from the parcels backing onto the alley (centre within 45 m,
+  on either side). On each side, walking along the alley, a block's parcels share a cross-street pair
+  (`cross_street_1`, `cross_street_2`). Where the pair changes, a street crosses the alley, halfway
+  between the two parcels. A pair held by one parcel only is left out. A pair holding the street most
+  of that side faces is left out too (corner lots facing the cross street). Changes on the two sides
+  within 40 m are one street. No cut leaves a block under 30 m. Pieces under 10 m get no halves. With
+  no parcels the whole way is one block. Key: `<osm way id>:<block>:<half>` in node order.
+- `green.alleyHalves`: the halves whose middle lies in the CC's day area, each with its key, name,
+  centreline, a 4 m wide outline (the centreline buffered 2 m each side) and its lot (by `alley_key`,
+  else a drawn lot over its middle), or null.
+- Name: "Alley, Lawrence to Collingwood, west half". The two streets either side are found as Draw
+  lot's prefill finds them, and the half is named by compass from the middle of its block (west, east,
+  north, south).
+- Pick (`flag/pick.ts`, pure, tested): an alley half wins over parcels when the camera bearing runs
+  along it (within 25 degrees, either way along it) and the phone is within 15 m of its centreline or
+  its end. Of those, the half the phone stands in, else the half that starts at the phone's end and
+  runs away from it along the bearing. At an alley's mouth, pointing outward picks no alley. Otherwise
+  the parcel ray pick as above. The ray never picks an alley half or an alley lot, so pointing across an
+  alley picks the parcel behind it. No heading: no alley pick.
+- The picked half is outlined in yellow on the strip like a parcel. The top card names it. A tap on
+  the dashed centreline in the strip picks it too.
+- Shutter (`green.flagAlley`, key and status): the first flag makes the lot as Draw lot does (source
+  `drawn`, no `parcel_id`, the name in `address`, the 4 m outline, the middle as lat/lng,
+  `alley_key` set). Crew: from the rectangle that holds the middle, as Todo on a bare parcel. The photo
+  is its Before with the phone's fix and heading. Flagging the half again finds that lot (by
+  `alley_key`, or a hand-drawn lot over the half's middle) and sets the status. It never makes a
+  second lot. Todo, Do not touch and Undo work as for a parcel. Not todo keeps the row, as for every
+  drawn lot. A half outside the CC's day area is refused.
+- After that it is a lot like any other: Paint (the expanded Flag map's toggle too), crews, Wrap up,
+  the driver map.
+- Gate: `tests/e2e/specs/flag-alley.e2e.ts`. At an alley's mouth in the e2e world, the fake compass
+  pointing down the alley picks the west half (yellow outline, name on the card). The shutter makes
+  one alley lot, Todo, with a Before. The next flag picks that lot and adds a second Before to it, still
+  one lot. In the alley, pointing north across it picks a parcel.
+
 ## 23. Paint mode on the green and admin maps (Filip, 2026-10-01 15:34)
 
 Marking lots one sheet at a time is too slow for a morning sweep or a correction pass. Paint mode is
@@ -1027,9 +1071,11 @@ admin draws the shape and it becomes a lot like any other.
   driver map, print sheets, stats, exports, Flag screen hit test (a drawn lot wins over a parcel
   when the point is inside both). Green and admin can **Edit shape** and **Delete lot** from its
   sheet; a lot with photos or history cannot be deleted, only set Not todo.
-- The OpenStreetMap alley layer (section 20) becomes a map toggle **OSM alleys**, off by default,
-  shown as a thin dashed centreline only (no 3 m polygon, no status, no sheet), there as a hint for
-  where to draw. The `alleys` table and its status sheet are removed; existing rows are dropped by the
+- The OpenStreetMap alley layer (section 20) is a thin dashed centreline only (no 3 m polygon, no
+  status, no sheet), there as a hint for where to draw. It was a toggle **OSM alleys**, off by default;
+  since 2026-10-03 it is always on, the Flag strip and its Paint map included. On the Flag screen the
+  cached alleys are also cut into halves that are flagged by pointing the phone down them, each
+  becoming a drawn lot with an `alley_key` (section 22, Flag screen: alleys). The `alleys` table and its status sheet are removed; existing rows are dropped by the
   migration (none were marked in the field yet).
 - Gate: as CC Webb's green shirt at zoom 17, Draw lot with four taps along a mid-block gap, Save, the lot appears
   red, is in the driver's lot list, and is tappable; overflow 0 at 390 and 1440.

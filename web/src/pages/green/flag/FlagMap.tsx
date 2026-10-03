@@ -10,6 +10,7 @@ import type { LatLng } from "./pick.ts";
 /** The strip and the full-screen map both sit at street level (SPEC 22, map strip). */
 export const FLAG_MAP_ZOOM = 18;
 const PICK_PANE = "lrb-flag-pick";
+const ALLEY_HIT_PANE = "lrb-flag-alley-hit";
 const RAD = Math.PI / 180;
 
 // #region types
@@ -32,9 +33,17 @@ export interface MapSpot extends LatLng {
 /** Flag's camera badge (SPEC 28): a Todo or In progress lot still waiting for its Before. */
 const needsBefore = (l: FlagMapLot, status: LotStatus): boolean => l.hasBefore === false && (status === "open" || status === "in_progress");
 
+/** An alley half with no lot yet (SPEC 22, alleys): `a:<key>` and its centreline as [[lat, lng], ...]. */
+export interface FlagMapAlley {
+  key: string;
+  line: ReadonlyArray<readonly [number, number]>;
+}
+
 interface Props {
   lots: readonly FlagMapLot[];
   parcels: readonly BareParcel[] | undefined;
+  /** Alley halves that are not lots yet: a tap on one in the strip picks it. */
+  alleys?: readonly FlagMapAlley[];
   plan: Pick<DayOfPlan, "areas"> | undefined;
   cc: (LatLng & { name: string; letter: string | null }) | null;
   fix: (LatLng & { accuracy: number | null }) | null;
@@ -47,7 +56,7 @@ interface Props {
   expanded: boolean;
   /** The Leaflet map once it exists, for Paint's stroke handling. */
   onMap: (map: L.Map | null) => void;
-  /** A tap on a parcel in the strip: `l:<lot id>` or `p:<parcel id>`. */
+  /** A tap on a parcel in the strip: `l:<lot id>`, `p:<parcel id>` or `a:<alley half key>`. */
   onPick: (key: string) => void;
   /** Which lots carry the camera badge; Flag's rule (no Before yet) when left out. */
   badge?: (lot: FlagMapLot, status: LotStatus) => boolean;
@@ -76,7 +85,7 @@ const finitePoint = (p: LatLng): boolean => Number.isFinite(p.lat) && Number.isF
  * pan or zoom gestures, and a tap on a parcel picks it. Full screen is Paint:
  * it centres on the phone once, then holds still under the strokes.
  */
-export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending, expanded, onMap, onPick, badge = needsBefore, bareOnStrip = true, spot = null, centre = null, label = "Flag map" }: Props) => {
+export const FlagMap = ({ lots, parcels, alleys, plan, cc, fix, heading, picked, pending, expanded, onMap, onPick, badge = needsBefore, bareOnStrip = true, spot = null, centre = null, label = "Flag map" }: Props) => {
   const [map, setMapState] = useState<L.Map | null>(null);
   const mapRef = useRef(onMap);
   mapRef.current = onMap;
@@ -122,6 +131,28 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
   useParcelLayer(map, parcels, bareOnStrip || expanded, onBare, pending, expanded);
   // Rectangle names take no tap on this map.
   useDayOfLayer(map, plan, true, undefined);
+
+  // Alley halves with no lot: an unseen 16 px wide line along each, so a tap on the dashed
+  // centreline in the strip picks the half. Under the lots (400), over the parcels.
+  useEffect(() => {
+    if (!map || !alleys || alleys.length === 0 || !tapPicks) return;
+    const pane = map.getPane(ALLEY_HIT_PANE) ?? map.createPane(ALLEY_HIT_PANE);
+    pane.style.zIndex = "395";
+    const renderer = L.svg({ pane: ALLEY_HIT_PANE });
+    const group = L.layerGroup().addTo(map);
+    for (const a of alleys) {
+      const hit = L.polyline(a.line.map(([lat, lng]): L.LatLngTuple => [lat, lng]), { renderer, pane: ALLEY_HIT_PANE, weight: 16, opacity: 0, className: "lrb-flag-alley-hit" });
+      hit.on("click", (e) => {
+        L.DomEvent.stop(e);
+        if (tapPicksRef.current) pickRef.current(a.key);
+      });
+      group.addLayer(hit);
+      hit.getElement()?.setAttribute("data-flag-alley", a.key);
+    }
+    return () => {
+      group.remove();
+    };
+  }, [map, alleys, tapPicks]);
 
   // Cone and yellow outline in their own pane over the lots (400) and rectangles (405).
   const overlay = useRef<{ group: L.LayerGroup; renderer: L.Renderer } | null>(null);

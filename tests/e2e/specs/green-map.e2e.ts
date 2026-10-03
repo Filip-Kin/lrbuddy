@@ -1,6 +1,6 @@
 /**
  * Green shirt on the CC map (SPEC 21 to 24) at CC Webb (L.webbGreen), as the gate does it: tap a bare
- * parcel to Todo, a paint stroke and Undo, Draw lot and Delete lot, Draw area for crews and the
+ * parcel to Todo, a paint stroke and Undo, an area for crews and the
  * rectangle's sheet, the Flag screen with a fake camera and a fake compass, and its Paint map. Each lane works only on parcels inside
  * its own rectangles (lanes.ts webbAreas); each test puts its parcels back to Not todo and deletes
  * what it drew and the crews it made.
@@ -16,6 +16,8 @@ interface Bare {
 }
 interface Lot {
   id: number;
+  lat: number;
+  lng: number;
   parcelId: string | null;
   status: string;
   crewId: number | null;
@@ -95,7 +97,9 @@ test("the CC map draws lots, crew rectangles, the CC and the legend", async ({ a
       return false;
     }, { message: "a rectangle name's tap target on the map at zoom 16" })
     .toBe(true);
-  for (const b of ["Paint", "Draw area", "Draw lot", "Add stop"]) await expect(page.getByRole("button", { name: b, exact: true })).toBeVisible();
+  for (const b of ["Paint", "Add stop"]) await expect(page.getByRole("button", { name: b, exact: true })).toBeVisible();
+  // Draw area and Draw lot belong to planning, not the day (Filip, 2026-10-03).
+  for (const b of ["Draw area", "Draw lot"]) await expect(page.getByRole("button", { name: b, exact: true })).toHaveCount(0);
 });
 
 test("a basemap at every zoom, 16.5 included (field report 2026-10-02: only the data layers)", async ({ as, L }) => {
@@ -276,63 +280,7 @@ test("Paint: a stroke across three parcels makes them Todo, Undo takes them back
   }
 });
 
-test("Draw lot: four taps round a strip, Save; red, on the driver's list, Delete lot", async ({ as, L }) => {
-  const green = await as(L.webbGreen);
-  const page = green.page;
-  const ok = await allowed(green, L.webbAreas);
-  await mapAt17(green, ok);
-  const tri = await until(() => pickTriple(page, "", ok), "three neighbouring parcels for the strip");
-  const [a, , b] = tri;
-  const len = Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1);
-  // 28 px wide: the fourth tap must clear the first point's 44 px hit box, or it closes the shape.
-  const nx = (-(b.y - a.y) / len) * 14;
-  const ny = ((b.x - a.x) / len) * 14;
-  const corners = [
-    { x: a.x + nx, y: a.y + ny },
-    { x: b.x + nx, y: b.y + ny },
-    { x: b.x - nx, y: b.y - ny },
-    { x: a.x - nx, y: a.y - ny },
-  ];
-  const before = new Set((await lotsOf(green)).map((l) => l.id));
-  let made: Lot | null = null;
-  try {
-    await page.locator("[data-draw-lot]").click();
-    await expect(page.locator("[data-draw-lot-bar]")).toBeVisible();
-    for (const c of corners) {
-      await page.mouse.click(c.x, c.y);
-      await page.waitForTimeout(350);
-    }
-    await expect(page.locator("[data-draw-vertex]")).toHaveCount(4);
-    await page.locator("[data-draw-close]").click();
-    const save = page.locator("[data-draw-lot-save]");
-    await expect(save).toBeEnabled({ timeout: 8000 });
-    await expectNoOverflow(page, "draw lot sheet");
-    const name = await page.getByRole("dialog").locator("input").first().inputValue();
-    expect(name.trim().length).toBeGreaterThan(0);
-    await save.click();
-    made = await until(async () => (await lotsOf(green)).find((l) => !before.has(l.id) && l.source === "drawn") ?? null, "the drawn lot");
-    expect(made).toMatchObject({ source: "drawn", parcelId: null, status: "open" });
-    const shape = page.locator(`[data-lot-id="${made.id}"]`).first();
-    await expect(shape).toHaveClass(/lrb-lot-shape-open/);
-    expect(await shape.evaluate((e) => getComputedStyle(e).fill)).toBe(RED);
-
-    const driver = await as(L.webbTruck);
-    expect((await driver.api.query<{ lots: Lot[] }>("driver.lots")).lots.some((l) => l.id === made!.id), "drawn lot on the driver's list").toBe(true);
-
-    const at = await centreOf(page, `[data-lot-id="${made.id}"]`);
-    await page.mouse.click(at!.x, at!.y);
-    const sheet = page.getByRole("dialog");
-    await expect(sheet.getByRole("heading").first()).toHaveText(name.trim());
-    await sheet.locator("[data-delete-lot]").click();
-    await page.getByRole("dialog").getByRole("button", { name: "Delete lot" }).last().click();
-    await until(async () => !(await lotsOf(green)).some((l) => l.id === made!.id), "the drawn lot deleted");
-    made = null;
-  } finally {
-    if (made) await green.api.mutate("green.deleteLot", { lotId: made.id }).catch(() => undefined);
-  }
-});
-
-test("Draw area over three Todo lots for a crew; Reassign, Done, Do not touch, Delete area", async ({ as, L, admin }) => {
+test("An area over three Todo lots for a crew; Reassign, Done, Do not touch, Delete area", async ({ as, L, admin }) => {
   const green = await as(L.webbGreen);
   const adm = await as(admin);
   const page = green.page;
@@ -351,25 +299,14 @@ test("Draw area over three Todo lots for a crew; Reassign, Done, Do not touch, D
     for (const parcelId of parcels) await green.api.mutate("green.setLotStatus", { parcelId, status: "open" });
     await expectRedTodo(page, parcels);
 
-    const [a, , c] = tri;
-    const ux = (c.x - a.x) / Math.hypot(c.x - a.x, c.y - a.y);
-    const uy = (c.y - a.y) / Math.hypot(c.x - a.x, c.y - a.y);
-    await page.locator("[data-draw-area]").click();
-    await expect(page.locator("[data-draw-bar]")).toBeVisible();
-    // Oriented rectangle: two clicks along the row, a third for the width. The long side runs
-    // 8 px to one side of the parcel centres and the third click 8 px to the other, so the centres
-    // are inside whether the width counts from the first side or both ways.
-    const px = -uy;
-    const py = ux;
-    await page.mouse.click(a.x - ux * 5 - px * 8, a.y - uy * 5 - py * 8);
-    await page.mouse.click(c.x + ux * 5 - px * 8, c.y + uy * 5 - py * 8);
-    await page.mouse.click((a.x + c.x) / 2 + px * 8, (a.y + c.y) / 2 + py * 8);
-    const sheet = page.getByRole("dialog", { name: "New area" });
-    await expect(sheet).toBeVisible();
-    await expect(sheet).toContainText("Todo inside");
-    await expectNoOverflow(page, "new area sheet");
-    await sheet.getByRole("button", { name: crewA.name, exact: true }).click();
-    await sheet.getByRole("button", { name: `Assign to ${crewA.name}` }).click();
+    // New areas come from planning; here one is made through the API around the three parcels.
+    const three = (await lotsOf(green)).filter((l) => parcels.includes(l.parcelId ?? ""));
+    expect(three).toHaveLength(3);
+    const lats = three.map((p) => p.lat);
+    const lngs = three.map((p) => p.lng);
+    const pad = 0.00006;
+    const [s0, n0, w0, e0] = [Math.min(...lats) - pad, Math.max(...lats) + pad, Math.min(...lngs) - pad, Math.max(...lngs) + pad];
+    await green.api.mutate("green.assignArea", { polygon: { type: "Polygon", coordinates: [[[w0, s0], [e0, s0], [e0, n0], [w0, n0], [w0, s0]]] }, crewIds: [crewA.id] });
     const area = await until(async () => (await green.api.query<{ areas: Area[] }>("green.plan")).areas.find((x) => x.crewIds.includes(crewA.id)), "the new area");
     areaId = area.id;
     await until(async () => (await lotsOf(green)).filter((l) => parcels.includes(l.parcelId ?? "") && l.crewId === crewA.id).length === 3, "the three lots on the crew");

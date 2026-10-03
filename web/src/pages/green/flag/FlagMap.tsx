@@ -5,6 +5,7 @@ import { useDayOfLayer, type DayOfPlan } from "../../../components/green/dayOfLa
 import type { LotStatus } from "../../../lib/lotStatus.ts";
 import { MapView, type MapMarker } from "../../../lib/map/MapView.tsx";
 import { useParcelLayer, type BareParcel } from "../../../lib/map/parcelLayer.ts";
+import { useOsmAlleys } from "../../../lib/map/alleyLayer.ts";
 import type { LatLng } from "./pick.ts";
 
 /** The strip and the full-screen map both sit at street level (SPEC 22, map strip). */
@@ -120,6 +121,8 @@ export const FlagMap = ({ lots, parcels, plan, cc, fix, heading, picked, pending
     if (tapPicksRef.current) pickRef.current(`p:${parcelId}`);
   }, []);
   useParcelLayer(map, parcels, bareOnStrip || expanded, onBare, pending, expanded);
+  // OSM alleys as dashed centrelines, always on, as on the green map.
+  useOsmAlleys(map, true);
   // Rectangle names take no tap on this map.
   useDayOfLayer(map, plan, true, undefined);
 

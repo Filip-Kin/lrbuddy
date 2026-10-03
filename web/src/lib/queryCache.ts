@@ -17,7 +17,7 @@ export const CACHED_PATHS = [
 export type CachedPath = (typeof CACHED_PATHS)[number];
 
 /** Live event kinds as `web/src/lib/live.ts` names them. */
-export type LiveKind = "requests" | "positions" | "route" | "lots" | "stock" | "broadcast" | "access" | "all";
+export type LiveKind = "requests" | "positions" | "route" | "lots" | "stock" | "broadcast" | "access" | "tires" | "all";
 
 /** Entries older than this are dropped on start, whatever their day. */
 export const MAX_AGE_MS = 3 * 24 * 3600_000;
@@ -72,6 +72,7 @@ export const pathsInvalidatedBy = (kind: LiveKind): CachedPath[] => {
       return [...CACHED_PATHS];
     case "broadcast":
     case "access":
+    case "tires":
       return [];
   }
 };

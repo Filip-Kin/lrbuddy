@@ -6,7 +6,7 @@ import { DEFAULT_CENTER, DEFAULT_ZOOM, MAX_ZOOM } from "./basemap.ts";
 import { addBasemap } from "./basemapLayers.ts";
 import type { LotGeometry } from "../../../../server/db/schema.ts";
 import { attachLabelDeclutter } from "./declutter.ts";
-import { cameraBadgeIcon, ccIcon, crewIcon, lotIcon, lotShape, meIcon, requestIcon, routeLine, selectLine, stopIcon, truckIcon, type LotStatus } from "./markers.ts";
+import { cameraBadgeIcon, ccIcon, crewIcon, lotIcon, lotShape, meIcon, requestIcon, routeLine, selectLine, stopIcon, tireIcon, truckIcon, type LotStatus } from "./markers.ts";
 import { media } from "../safe.ts";
 
 // #region types
@@ -33,7 +33,9 @@ export type MapMarker =
   | (Base & { kind: "request"; urgent?: boolean })
   /** Camera badge: a Before and no After on the lot. */
   | (Base & { kind: "camera" })
-  | (Base & { kind: "stop"; n: number; active?: boolean });
+  | (Base & { kind: "stop"; n: number; active?: boolean })
+  /** Tire pile (SPEC 29). `onDragEnd` makes it draggable (the pile being placed or moved); `badge` is the Wrap up camera badge. */
+  | (Base & { kind: "tire"; badge?: boolean; picked?: boolean; pin?: boolean; onDragEnd?: (lat: number, lng: number) => void });
 
 export interface MapLine {
   id: string;
@@ -106,6 +108,27 @@ const layerFor = (m: MapMarker): L.Layer => {
     case "stop":
       layer = L.marker(at, { icon: stopIcon(m.n, m.active), zIndexOffset: 700, title: m.title, alt: m.title });
       break;
+    case "tire": {
+      const drag = m.onDragEnd;
+      const marker = L.marker(at, {
+        icon: tireIcon({ badge: m.badge, picked: m.picked, pin: m.pin }),
+        zIndexOffset: m.pin ? 1100 : 300,
+        title: m.title,
+        alt: m.title,
+        keyboard: !!m.onClick,
+        interactive: !!m.onClick || !!drag,
+        draggable: !!drag,
+        autoPan: !!drag,
+      });
+      if (drag) {
+        marker.on("dragend", () => {
+          const p = marker.getLatLng();
+          drag(p.lat, p.lng);
+        });
+      }
+      layer = marker;
+      break;
+    }
   }
   if (m.onClick) {
     const click = m.onClick;
@@ -210,6 +233,12 @@ const MapViewInner = ({ markers, lines = [], fitKey, onMapClick, className, labe
       group.addLayer(layer);
       // The camera badge names its lot, so a test can find the badge of one lot.
       if (mk.kind === "camera" && layer instanceof L.Marker && mk.id.startsWith("cam-")) layer.getElement()?.setAttribute("data-cam-lot", mk.id.slice(4));
+      // Tire piles carry their id (`tire-<id>`, or `pin` for the one being placed) for the tests.
+      if (mk.kind === "tire" && layer instanceof L.Marker) {
+        const el = layer.getElement();
+        el?.setAttribute(mk.pin ? "data-tire-pin" : "data-tire-pile", mk.id.startsWith("tire-") ? mk.id.slice(5) : mk.id);
+        if (mk.badge) el?.setAttribute("data-tire-badge", "");
+      }
       // Lot outlines carry their parcel id, so a parcel can be found again after it becomes a lot,
       // and their lot id (`lot-<id>` markers), which Paint uses to colour a stroke as it goes.
       if (mk.kind === "lot") {

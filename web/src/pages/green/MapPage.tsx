@@ -19,6 +19,8 @@ import { FilterSelect, PinIcon, useFlash } from "../../components/green/ui.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
 import { trpc } from "../../lib/trpc.ts";
+import { useTirePlacing } from "../../lib/tires.ts";
+import { TireGlyph, TirePileSheet, TirePlaceBar, tireMarkers, useTireWrites } from "../../components/TirePile.tsx";
 import { RecenterIcon } from "../../components/driver/icons.tsx";
 import { geolocation } from "../../lib/safe.ts";
 
@@ -72,6 +74,13 @@ export const MapPage = () => {
   const [placing, setPlacing] = useState(false);
   const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null);
   const [flash, showFlash] = useFlash();
+  // Tire piles (SPEC 29): always shown; Tire pile adds one, Move on its sheet moves it.
+  const tires = trpc.tires.list.useQuery(undefined, { refetchInterval: 60_000 });
+  const tireWrites = useTireWrites();
+  const { placing: tirePlace, startAdd: startTire, startMove: startTireMove, moveTo: moveTire, cancel: cancelTire } = useTirePlacing();
+  const [tireId, setTireId] = useState<number | null>(null);
+  const selTire = tireId !== null ? (tires.data?.find((t) => t.id === tireId) ?? null) : null;
+  const tirePlacing = tirePlace !== null;
   const parcels = trpc.green.parcels.useQuery(undefined, { refetchInterval: 120_000 });
   const lotWrites = useSetLot("green");
   // Edit corners moves a rectangle's outline (SPEC 21). New areas are drawn in the planning portal.
@@ -129,7 +138,7 @@ export const MapPage = () => {
           mine: l.crewId !== null || status === "not_todo",
           noFit: true,
           title: l.address ?? undefined,
-          onClick: drawing || painting || lotDrawing ? undefined : () => setSelected({ kind: "lot", id: l.id }),
+          onClick: drawing || painting || lotDrawing || tirePlacing ? undefined : () => setSelected({ kind: "lot", id: l.id }),
         });
       }
     }
@@ -166,16 +175,32 @@ export const MapPage = () => {
     }
     if (pin) out.push({ id: "pin", kind: "request", lat: pin.lat, lng: pin.lng, urgent: true, noFit: true });
     if (me) out.push({ id: "me", kind: "me", lat: me.lat, lng: me.lng, accuracy: me.accuracy, noFit: true });
+    if (!painting && !lotDrawing) out.push(...tireMarkers(tires.data, tirePlace, setTireId, moveTire));
     return out;
-  }, [d, openRequests, visibleCrewIds, showLots, showRequests, showTrucks, pin, now, pending, drawing, painting, lotDrawing, me]);
+  }, [d, openRequests, visibleCrewIds, showLots, showRequests, showTrucks, pin, now, pending, drawing, painting, lotDrawing, me, tires.data, tirePlace, moveTire, tirePlacing]);
+
+  const addTire = (): void => {
+    const c = map?.getCenter();
+    const at = me ?? (c ? { lat: c.lat, lng: c.lng } : null);
+    if (!at) return;
+    setSelected(null);
+    tireWrites.clearError();
+    startTire(at);
+  };
+  const saveTire = (): void => {
+    if (!tirePlace) return;
+    const at = { lat: tirePlace.lat, lng: tirePlace.lng };
+    if (tirePlace.mode === "move" && tirePlace.id !== null) tireWrites.move.mutate({ id: tirePlace.id, ...at }, { onSuccess: cancelTire });
+    else tireWrites.add.mutate(at, { onSuccess: cancelTire });
+  };
 
   const onArea = useCallback((id: number) => setSelected({ kind: "area", id }), []);
   const onParcel = useCallback((parcelId: string) => setSelected({ kind: "parcel", parcelId }), []);
   const editing = editAreaId !== null;
-  useDayOfLayer(map, plan.data, showAreas && !placing && !drawing && !editing && !lotDrawing, onArea);
+  useDayOfLayer(map, plan.data, showAreas && !placing && !drawing && !editing && !lotDrawing && !tirePlacing, onArea);
   // Bare parcels in the day area (SPEC 21), only with no crew or company filter: they belong to nobody yet.
   // While painting they show at any zoom and with any filter, so there is something to hit (SPEC 23).
-  useParcelLayer(map, parcels.data, (showLots || painting) && !placing && !drawing && !editing && !lotDrawing && (visibleCrewIds === null || painting), onParcel, pending, painting);
+  useParcelLayer(map, parcels.data, (showLots || painting) && !placing && !drawing && !editing && !lotDrawing && !tirePlacing && (visibleCrewIds === null || painting), onParcel, pending, painting);
 
   const editArea = editAreaId !== null ? (plan.data?.areas.find((a) => a.id === editAreaId) ?? null) : null;
   const editRect = useMemo(() => (editArea ? rectFromRing(editArea.ring) : null), [editArea]);
@@ -256,7 +281,7 @@ export const MapPage = () => {
           </FilterSelect>
         </div>
       </div>
-      <div className={`relative min-h-0 flex-1 ${placing || drawing || painting || lotDrawing ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
+      <div className={`relative min-h-0 flex-1 ${placing || drawing || painting || lotDrawing || tirePlacing ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
         <MapView
           markers={markers}
           fitKey={`${company ?? "all"}-${crewFilter ?? "all"}`}
@@ -269,7 +294,9 @@ export const MapPage = () => {
                   setPin({ lat, lng });
                   setPlacing(false);
                 }
-              : undefined
+              : tirePlacing
+                ? moveTire
+                : undefined
           }
         />
         {!d && <div aria-hidden="true" className="absolute inset-0 z-[500] animate-pulse bg-surface-2/60" />}
@@ -296,11 +323,18 @@ export const MapPage = () => {
           </div>
         )}
         <DrawLotBar draw={drawLot} />
-        {!placing && !drawing && !editing && !lotDrawing && <MapLegend className="absolute top-2.5 right-2.5 z-[900]" osmAlleys={showOsmAlleys} />}
+        <TirePlaceBar
+          placing={tirePlace}
+          busy={tireWrites.add.isPending || tireWrites.move.isPending}
+          error={tireWrites.error}
+          onCancel={cancelTire}
+          onSave={saveTire}
+        />
+        {!placing && !drawing && !editing && !lotDrawing && !tirePlacing && <MapLegend className="absolute top-2.5 right-2.5 z-[900]" osmAlleys={showOsmAlleys} />}
         <div className="pointer-events-none absolute inset-x-0 bottom-[max(5.5rem,calc(env(safe-area-inset-bottom)+5rem))] z-[1000] flex justify-center px-3">{flash}</div>
         <PaintFrame paint={paint} />
         <PaintBar paint={paint} crews={crews} />
-        {!placing && !drawing && !editing && !painting && !lotDrawing && (
+        {!placing && !drawing && !editing && !painting && !lotDrawing && !tirePlacing && (
           <div className="pointer-events-none absolute right-4 bottom-[max(2.25rem,env(safe-area-inset-bottom))] left-4 z-[1000] flex flex-wrap justify-end gap-2">
             {me && !follow && (
               <Button
@@ -332,6 +366,10 @@ export const MapPage = () => {
               disabled={!d || !map}
             >
               <PaintIcon />
+            </Button>
+            <Button variant="secondary" size="lg" className="pointer-events-auto bg-surface! px-4 shadow-lg" onClick={addTire} disabled={!d || !map} data-tire-add>
+              <TireGlyph size={24} />
+              Tire pile
             </Button>
             <Button size="lg" className="pointer-events-auto shadow-lg" onClick={() => setPlacing(true)} disabled={!d}>
               <PinIcon />
@@ -371,6 +409,16 @@ export const MapPage = () => {
         onEditCorners={(id) => {
           setSelected(null);
           setEditAreaId(id);
+        }}
+      />
+      <TirePileSheet
+        pile={selTire}
+        now={now}
+        onClose={() => setTireId(null)}
+        onMove={(t) => {
+          setTireId(null);
+          tireWrites.clearError();
+          startTireMove(t);
         }}
       />
       <StopSheet request={selStop} trucks={trucks} now={now} onClose={close} onDone={showFlash} />

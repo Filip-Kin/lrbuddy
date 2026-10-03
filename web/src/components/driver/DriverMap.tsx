@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_CENTER, MAX_ZOOM } from "../../lib/map/basemap.ts";
 import { addBasemap } from "../../lib/map/basemapLayers.ts";
 import type { LotGeometry } from "../../../../server/db/schema.ts";
-import { ccBody, escapeHtml, lotIcon, lotShape, routeLine, type LotStatus } from "../../lib/map/markers.ts";
+import { ccBody, escapeHtml, lotIcon, lotShape, routeLine, tireIcon, type LotStatus } from "../../lib/map/markers.ts";
 import { attachLabelDeclutter } from "../../lib/map/declutter.ts";
 import { usePrefersDark } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
@@ -26,6 +26,11 @@ export interface DriverMapLot extends LatLng {
   status: LotStatus;
   geometry: LotGeometry | null;
   title: string;
+}
+
+/** A tire pile to pick up (SPEC 29). */
+export interface DriverMapTire extends LatLng {
+  id: number;
 }
 
 export interface DriverMapCrew extends LatLng {
@@ -126,6 +131,10 @@ export const DriverMap = ({
   pending,
   painting = false,
   onMap,
+  tires = [],
+  onTire,
+  pin = null,
+  onPinMove,
 }: {
   at: LatLng | null;
   heading: number | null;
@@ -150,6 +159,12 @@ export const DriverMap = ({
   painting?: boolean;
   /** The Leaflet map, for Paint. */
   onMap?: (m: L.Map | null) => void;
+  /** Tire piles at the CC, always shown; a tap opens the pile's sheet. */
+  tires?: readonly DriverMapTire[];
+  onTire?: (id: number) => void;
+  /** A tire pile being placed: a draggable pin; a tap on the map moves it there. */
+  pin?: LatLng | null;
+  onPinMove?: (lat: number, lng: number) => void;
 }) => {
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
@@ -160,6 +175,7 @@ export const DriverMap = ({
   const truckLayer = useRef<L.LayerGroup | null>(null);
   const lotLayer = useRef<L.LayerGroup | null>(null);
   const crewLayer = useRef<L.LayerGroup | null>(null);
+  const tireLayer = useRef<L.LayerGroup | null>(null);
   const lotRenderer = useRef<L.Renderer | null>(null);
   const tookAt = useRef(0);
   const [leaflet, setLeaflet] = useState<L.Map | null>(null);
@@ -180,6 +196,10 @@ export const DriverMap = ({
   onLotRef.current = onLot;
   const onParcelRef = useRef(onParcel);
   onParcelRef.current = onParcel;
+  const onTireRef = useRef(onTire);
+  onTireRef.current = onTire;
+  const onPinRef = useRef(onPinMove);
+  onPinRef.current = onPinMove;
   const onMapRef = useRef(onMap);
   onMapRef.current = onMap;
   const dark = usePrefersDark();
@@ -208,6 +228,7 @@ export const DriverMap = ({
     lotRenderer.current = L.svg({ pane: LOTS_PANE });
     lotLayer.current = L.layerGroup().addTo(m);
     crewLayer.current = L.layerGroup().addTo(m);
+    tireLayer.current = L.layerGroup().addTo(m);
     lineLayer.current = L.layerGroup().addTo(m);
     markLayer.current = L.layerGroup().addTo(m);
     truckLayer.current = L.layerGroup().addTo(m);
@@ -364,6 +385,49 @@ export const DriverMap = ({
     g.clearLayers();
     for (const c of crews) L.marker([c.lat, c.lng], { icon: crewDotIcon(c.label), interactive: false, keyboard: false, zIndexOffset: 200 }).addTo(g);
   }, [crews]);
+
+  // Tire piles, upright on the turned map, over the lots and under the stops.
+  useEffect(() => {
+    const g = tireLayer.current;
+    if (!g) return;
+    g.clearLayers();
+    for (const t of tires) {
+      const mk = L.marker([t.lat, t.lng], { icon: tireIcon({ style: UNROT }), title: "Tire pile", alt: "Tire pile", keyboard: false, zIndexOffset: 300 });
+      mk.on("click", (e: L.LeafletEvent) => {
+        L.DomEvent.stopPropagation(e as L.LeafletMouseEvent);
+        if (Date.now() - tookAt.current < TAKE_GRACE_MS) return;
+        onTireRef.current?.(t.id);
+      });
+      g.addLayer(mk);
+      mk.getElement()?.setAttribute("data-tire-pile", String(t.id));
+    }
+  }, [tires]);
+
+  // The pile being placed: dragged, or moved to a tap on the map.
+  const placing = pin !== null;
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !placing) return;
+    const onClick = (e: L.LeafletMouseEvent): void => onPinRef.current?.(e.latlng.lat, e.latlng.lng);
+    m.on("click", onClick);
+    return () => {
+      m.off("click", onClick);
+    };
+  }, [placing]);
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !pin) return;
+    const mk = L.marker([pin.lat, pin.lng], { icon: tireIcon({ pin: true, style: UNROT }), draggable: true, autoPan: true, keyboard: false, zIndexOffset: 1100, title: "Tire pile", alt: "Tire pile" });
+    mk.on("dragend", () => {
+      const p = mk.getLatLng();
+      onPinRef.current?.(p.lat, p.lng);
+    });
+    mk.addTo(m);
+    mk.getElement()?.setAttribute("data-tire-pin", "");
+    return () => {
+      mk.remove();
+    };
+  }, [pin?.lat, pin?.lng]);
 
   // A tap that took the map from following lands on whatever is under the finger after the snap; drop it.
   const tapParcel = useCallback((pid: string) => {

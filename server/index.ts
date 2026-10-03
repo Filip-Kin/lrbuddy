@@ -25,6 +25,7 @@ import { config } from "./config.ts";
 import { sqlite } from "./db/index.ts";
 import { startRouteRefresh } from "./dispatch.ts";
 import { eventPhotos, handlePhotoUpload, photoZipStream, servePhoto, sweepPhotoFiles } from "./photos.ts";
+import { handleTirePhotoUpload, serveTirePhoto, sweepTireFiles } from "./tires.ts";
 import { activeEvent } from "./queries.ts";
 import { appRouter } from "./routers/index.ts";
 import { createContextFor } from "./trpc.ts";
@@ -274,6 +275,10 @@ const server = Bun.serve({
     const photo = /^\/photos\/(\d+)(\/thumb)?\/?$/.exec(path);
     if (photo && (req.method === "GET" || req.method === "HEAD")) return servePhoto(req, Number(photo[1]), photo[2] !== undefined);
 
+    if (path === "/tire-photos" && req.method === "POST") return handleTirePhotoUpload(req);
+    const tirePhoto = /^\/tire-photos\/(\d+)(\/thumb)?\/?$/.exec(path);
+    if (tirePhoto && (req.method === "GET" || req.method === "HEAD")) return serveTirePhoto(req, Number(tirePhoto[1]), tirePhoto[2] !== undefined);
+
     if (path === "/admin/photos.zip" && req.method === "GET") {
       const zipSession = getSession(sessionIdFrom(req));
       if (!zipSession || !isAdminSession(zipSession)) return new Response("Sign in", { status: 401 });
@@ -313,6 +318,8 @@ const server = Bun.serve({
 startRouteRefresh();
 const swept = sweepPhotoFiles();
 if (swept > 0) console.log(`[lrbuddy] removed ${swept} photo files with no live row`);
+const sweptTires = sweepTireFiles();
+if (sweptTires > 0) console.log(`[lrbuddy] removed ${sweptTires} tire photo files with no pile`);
 
 if (!existsSync(join(DIST, "index.html"))) console.warn(`[lrbuddy] web build missing at ${DIST}; run: bun run build`);
 console.log(`[lrbuddy] ${config.version} listening on :${server.port}, data in ${config.dataDir}`);

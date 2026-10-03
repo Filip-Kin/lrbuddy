@@ -1,5 +1,6 @@
 import { STATUS_LABEL, STATUS_ORDER, type LotStatus } from "../lib/lotStatus.ts";
 import { onewayLegendSvg } from "../lib/map/onewayLayer.ts";
+import { TireGlyph } from "./TirePile.tsx";
 
 /** A parcel in its status colour, drawn the way the map draws it (SPEC 21 table). */
 const Swatch = ({ status }: { status: LotStatus }) => {
@@ -20,7 +21,7 @@ const Swatch = ({ status }: { status: LotStatus }) => {
   );
 };
 
-/** The six parcel statuses in their order (SPEC 21: one set of words everywhere), then one-way streets, and OSM alleys while shown. */
+/** The six parcel statuses in their order (SPEC 21: one set of words everywhere), then one-way streets, tire piles (SPEC 29), and OSM alleys while shown. */
 export const MapLegend = ({ className = "", osmAlleys = false }: { className?: string; osmAlleys?: boolean }) => (
   <ul aria-label="Legend" data-legend className={`pointer-events-none space-y-0.5 rounded-xl bg-surface/90 px-2 py-1.5 text-[11px] leading-tight font-semibold text-ink shadow ring-1 ring-line ${className}`}>
     {STATUS_ORDER.map((s) => (
@@ -32,6 +33,12 @@ export const MapLegend = ({ className = "", osmAlleys = false }: { className?: s
     <li className="flex items-center gap-1.5">
       <span aria-hidden="true" className="grid w-[18px] shrink-0 place-items-center [&>svg]:h-3.5 [&>svg]:w-3.5" dangerouslySetInnerHTML={{ __html: onewayLegendSvg }} />
       One way
+    </li>
+    <li className="flex items-center gap-1.5">
+      <span className="grid w-[18px] shrink-0 place-items-center">
+        <TireGlyph size={14} />
+      </span>
+      Tire pile
     </li>
     {osmAlleys && (
       <li className="flex items-center gap-1.5">

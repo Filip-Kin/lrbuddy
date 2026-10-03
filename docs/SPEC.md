@@ -142,6 +142,8 @@ oneway_ways       id, bbox_key, osm_id, geometry (json [[lat,lng]...]), directio
                   name, min_lat, min_lng, max_lat, max_lng, fetched_at   -- section 20, cached per fetched bbox
 osm_alleys        id, osm_id (unique), centerline (json [[lat,lng]...]), min_lat, min_lng, max_lat, max_lng, fetched_at
                   -- section 24: OSM service=alley centrelines, a map hint for Draw lot; shared by every CC
+tire_piles        id, event_id, day_id, cc_id, lat, lng, role, crew_id, truck_id, made_by, session_id, created_at, moved_at,
+                  photo_at, photo_by   -- section 29
 ```
 
 Default request types seeded for every new event, in this order:
@@ -270,6 +272,7 @@ lot.changed       { lot }
 stock.changed     { truckId, stock[] }
 broadcast         { broadcast }
 membership.changed { membershipId, userId, status }   access requests (section 18)
+tire.changed      { pileId, deleted }         tire piles (section 29)
 ```
 
 Subscriptions (all scoped by the session):
@@ -1264,3 +1267,57 @@ lots Todo.
   the server and moves to another lot; a List row picks the lot and Recenter appears; Not done sets
   the status with no photo and moves on; the Not done tab lists it. Expand shows the PaintBar with
   all six status brushes and Crew, chips 44 px, overflow 0, and its Done collapses.
+
+## 29. Tire piles (Filip, 2026-10-03, in the field, Day 6)
+
+"Have red shirts save a marker for piles of tires that they make, and they should see each other's
+tire piles to try to make as few piles as possible. I would also like green shirts to be able to see
+these tire piles and also create new markers for them." Then: "Maybe tire pile photo is part of wrap
+up instead of having the red shirts take the photo, cause we want to see how many tires are there at
+the end." And, driving Truck A1: "How do I mark tire piles as a driver? I need one right here on the
+left."
+
+Data (migration `0019`, a new table; nothing else changes)
+```
+tire_piles   id, event_id, day_id, cc_id, lat, lng, role ('crew'|'driver'|'green'|'admin'), crew_id
+             (nullable, the crew that made it), truck_id (nullable, the truck that made it), made_by
+             (crew name, truck name or the green shirt's name), session_id,
+             created_at, moved_at, photo_at (nullable, the current photo), photo_by
+```
+The photo lives at `$DATA_DIR/tire-photos/<pile id>.jpg` and `.thumb.jpg` (one per pile, a new one
+replaces it), never in SQLite; deleting a pile deletes its files, and boot sweeps files with no pile.
+
+Who does what (`server/tires.ts`, router `tires`, any CC role through `ccProcedure`)
+- Every role at a CC sees every pile of that CC row (that CC on that day): crews, greens, drivers,
+  admin's green view. Nothing from another CC or another day.
+- Red shirts add a pile and delete the piles their crew made; drivers the same for their truck.
+  Green shirts (and anyone holding green at the CC, SPEC 27) add, move and delete any pile and take
+  its photo.
+- `tires.list`, `tires.add {lat, lng}`, `tires.move {id, lat, lng}`, `tires.remove {id}`. Each write
+  emits `tire.changed { pileId, deleted }` on the CC's feed; every open map refetches `tires.list`.
+- `POST /tire-photos` (multipart `pileId`, `photo`, `thumb`, JPEG, 6 MB each): green powers only.
+  `GET /tire-photos/<id>[/thumb]?v=<photo_at>`: any session of the event.
+
+Screens
+- Marker: a dark tire with a white rim and a grey hub in a 40 px tap target, apart from the blue dot,
+  crew dots, lot squares and the area outlines. Legend row "Tire pile" on the green and driver maps.
+- Crew map: **Tire pile** next to Request. It drops a pin at the blue dot (else the middle of the
+  map); a tap on the map or a drag moves it; **Save** or **Cancel** in the bar on top. No photo for
+  red shirts.
+- Green map: piles always shown (no layer toggle). **Tire pile** next to Add request, the same pin
+  and bar.
+- Driver map: piles always shown. **Tire pile** bottom left drops a pin at the truck (the map turns
+  north up and stops following, as a touch does); a tap or a drag moves it; Save or Cancel.
+- Pile sheet on a tap: Made by, Dropped (time and age), the photo (a tap opens the full-screen photo
+  viewer) or "No photo". Green: **Move** (the same pin and bar) and **Delete**. Crew and driver:
+  **Delete** on their own piles. Driver: **Directions**.
+- Wrap up (SPEC 28): piles sit on the strip with the camera badge until they have a photo. A tap
+  on one (or its List row) picks it: the top card reads "Tire pile" with who made it and when, the
+  shutter reads **Photo** and sends the frame in the After queue, then moves on to the nearest lot
+  needing its After or pile needing its photo. Needs After counts and lists piles without a photo;
+  All lists every pile; Not done lists none.
+
+Gate: `server/tires.test.ts` (scoping per role, delete rules, live events, photo upload rules) and
+`tests/e2e/specs/tires.e2e.ts` (crew drops, another crew sees it live, green adds, driver adds and
+crew and green see it,
+photo in Wrap up and on the green map's sheet, crew deletes its own).

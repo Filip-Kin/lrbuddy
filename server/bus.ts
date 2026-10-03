@@ -12,6 +12,8 @@ export interface BusPayloads {
   broadcast: { broadcast: Broadcast };
   /** An access request was made, decided or withdrawn, or a QR scan created a membership (SPEC 18). */
   "membership.changed": { membershipId: number; userId: number; status: MembershipStatus };
+  /** A tire pile was added, moved, photographed or deleted (SPEC 29). */
+  "tire.changed": { pileId: number; deleted: boolean };
 }
 
 export type BusEventType = keyof BusPayloads;

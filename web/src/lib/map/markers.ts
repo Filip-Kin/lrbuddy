@@ -83,6 +83,23 @@ export const cameraBadgeIcon = (style = ""): L.DivIcon =>
     iconAnchor: [8, 8],
   });
 
+/** A tire seen from the side: dark rubber with tread notches and a grey hub (SPEC 29). Also the legend's swatch. */
+export const TIRE_SVG =
+  '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#1d1f21" stroke="#fff" stroke-width="1.5"/><g stroke="#8a9599" stroke-width="1.6" stroke-linecap="round"><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.4 5.4l1.5 1.5M17.1 17.1l1.5 1.5M5.4 18.6l1.5-1.5M17.1 6.9l1.5-1.5"/></g><circle cx="12" cy="12" r="4.6" fill="#b9c3c6" stroke="#1d1f21" stroke-width="1.2"/><circle cx="12" cy="12" r="1.5" fill="#1d1f21"/></svg>';
+
+/**
+ * Tire pile (SPEC 29): a dark tire in a 40 px tap target, never a dot or a square. `badge` adds the
+ * camera badge (Wrap up: no photo yet), `picked` a yellow ring, `pin` a lift for the pile being placed.
+ * `style` keeps it upright on a turned map.
+ */
+export const tireIcon = (opts: { badge?: boolean; picked?: boolean; pin?: boolean; style?: string } = {}): L.DivIcon =>
+  L.divIcon({
+    className: `lrb-tire${opts.picked ? " lrb-tire-picked" : ""}${opts.pin ? " lrb-tire-pin" : ""}`,
+    html: `<span class="lrb-tire-body"${opts.style ? ` style="${opts.style}"` : ""}>${TIRE_SVG}${opts.badge ? `<span class="lrb-cam-body lrb-tire-cam">${CAMERA_SVG}</span>` : ""}</span>`,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+  });
+
 /** Small square in the status colour inside a 28 px tap target. */
 export const lotIcon = (status: LotStatus, mine = true, selected = false): L.DivIcon =>
   L.divIcon({

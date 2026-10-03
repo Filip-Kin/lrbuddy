@@ -611,6 +611,42 @@ export const osmAlleys = sqliteTable(
   (t) => [uniqueIndex("osm_alleys_osm_idx").on(t.osmId), index("osm_alleys_bounds_idx").on(t.minLat, t.maxLat)],
 );
 
+/**
+ * A pile of tires a crew, a truck or a green shirt left by the road for a truck to pick up (SPEC 29).
+ * Scoped to one CC row (one CC on one day). The optional photo lives at
+ * `$DATA_DIR/tire-photos/<id>.jpg` and `<id>.thumb.jpg`; `photo_at` names the current one.
+ */
+export const tirePiles = sqliteTable(
+  "tire_piles",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    dayId: integer("day_id")
+      .notNull()
+      .references(() => days.id, { onDelete: "cascade" }),
+    ccId: integer("cc_id")
+      .notNull()
+      .references(() => commandCenters.id, { onDelete: "cascade" }),
+    lat: real("lat").notNull(),
+    lng: real("lng").notNull(),
+    role: text("role", { enum: ROLES }).notNull(),
+    /** The crew that made it; null for a green shirt's or a truck's pile. */
+    crewId: integer("crew_id").references(() => crews.id, { onDelete: "set null" }),
+    /** The truck that made it; null otherwise. */
+    truckId: integer("truck_id").references(() => trucks.id, { onDelete: "set null" }),
+    /** Crew name ("GM 2"), truck name or the green shirt's name, as shown on the pile sheet. */
+    madeBy: text("made_by"),
+    sessionId: text("session_id"),
+    createdAt: integer("created_at").notNull(),
+    movedAt: integer("moved_at"),
+    photoAt: integer("photo_at"),
+    photoBy: text("photo_by"),
+  },
+  (t) => [index("tire_piles_cc_idx").on(t.ccId)],
+);
+
 /** One tag per pass by a surveyor. The newest tag per parcel wins; `clear` takes it off the work list. */
 export const surveyTags = sqliteTable(
   "survey_tags",
@@ -757,4 +793,5 @@ export type CrewArea = typeof crewAreas.$inferSelect;
 export type OnewayWay = typeof onewayWays.$inferSelect;
 export type OsmAlley = typeof osmAlleys.$inferSelect;
 export type ClientError = typeof clientErrors.$inferSelect;
+export type TirePile = typeof tirePiles.$inferSelect;
 // #endregion

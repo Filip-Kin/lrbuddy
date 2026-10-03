@@ -6,7 +6,7 @@ import { trpc } from "./trpc.ts";
 import type { Role } from "./session.ts";
 
 type Utils = ReturnType<typeof trpc.useUtils>;
-type Kind = "requests" | "positions" | "route" | "lots" | "stock" | "broadcast" | "access";
+type Kind = "requests" | "positions" | "route" | "lots" | "stock" | "broadcast" | "access" | "tires";
 
 const COALESCE_MS = 1500;
 
@@ -106,6 +106,9 @@ const invalidate = (utils: Utils, kind: Kind): void => {
       void utils.access.pending.invalidate();
       void utils.access.pendingCount.invalidate();
       break;
+    case "tires":
+      void utils.tires.list.invalidate();
+      break;
   }
 };
 
@@ -118,6 +121,7 @@ const KIND: Record<string, Kind> = {
   "stock.changed": "stock",
   broadcast: "broadcast",
   "membership.changed": "access",
+  "tire.changed": "tires",
 };
 
 // #region retry

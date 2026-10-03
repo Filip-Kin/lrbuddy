@@ -8,6 +8,28 @@ import { CloseIcon, NextIcon, PrevIcon, TrashIcon } from "./icons.tsx";
 
 type Photo = RouterOutputs["shared"]["lotPhotos"]["photos"][number];
 
+/** One photo in the viewer: a lot's Before or After, or a tire pile's photo (SPEC 29). */
+interface Slide {
+  id: number;
+  /** "before" and "after" count "2 of 3" within their kind; "tire" is a pile's one photo. */
+  kind: Photo["kind"] | "tire";
+  label: string;
+  src: string;
+  thumb: string;
+  at: number;
+  by: string;
+  canDelete: boolean;
+}
+
+/** A tire pile's photo for the viewer: the pile id, the URLs and who took it when. */
+export interface TirePhoto {
+  pileId: number;
+  src: string;
+  thumb: string;
+  at: number;
+  by: string | null;
+}
+
 const MAX_ZOOM = 5;
 const SWIPE_PX = 60;
 const ROLE_LABEL: Record<Photo["role"], string> = { crew: "Crew", driver: "Driver", green: "Green shirt", admin: "Admin" };
@@ -33,12 +55,33 @@ const NO_ZOOM: Zoom = { s: 1, x: 0, y: 0 };
 /**
  * Full-screen photo viewer for one lot: swipe or arrows between photos, pinch
  * or double tap to zoom, drag to pan when zoomed. Escape closes. Taken-by and
- * time at the foot, with Delete where the server allows it.
+ * time at the foot, with Delete where the server allows it. With `tire` it shows a
+ * tire pile's one photo the same way, without Delete (the pile sheet deletes the pile).
  */
-export const PhotoViewer = ({ lotId, startId, onClose }: { lotId: number; startId: number; onClose: () => void }) => {
-  const q = trpc.shared.lotPhotos.useQuery({ lotId });
+export const PhotoViewer = (props: { lotId: number; startId: number; onClose: () => void } | { tire: TirePhoto; onClose: () => void }) => {
+  const { onClose } = props;
+  const lotId = "lotId" in props ? props.lotId : null;
+  const tire = "tire" in props ? props.tire : null;
+  const startId = "lotId" in props ? props.startId : (tire?.pileId ?? 0);
+  const q = trpc.shared.lotPhotos.useQuery({ lotId: lotId ?? 0 }, { enabled: lotId !== null });
   const refresh = useInvalidatePhotos();
-  const slides = useMemo(() => viewerOrder(q.data?.photos ?? []), [q.data]);
+  const slides = useMemo<Slide[]>(
+    () =>
+      tire
+        ? [{ id: tire.pileId, kind: "tire", label: "Tire pile", src: tire.src, thumb: tire.thumb, at: tire.at, by: tire.by ?? "Green shirt", canDelete: false }]
+        : viewerOrder(q.data?.photos ?? []).map((p) => ({
+            id: p.id,
+            kind: p.kind,
+            label: KIND_LABEL[p.kind],
+            src: photoUrl(p.id),
+            thumb: photoUrl(p.id, true),
+            at: p.at,
+            by: p.takenBy ?? ROLE_LABEL[p.role],
+            canDelete: p.canDelete,
+          })),
+    [q.data, tire],
+  );
+  const address = tire ? null : (q.data?.lot.address ?? null);
   const [index, setIndex] = useState<number | null>(null);
   const [zoom, setZoom] = useState<Zoom>(NO_ZOOM);
   const [dragX, setDragX] = useState(0);
@@ -61,7 +104,7 @@ export const PhotoViewer = ({ lotId, startId, onClose }: { lotId: number; startI
   }, [slides, startId, index]);
 
   const i = index === null ? 0 : Math.min(index, Math.max(0, slides.length - 1));
-  const photo: Photo | undefined = slides[i];
+  const photo: Slide | undefined = slides[i];
 
   const go = useCallback(
     (step: number) => {
@@ -207,7 +250,7 @@ export const PhotoViewer = ({ lotId, startId, onClose }: { lotId: number; startI
       data-viewer
       role="dialog"
       aria-modal="true"
-      aria-label={q.data?.lot.address ? `Photos, ${q.data.lot.address}` : "Photos"}
+      aria-label={tire ? "Tire pile photo" : address ? `Photos, ${address}` : "Photos"}
       className="fixed inset-0 z-[2100] flex h-[100dvh] flex-col bg-black text-white pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
     >
       <div className="flex min-h-14 items-center gap-2 px-2">
@@ -216,10 +259,10 @@ export const PhotoViewer = ({ lotId, startId, onClose }: { lotId: number; startI
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="text-lg font-bold">{photo ? KIND_LABEL[photo.kind] : "Photos"}</span>
+            <span className="text-lg font-bold">{photo ? photo.label : "Photos"}</span>
             {nOf && <span className="text-sm text-white/75 tabular-nums">{nOf}</span>}
           </div>
-          {q.data?.lot.address && <div className="truncate text-sm text-white/75">{q.data.lot.address}</div>}
+          {address && <div className="truncate text-sm text-white/75">{address}</div>}
         </div>
       </div>
 
@@ -232,7 +275,7 @@ export const PhotoViewer = ({ lotId, startId, onClose }: { lotId: number; startI
         onPointerCancel={onUp}
         onDoubleClick={(e) => setZoom(zoom.s > 1 ? NO_ZOOM : zoomAt(zoom, 2.5, { x: e.clientX, y: e.clientY }))}
       >
-        {q.isLoading && <div className="absolute inset-0 grid place-items-center text-white/75">Loading</div>}
+        {lotId !== null && q.isLoading && <div className="absolute inset-0 grid place-items-center text-white/75">Loading</div>}
         {q.isError && <div className="absolute inset-0 grid place-items-center font-semibold">Photos not loaded</div>}
         {photo && (
           <div
@@ -241,15 +284,15 @@ export const PhotoViewer = ({ lotId, startId, onClose }: { lotId: number; startI
           >
             <img
               key={`t${photo.id}`}
-              src={photoUrl(photo.id, true)}
+              src={photo.thumb}
               alt=""
               draggable={false}
               className={`absolute inset-0 h-full w-full object-contain ${loaded[photo.id] ? "invisible" : ""}`}
             />
             <img
               key={photo.id}
-              src={photoUrl(photo.id)}
-              alt={`${KIND_LABEL[photo.kind]} photo`}
+              src={photo.src}
+              alt={`${photo.label} photo`}
               draggable={false}
               onLoad={() => setLoaded((m) => ({ ...m, [photo.id]: true }))}
               className="absolute inset-0 h-full w-full object-contain"
@@ -281,7 +324,7 @@ export const PhotoViewer = ({ lotId, startId, onClose }: { lotId: number; startI
       {photo && (
         <div className="flex min-h-16 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2">
           <div className="min-w-0 flex-1 text-sm">
-            <div className="truncate font-semibold">{photo.takenBy ?? ROLE_LABEL[photo.role]}</div>
+            <div className="truncate font-semibold">{photo.by}</div>
             <div className="text-white/75">{dateTime(photo.at)}</div>
           </div>
           {err && (

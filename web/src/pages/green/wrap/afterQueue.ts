@@ -14,7 +14,10 @@ const RETRY_MS = [2000, 4000, 8000, 15_000] as const;
 
 export interface QueuedAfter {
   id: number;
-  lotId: number;
+  /** The lot of an After, or null for a tire pile's photo (SPEC 29). */
+  lotId: number | null;
+  /** The tire pile of a pile photo, else null. */
+  pileId: number | null;
   /** Object URL of the thumb, shown on the row until the server's thumb replaces it. */
   preview: string;
   phase: "queued" | "sending" | "done" | "failed";
@@ -38,10 +41,10 @@ let nextId = 1;
 let busy = false;
 let timer: number | null = null;
 const listeners = new Set<() => void>();
-const savedListeners = new Set<(lotId: number) => void>();
+const savedListeners = new Set<(target: { lotId: number | null; pileId: number | null }) => void>();
 
 const publish = (): void => {
-  snapshot = entries.map(({ id, lotId, preview, phase, message, tries, savedAt }) => ({ id, lotId, preview, phase, message, tries, savedAt }));
+  snapshot = entries.map(({ id, lotId, pileId, preview, phase, message, tries, savedAt }) => ({ id, lotId, pileId, preview, phase, message, tries, savedAt }));
   for (const l of listeners) l();
 };
 
@@ -54,8 +57,11 @@ const send = async (e: Entry): Promise<void> => {
   if (!e.photo || !e.thumb) return;
   patch(e.id, { phase: "sending" });
   const form = new FormData();
-  form.set("lotId", String(e.lotId));
-  form.set("kind", "after");
+  if (e.pileId !== null) form.set("pileId", String(e.pileId));
+  else {
+    form.set("lotId", String(e.lotId));
+    form.set("kind", "after");
+  }
   if (e.lat !== null && e.lng !== null) {
     form.set("lat", String(e.lat));
     form.set("lng", String(e.lng));
@@ -63,10 +69,10 @@ const send = async (e: Entry): Promise<void> => {
   if (e.heading !== null) form.set("heading", String(e.heading));
   form.set("photo", e.photo, "photo.jpg");
   form.set("thumb", e.thumb, "thumb.jpg");
-  const r = await postPhoto(form, () => undefined);
+  const r = await postPhoto(form, () => undefined, e.pileId !== null ? "/tire-photos" : "/photos");
   if (r.ok) {
     patch(e.id, { phase: "done", photo: null, thumb: null, message: null, savedAt: Date.now() });
-    for (const l of savedListeners) l(e.lotId);
+    for (const l of savedListeners) l({ lotId: e.lotId, pileId: e.pileId });
   } else if (r.refused) {
     patch(e.id, { phase: "failed", photo: null, thumb: null, message: r.message });
   } else {
@@ -102,13 +108,19 @@ const pump = async (): Promise<void> => {
 if (typeof window !== "undefined") window.addEventListener("online", () => void pump());
 
 /** Queues the After of a lot and starts sending it; `at` is where the phone stood and `heading` where the camera faced, when known. */
-export const queueAfter = (lotId: number, blobs: { photo: Blob; thumb: Blob }, at: { lat: number; lng: number } | null, heading: number | null): void => {
+export const queueAfter = (lotId: number, blobs: { photo: Blob; thumb: Blob }, at: { lat: number; lng: number } | null, heading: number | null): void =>
+  enqueue({ lotId, pileId: null }, blobs, at, heading);
+
+/** Queues a tire pile's photo (SPEC 29), sent in the same queue as the Afters. */
+export const queueTirePhoto = (pileId: number, blobs: { photo: Blob; thumb: Blob }): void => enqueue({ lotId: null, pileId }, blobs, null, null);
+
+const enqueue = (target: { lotId: number | null; pileId: number | null }, blobs: { photo: Blob; thumb: Blob }, at: { lat: number; lng: number } | null, heading: number | null): void => {
   const fix = at ?? currentFix();
   entries = [
     ...entries,
     {
       id: nextId++,
-      lotId,
+      ...target,
       preview: URL.createObjectURL(blobs.thumb),
       phase: "queued",
       message: null,
@@ -125,8 +137,8 @@ export const queueAfter = (lotId: number, blobs: { photo: Blob; thumb: Blob }, a
   void pump();
 };
 
-/** Called with the lot id each time an After reaches the server. */
-export const onAfterSaved = (fn: (lotId: number) => void): (() => void) => {
+/** Called with the lot (or tire pile) each time a photo reaches the server. */
+export const onAfterSaved = (fn: (target: { lotId: number | null; pileId: number | null }) => void): (() => void) => {
   savedListeners.add(fn);
   return () => {
     savedListeners.delete(fn);

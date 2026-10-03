@@ -57,7 +57,7 @@ interface Props {
   expanded: boolean;
   /** The Leaflet map once it exists, for Paint's stroke handling. */
   onMap: (map: L.Map | null) => void;
-  /** A tap on a parcel in the strip: `l:<lot id>`, `p:<parcel id>` or `a:<alley half key>`. */
+  /** A tap on a parcel in the strip: `l:<lot id>`, `p:<parcel id>`, `a:<alley half key>` or `t:<tire pile id>`. */
   onPick: (key: string) => void;
   /** Which lots carry the camera badge; Flag's rule (no Before yet) when left out. */
   badge?: (lot: FlagMapLot, status: LotStatus) => boolean;
@@ -67,6 +67,8 @@ interface Props {
   spot?: MapSpot | null;
   /** What the strip centres on instead of the phone, while set. */
   centre?: LatLng | null;
+  /** Tire piles (Wrap up, SPEC 29): `badge` while the pile has no photo, `picked` in yellow; a tap picks `t:<id>`. */
+  tires?: ReadonlyArray<LatLng & { id: number; badge: boolean; picked: boolean }>;
   label?: string;
 }
 // #endregion
@@ -86,7 +88,7 @@ const finitePoint = (p: LatLng): boolean => Number.isFinite(p.lat) && Number.isF
  * pan or zoom gestures, and a tap on a parcel picks it. Full screen is Paint:
  * it centres on the phone once, then holds still under the strokes.
  */
-export const FlagMap = ({ lots, parcels, alleys, plan, cc, fix, heading, picked, pending, expanded, onMap, onPick, badge = needsBefore, bareOnStrip = true, spot = null, centre = null, label = "Flag map" }: Props) => {
+export const FlagMap = ({ lots, parcels, alleys, plan, cc, fix, heading, picked, pending, expanded, onMap, onPick, badge = needsBefore, bareOnStrip = true, spot = null, centre = null, tires, label = "Flag map" }: Props) => {
   const [map, setMapState] = useState<L.Map | null>(null);
   const mapRef = useRef(onMap);
   mapRef.current = onMap;
@@ -122,9 +124,12 @@ export const FlagMap = ({ lots, parcels, alleys, plan, cc, fix, heading, picked,
       out.push({ id: `cam-${l.id}`, kind: "camera", lat: l.lat, lng: l.lng, noFit: true, title: l.address ?? undefined, onClick: tapPicks ? () => pickRef.current(`l:${l.id}`) : undefined });
     }
     if (cc) out.push({ id: "cc", kind: "cc", lat: cc.lat, lng: cc.lng, name: `CC ${cc.name}`, letter: cc.letter, noFit: true });
+    for (const t of tires ?? []) {
+      out.push({ id: `tire-${t.id}`, kind: "tire", lat: t.lat, lng: t.lng, badge: t.badge, picked: t.picked, noFit: true, title: "Tire pile", onClick: tapPicks ? () => pickRef.current(`t:${t.id}`) : undefined });
+    }
     if (fix) out.push({ id: "me", kind: "me", lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, noFit: true });
     return out;
-  }, [lots, cc, fix, pending, tapPicks, badge]);
+  }, [lots, cc, fix, pending, tapPicks, badge, tires]);
 
   const onBare = useCallback((parcelId: string) => {
     if (tapPicksRef.current) pickRef.current(`p:${parcelId}`);

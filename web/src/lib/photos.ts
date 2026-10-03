@@ -77,11 +77,11 @@ export type PostResult = { ok: true; id: number } | { ok: false; message: string
 
 const refusedStatus = (status: number): boolean => status >= 400 && status < 500 && status !== 408 && status !== 429;
 
-/** `POST /photos` through XHR, the one browser API that reports upload progress. */
-export const postPhoto = (form: FormData, onProgress: (f: number) => void): Promise<PostResult> =>
+/** `POST /photos` (or `/tire-photos`, SPEC 29) through XHR, the one browser API that reports upload progress. */
+export const postPhoto = (form: FormData, onProgress: (f: number) => void, url = "/photos"): Promise<PostResult> =>
   new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/photos");
+    xhr.open("POST", url);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
     };

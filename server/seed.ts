@@ -37,6 +37,7 @@ import { cancelScheduledRoutes, computeRouteNow } from "./dispatch.ts";
 import { haversine, type LatLng } from "./geo.ts";
 import { attachOutlines, fetchDlba, upsertLots, type LotInput } from "./lots-import.ts";
 import { sweepPhotoFiles } from "./photos.ts";
+import { sweepTireFiles } from "./tires.ts";
 import { seedLotPhotos, type SeedPhotoTarget } from "./seed-photos.ts";
 import { ccbCompanies, seedCcB } from "./seed-ccb.ts";
 import { loadAlleysForCc } from "./alleys.ts";
@@ -76,6 +77,7 @@ const wipe = (): void => {
   }
   // Photo rows went with their lots; their files go here.
   sweepPhotoFiles();
+  sweepTireFiles();
 };
 // #endregion
 

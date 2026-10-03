@@ -10,6 +10,7 @@ import { onewayRouter } from "./oneway.ts";
 import { alleysRouter } from "./alleys.ts";
 import { planRouter } from "./plan.ts";
 import { sharedRouter } from "./shared.ts";
+import { tiresRouter } from "./tires.ts";
 
 export const appRouter = router({
   shared: sharedRouter,
@@ -23,6 +24,7 @@ export const appRouter = router({
   alleys: alleysRouter,
   people: peopleRouter,
   invites: invitesRouter,
+  tires: tiresRouter,
 });
 
 export type AppRouter = typeof appRouter;

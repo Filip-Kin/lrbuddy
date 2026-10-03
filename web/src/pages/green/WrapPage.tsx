@@ -15,10 +15,12 @@ import { LensSwitch } from "./flag/LensSwitch.tsx";
 import { metres, type Candidate } from "./flag/pick.ts";
 import { CompassAsk, ExpandIcon, useExpanded, useNow, usePaintFollowsExpand } from "./flag/screen.tsx";
 import { grabFrame, useCamera, useCompass, useFix } from "./flag/sensors.ts";
-import { onAfterSaved, queueAfter, useAfterQueue, type QueuedAfter } from "./wrap/afterQueue.ts";
+import { onAfterSaved, queueAfter, queueTirePhoto, useAfterQueue, type QueuedAfter } from "./wrap/afterQueue.ts";
+import { clock } from "../../lib/format.ts";
+import { TirePileSheet } from "../../components/TirePile.tsx";
 import { nearest, pickWrap, spotDistance } from "./wrap/pick.ts";
 import { useBackCloses } from "./wrap/useBackCloses.ts";
-import { FILTERS, WrapList, type Filter, type WrapLot } from "./wrap/WrapList.tsx";
+import { FILTERS, tireNeedsPhoto, WrapList, type Filter, type WrapLot, type WrapTire } from "./wrap/WrapList.tsx";
 
 /** The map strip's state for the session, as on the Flag screen. */
 const MAP_KEY = "lrb.wrap.map";
@@ -43,12 +45,15 @@ export const WrapPage = () => {
   const overview = trpc.green.overview.useQuery(undefined, { refetchInterval: 30_000 });
   const wrap = trpc.green.wrap.useQuery(undefined, { refetchInterval: 60_000 });
   const parcels = trpc.green.parcels.useQuery(undefined, { refetchInterval: 120_000 });
+  // Tire piles (SPEC 29): their photo is taken here, at the end of the day, to count the tires.
+  const tires = trpc.tires.list.useQuery(undefined, { refetchInterval: 60_000 });
   const lotWrites = useSetLot("green");
   const afters = useAfterQueue();
   useEffect(
     () =>
       onAfterSaved(() => {
         void utils.green.invalidate();
+        void utils.tires.list.invalidate();
         refreshPhotos();
       }),
     [utils, refreshPhotos],
@@ -67,7 +72,18 @@ export const WrapPage = () => {
   const [sheet, setSheet] = useState<number | null>(null);
   // A lot tapped on the strip, picked from the list or moved on to after a shot holds the pick
   // (the ray pauses) until Clear, a second tap on it, or Expand.
-  const [held, setHeld] = useState<number | null>(null);
+  const [held, setHeldLot] = useState<number | null>(null);
+  // A tire pile held the same way (SPEC 29); holding one lets go of the lot, and back.
+  const [heldTire, setHeldTireState] = useState<number | null>(null);
+  const setHeld = (v: number | null | ((h: number | null) => number | null)): void => {
+    setHeldLot(v);
+    setHeldTireState(null);
+  };
+  const setHeldTire = (v: number | null | ((h: number | null) => number | null)): void => {
+    setHeldTireState(v);
+    setHeldLot(null);
+  };
+  const [tireSheet, setTireSheet] = useState<number | null>(null);
   // A List pick centres the strip on its lot until Recenter.
   const [onLot, setOnLot] = useState(false);
   const setExpanded = (on: boolean): void => {
@@ -98,9 +114,14 @@ export const WrapPage = () => {
   const queuedByLot = useMemo(() => {
     const m = new Map<number, QueuedAfter>();
     // A saved After stays until the list has refetched with it, so the lot does not flicker back.
-    for (const q of afters) if (q.phase !== "done" || (q.savedAt ?? 0) > wrap.dataUpdatedAt) m.set(q.lotId, q);
+    for (const q of afters) if (q.lotId !== null && (q.phase !== "done" || (q.savedAt ?? 0) > wrap.dataUpdatedAt)) m.set(q.lotId, q);
     return m;
   }, [afters, wrap.dataUpdatedAt]);
+  const wrapTires = useMemo<WrapTire[]>(() => {
+    const m = new Map<number, QueuedAfter>();
+    for (const q of afters) if (q.pileId !== null && (q.phase !== "done" || (q.savedAt ?? 0) > tires.dataUpdatedAt)) m.set(q.pileId, q);
+    return (tires.data ?? []).map((t) => ({ ...t, queued: m.get(t.id) ?? null }));
+  }, [afters, tires.data, tires.dataUpdatedAt]);
   const shapes = useMemo(() => new Map((overview.data?.lots ?? []).map((l) => [l.id, l])), [overview.data]);
   const work = useMemo<WrapTarget[]>(
     () =>
@@ -119,21 +140,35 @@ export const WrapPage = () => {
   // Recomputed every second (the `now` tick) from the latest fix and heading.
   const aimed = useMemo(() => pickWrap(fix, heading, work, FILTERS.needsAfter), [fix, heading, work, now]);
   const heldLot = held !== null ? (byId.get(held) ?? null) : null;
-  const picked = heldLot ?? aimed;
+  const pickedTire = heldTire !== null ? (wrapTires.find((t) => t.id === heldTire) ?? null) : null;
+  const picked = pickedTire ? null : (heldLot ?? aimed);
   const pickedShape = useMemo(() => (picked ? { key: picked.key, geometry: picked.geometry } : null), [picked?.key, picked?.geometry]);
   const spot = picked?.beforeSpot ?? null;
   const spotM = spot && fix ? metres(fix, spot) : null;
   const mapSpot = useMemo(() => (spot ? { lat: spot.lat, lng: spot.lng, heading: spot.heading } : null), [spot?.lat, spot?.lng, spot?.heading]);
-  const centre = useMemo(() => (onLot && heldLot ? { lat: heldLot.lat, lng: heldLot.lng } : null), [onLot, heldLot?.lat, heldLot?.lng]);
+  const centreOn = heldLot ?? pickedTire;
+  const centre = useMemo(() => (onLot && centreOn ? { lat: centreOn.lat, lng: centreOn.lng } : null), [onLot, centreOn?.lat, centreOn?.lng]);
+  const mapTires = useMemo(() => wrapTires.map((t) => ({ id: t.id, lat: t.lat, lng: t.lng, badge: tireNeedsPhoto(t), picked: t.id === heldTire })), [wrapTires, heldTire]);
 
-  /** The nearest lot still needing its After, after `done` was shot or set Not done. */
-  const moveOn = (done: number): void => {
-    const next = fix ? nearest(fix, work.filter(FILTERS.needsAfter), Number.POSITIVE_INFINITY, done) : null;
-    setHeld(next?.id ?? null);
+  /**
+   * After `done` was shot or set Not done: the nearest lot still needing its After or tire pile
+   * still needing its photo, whichever is closer.
+   */
+  const moveOn = (done: { lot: number | null; tire: number | null }): void => {
+    const lot = fix ? nearest(fix, work.filter(FILTERS.needsAfter), Number.POSITIVE_INFINITY, done.lot) : null;
+    const tire = fix ? nearest(fix, wrapTires.filter(tireNeedsPhoto), Number.POSITIVE_INFINITY, done.tire) : null;
+    if (tire && fix && (!lot || metres(fix, tire) < metres(fix, lot))) setHeldTire(tire.id);
+    else setHeld(lot?.id ?? null);
     setOnLot(false);
   };
 
   const onStripPick = (key: string): void => {
+    if (key.startsWith("t:")) {
+      const id = Number(key.slice(2));
+      setHeldTire((h) => (h === id ? null : id));
+      setOnLot(false);
+      return;
+    }
     if (!key.startsWith("l:")) return;
     const id = Number(key.slice(2));
     // A work lot holds the pick; any other lot (Not todo, Do not touch) opens its sheet.
@@ -147,6 +182,16 @@ export const WrapPage = () => {
   // #region shutter
   const [busy, setBusy] = useState(false);
   const shoot = async (): Promise<void> => {
+    const tire = pickedTire;
+    if (tire) {
+      if (busy) return;
+      setBusy(true);
+      const blobs = await grabFrame(camera);
+      setBusy(false);
+      if (blobs) queueTirePhoto(tire.id, blobs);
+      moveOn({ lot: null, tire: tire.id });
+      return;
+    }
     const lot = picked;
     if (!lot || busy) return;
     const from = fix;
@@ -156,14 +201,14 @@ export const WrapPage = () => {
     setBusy(false);
     if (lot.status !== "done") lotWrites.set({ lotId: lot.id, parcelId: null }, { status: "done" });
     if (blobs) queueAfter(lot.id, blobs, from, facing);
-    moveOn(lot.id);
+    moveOn({ lot: lot.id, tire: null });
   };
   const notDone = (): void => {
     const lot = picked;
     if (!lot) return;
     // A lot not finished looks the same as its Before: no photo.
     if (lot.status !== "not_done") lotWrites.set({ lotId: lot.id, parcelId: null }, { status: "not_done" });
-    moveOn(lot.id);
+    moveOn({ lot: lot.id, tire: null });
   };
   const queued = afters.filter((q) => q.phase === "queued" || q.phase === "sending").length;
   const notSent = afters.filter((q) => q.phase === "failed").length;
@@ -208,8 +253,16 @@ export const WrapPage = () => {
   const chip = "rounded-full px-2 py-0.5";
   const top = (
     <div className={`z-[1001] flex items-start gap-2 ${expanded ? "relative shrink-0 px-3 py-3" : "absolute inset-x-3 top-3"}`}>
-      <div className="min-w-0 flex-1 rounded-xl bg-black/65 px-3 py-2" data-wrap-target={picked?.id ?? ""}>
-        <p className="text-base leading-tight font-bold break-words">{picked ? lotTitle(picked) : failed ? "Lots not loaded" : loaded ? "No lot" : "Loading lots"}</p>
+      <div className="min-w-0 flex-1 rounded-xl bg-black/65 px-3 py-2" data-wrap-target={picked?.id ?? ""} data-wrap-tire-target={pickedTire?.id ?? ""}>
+        <p className="text-base leading-tight font-bold break-words">{pickedTire ? "Tire pile" : picked ? lotTitle(picked) : failed ? "Lots not loaded" : loaded ? "No lot" : "Loading lots"}</p>
+        {pickedTire && (
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span className="min-w-0 text-sm font-semibold break-words text-white/85">{`${pickedTire.madeBy}, ${clock(pickedTire.createdAt)}`}</span>
+            <button type="button" onClick={() => setTireSheet(pickedTire.id)} className="-my-2 ml-auto min-h-11 shrink-0 px-1 text-sm font-semibold underline underline-offset-4" data-wrap-details>
+              Details
+            </button>
+          </div>
+        )}
         {picked && (
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
             {/* The card is dark in both themes: the status as a light chip with the status colour as its dot. */}
@@ -314,13 +367,13 @@ export const WrapPage = () => {
           </button>
           <button
             type="button"
-            disabled={!picked || busy || camera.state === "starting"}
+            disabled={(!picked && !pickedTire) || busy || camera.state === "starting"}
             onClick={() => void shoot()}
-            aria-label={queued > 0 ? `Done, ${queued} queued` : "Done"}
+            aria-label={`${pickedTire ? "Photo" : "Done"}${queued > 0 ? `, ${queued} queued` : ""}`}
             className="relative grid h-[88px] w-[88px] shrink-0 place-items-center rounded-full border-4 border-white bg-[#00a14b] text-lg font-black shadow-lg active:scale-95 disabled:opacity-40"
             data-wrap-shutter
           >
-            Done
+            {pickedTire ? "Photo" : "Done"}
             {queued > 0 && (
               <span className="absolute -top-1 -right-1 grid h-7 min-w-7 place-items-center rounded-full bg-[#fddd08] px-1.5 text-sm font-bold text-[#0e3038]" data-wrap-queued>
                 {queued}
@@ -360,10 +413,11 @@ export const WrapPage = () => {
           bareOnStrip={false}
           spot={mapSpot}
           centre={expanded ? null : centre}
+          tires={mapTires}
           label="Wrap up map"
         />
         {!loaded && !failed && <div aria-hidden="true" className="absolute inset-0 z-[500] animate-pulse bg-surface-2/60" />}
-        {!expanded && heldLot && (
+        {!expanded && (heldLot || pickedTire) && (
           <button
             type="button"
             onClick={() => {
@@ -431,7 +485,15 @@ export const WrapPage = () => {
           setOnLot(true);
           setListOpen(false);
         }}
+        tires={wrapTires}
+        pickedTire={heldTire}
+        onPickTire={(id) => {
+          setHeldTire(id);
+          setOnLot(true);
+          setListOpen(false);
+        }}
       />
+      <TirePileSheet pile={tireSheet !== null ? (tires.data?.find((t) => t.id === tireSheet) ?? null) : null} now={now} onClose={() => setTireSheet(null)} />
       <LotSheet parcel={sheetParcel} crews={d?.crews ?? []} lots={lotWrites} onClose={() => setSheet(null)} />
     </div>
   );

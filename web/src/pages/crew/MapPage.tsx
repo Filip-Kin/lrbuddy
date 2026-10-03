@@ -1,7 +1,7 @@
 import type { Map as LeafletMap } from "leaflet";
 import { useCallback, useMemo, useState } from "react";
 import { Link } from "wouter";
-import { ButtonLink } from "../../components/Button.tsx";
+import { Button, ButtonLink } from "../../components/Button.tsx";
 import { isActive, lotTitle, qtyText, type CrewRequest } from "../../components/crew/format.ts";
 import { DirectionsIcon, PlusIcon, TypeIcon } from "../../components/crew/Icons.tsx";
 import { etaText } from "../../components/crew/RequestCard.tsx";
@@ -13,7 +13,9 @@ import { distance, mapsDirections } from "../../lib/format.ts";
 import { MapView, type MapLine, type MapMarker } from "../../lib/map/MapView.tsx";
 import { useParcelLayer } from "../../lib/map/parcelLayer.ts";
 import { useMyFix } from "../../lib/position.ts";
+import { useTirePlacing } from "../../lib/tires.ts";
 import { trpc } from "../../lib/trpc.ts";
+import { TireGlyph, TirePileSheet, TirePlaceBar, tireMarkers, useTireWrites } from "../../components/TirePile.tsx";
 
 const URGENT_AGE_MS = 10 * 60_000;
 const ORDER: Record<CrewRequest["status"], number> = { en_route: 0, assigned: 1, open: 2, delivered: 3, cancelled: 4 };
@@ -63,6 +65,12 @@ export const MapPage = () => {
   const now = useNow();
   const [leaflet, setLeaflet] = useState<LeafletMap | null>(null);
   const [sel, setSel] = useState<{ lotId: number } | { parcelId: string } | null>(null);
+  // Tire piles (SPEC 29): every pile at the CC today; Tire pile drops one at the blue dot, a tap or a drag moves it.
+  const tires = trpc.tires.list.useQuery(undefined, { refetchInterval: 60_000 });
+  const tireWrites = useTireWrites();
+  const { placing, startAdd, moveTo, cancel: cancelPlacing } = useTirePlacing();
+  const [tireId, setTireId] = useState<number | null>(null);
+  const selTire = tireId !== null ? (tires.data?.find((t) => t.id === tireId) ?? null) : null;
   const area = map.data?.area ?? null;
   const lot =
     sel === null
@@ -79,7 +87,7 @@ export const MapPage = () => {
       : null;
   const onParcel = useCallback((parcelId: string) => setSel({ parcelId }), []);
   // SPEC 21: the crew's own rectangle holds the bare parcels it can mark Todo.
-  useParcelLayer(leaflet, map.data?.bare, true, onParcel, lotWrites.pending);
+  useParcelLayer(leaflet, map.data?.bare, placing === null, onParcel, lotWrites.pending);
   const lines = useMemo<MapLine[]>(
     () => (area ? [{ id: "area", points: area.map(([lng, lat]) => [lat, lng] as [number, number]), style: "select" }] : []),
     [area],
@@ -109,7 +117,7 @@ export const MapPage = () => {
         geometry: l.geometry,
         title: lotTitle(l),
         noFit: fitArea,
-        onClick: () => setSel({ lotId: l.id }),
+        onClick: placing ? undefined : () => setSel({ lotId: l.id }),
       });
     }
     for (const c of d.companyCrews) {
@@ -122,21 +130,50 @@ export const MapPage = () => {
     const me = fix ?? (d.me ? { lat: d.me.lat, lng: d.me.lng, accuracy: d.me.accuracy } : null);
     if (me && active.length > 0) out.push({ id: "ring", kind: "request", lat: me.lat, lng: me.lng, urgent, noFit: true });
     if (me) out.push({ id: "me", kind: "me", lat: me.lat, lng: me.lng, accuracy: me.accuracy, noFit: fitArea });
+    out.push(...tireMarkers(tires.data, placing, setTireId, moveTo));
     return out;
-  }, [map.data, fix, active.length, urgent, lotWrites.pending]);
+  }, [map.data, fix, active.length, urgent, lotWrites.pending, tires.data, placing, moveTo]);
+
+  const dropTire = (): void => {
+    const d = map.data;
+    const c = leaflet?.getCenter();
+    const at = fix ?? (d?.me ? { lat: d.me.lat, lng: d.me.lng } : null) ?? (c ? { lat: c.lat, lng: c.lng } : null);
+    if (!at) return;
+    setSel(null);
+    tireWrites.clearError();
+    startAdd(at);
+  };
+  const saveTire = (): void => {
+    if (!placing) return;
+    tireWrites.add.mutate({ lat: placing.lat, lng: placing.lng }, { onSuccess: cancelPlacing });
+  };
 
   return (
     <div className="relative h-full min-h-[320px]">
-      <MapView markers={markers} lines={lines} fitKey={area ? "area" : "all"} label="Crew map" className="absolute inset-0" onReady={setLeaflet} />
-      <div className="pointer-events-none absolute top-2.5 right-2.5 left-[3.25rem] z-[1000] nav:left-auto nav:w-96">
-        <ActiveStrip active={active} now={now} />
+      {/* The cursor class sits on a wrapper: MapView's own div carries Leaflet's classes. */}
+      <div className={`absolute inset-0 ${placing ? "[&_.leaflet-container]:cursor-crosshair" : ""}`}>
+        <MapView markers={markers} lines={lines} fitKey={area ? "area" : "all"} label="Crew map" className="absolute inset-0" onReady={setLeaflet} onMapClick={placing ? moveTo : undefined} />
       </div>
-      <div className="pointer-events-none absolute right-4 bottom-[max(2.25rem,env(safe-area-inset-bottom))] z-[1000]">
-        <ButtonLink href="/request" size="lg" className="pointer-events-auto min-h-16 px-7 text-xl shadow-lg">
-          <PlusIcon size={24} />
-          Request
-        </ButtonLink>
-      </div>
+      {placing ? (
+        <TirePlaceBar placing={placing} busy={tireWrites.add.isPending} error={tireWrites.error} onCancel={cancelPlacing} onSave={saveTire} />
+      ) : (
+        <div className="pointer-events-none absolute top-2.5 right-2.5 left-[3.25rem] z-[1000] nav:left-auto nav:w-96">
+          <ActiveStrip active={active} now={now} />
+        </div>
+      )}
+      {!placing && (
+        <div className="pointer-events-none absolute right-4 bottom-[max(2.25rem,env(safe-area-inset-bottom))] left-4 z-[1000] flex items-end justify-end gap-2">
+          <Button variant="secondary" size="lg" className="pointer-events-auto min-h-16 bg-surface! px-4 shadow-lg" onClick={dropTire} disabled={!map.data} data-tire-add>
+            <TireGlyph size={26} />
+            Tire pile
+          </Button>
+          <ButtonLink href="/request" size="lg" className="pointer-events-auto min-h-16 px-7 text-xl shadow-lg">
+            <PlusIcon size={24} />
+            Request
+          </ButtonLink>
+        </div>
+      )}
+      <TirePileSheet pile={selTire} now={now} onClose={() => setTireId(null)} />
       <ParcelSheet
         parcel={sheet}
         onClose={() => setSel(null)}

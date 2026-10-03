@@ -26,6 +26,11 @@ export interface TripOptions {
   osrmUrl: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  /**
+   * The direction the truck is driving, degrees from north. OSRM then leaves the origin that way,
+   * so driving away from a stop gives a turn-back instead of a line pointing behind the truck.
+   */
+  originBearing?: number | null;
 }
 
 /** 25 km/h in m/s: the fallback's city driving guess. */
@@ -139,6 +144,11 @@ export const trip = async (
     steps: "true",
   });
   if (destination) params.set("destination", "last");
+  if (opts.originBearing !== null && opts.originBearing !== undefined && Number.isFinite(opts.originBearing)) {
+    // A bearing for the origin only; OSRM takes "value,range" per coordinate, blank for the rest.
+    const b = ((Math.round(opts.originBearing) % 360) + 360) % 360;
+    params.set("bearings", [`${b},60`, ...pts.slice(1).map(() => "")].join(";"));
+  }
   const url = `${opts.osrmUrl}/trip/v1/driving/${coords}?${params.toString()}`;
 
   try {
@@ -149,6 +159,8 @@ export const trip = async (
     if (!res.ok) return fallbackTrip(origin, stops, destination);
     const body: unknown = await res.json();
     if (!isTripResponse(body) || body.code !== "Ok" || !body.waypoints || !body.trips || body.trips.length !== 1) {
+      // No road that way near the origin (NoSegment): try again without the bearing first.
+      if (opts.originBearing !== null && opts.originBearing !== undefined) return trip(origin, stops, destination, { ...opts, originBearing: null });
       return fallbackTrip(origin, stops, destination);
     }
     const t = body.trips[0]!;

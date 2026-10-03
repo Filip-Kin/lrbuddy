@@ -68,7 +68,7 @@ test("requests board: a crew's request arrives live, Assign and Cancel from its 
   }
 });
 
-test("Add request: two items at one pin become two crewless stops in a truck queue", async ({ as, L }) => {
+test("Add request: two items at one pin become one stop in a truck queue", async ({ as, L }) => {
   const green = await as(L.green);
   const page = green.page;
   const before = new Set((await green.api.query<GreenRequest[]>("green.requests")).map((r) => r.id));
@@ -105,9 +105,9 @@ test("Add request: two items at one pin become two crewless stops in a truck que
     const truckName = text.replace(/^2 requests sent, /, "");
     const driver = await as(L.trucks[truckName]!);
     await until(
-      // Crewless requests are a stop each (a crew's requests share one stop).
-      async () => (await driver.api.query<Queue>("driver.queue")).stops.flatMap((s) => s.items.map((i) => i.id)).filter((id) => made.some((m) => m.id === id)).length === 2,
-      `both items in ${truckName}'s queue`,
+      // Items asked for at one pin are one stop.
+      async () => (await driver.api.query<Queue>("driver.queue")).stops.some((s) => made.every((m) => s.items.some((i) => i.id === m.id))),
+      `both items in one stop in ${truckName}'s queue`,
     );
   } finally {
     for (const m of made) await green.api.mutate("green.cancel", { requestId: m.id });

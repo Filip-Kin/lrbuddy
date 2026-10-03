@@ -91,6 +91,17 @@ describe("green router", () => {
     expect(r.lat).toBeCloseTo(pin.lat, 6);
   });
 
+  test("several items at one pin are one stop on the truck (Filip, 2026-10-03)", async () => {
+    const t = w.truck(w.east.id, "Near", north(0.2));
+    const rs = await w.green.createStop({ items: [{ typeId: w.typeId("water"), qty: 1 }, { typeId: w.typeId("snacks"), qty: 1 }], ...north(0.4), crewId: null });
+    expect(rs).toHaveLength(2);
+    expect(rs.every((r) => r.truckId === t.id)).toBe(true);
+    const { stopsForTruck } = await import("./dispatch.ts");
+    const stops = stopsForTruck(t.id, Date.now());
+    expect(stops).toHaveLength(1);
+    expect(stops[0]!.requests.map((r) => r.id).sort()).toEqual(rs.map((r) => r.id).sort());
+  });
+
   test("a stop with no truck in range stays open", async () => {
     const r = (await w.green.createStop({ items: [{ typeId: w.typeId("snacks"), qty: 1 }], ...north(0.3) }))[0]!;
     expect(r.status).toBe("open");

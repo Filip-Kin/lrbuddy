@@ -820,13 +820,39 @@ export const cancelScheduledRoutes = (): void => {
 };
 
 /** Recomputes when the truck has moved more than 250 m since the last route. */
-export const onTruckMoved = (truckId: number, pos: LatLng): void => {
+export const onTruckMoved = (truckId: number, pos: LatLng, now = Date.now()): void => {
   const route = db.select().from(routes).where(eq(routes.truckId, truckId)).get();
   if (!route) {
     scheduleRoute(truckId);
     return;
   }
-  if (haversine({ lat: route.originLat, lng: route.originLng }, pos) > MOVE_RECOMPUTE_M) scheduleRoute(truckId);
+  if (haversine({ lat: route.originLat, lng: route.originLng }, pos) > MOVE_RECOMPUTE_M) {
+    scheduleRoute(truckId);
+    return;
+  }
+  // A missed turn: the truck is off the drawn line. Recompute from where it is, at most every 10 s
+  // (Filip, 2026-10-03: "routing never recalculates if I miss a turn").
+  if (now - route.computedAt >= OFF_ROUTE_EVERY_MS && route.geometry.length >= 2 && offLine(route.geometry, pos) > OFF_ROUTE_M) scheduleRoute(truckId);
+};
+
+export const OFF_ROUTE_M = 35;
+const OFF_ROUTE_EVERY_MS = 10_000;
+
+/** Metres from a point to a [[lat, lng], ...] polyline. */
+export const offLine = (line: ReadonlyArray<readonly [number, number]>, p: LatLng): number => {
+  const kx = 111_320 * Math.cos((p.lat * Math.PI) / 180);
+  const xy = (q: readonly [number, number]): [number, number] => [(q[1] - p.lng) * kx, (q[0] - p.lat) * 111_320];
+  let best = Infinity;
+  for (let i = 1; i < line.length; i++) {
+    const a = xy(line[i - 1]!);
+    const b = xy(line[i]!);
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, (-a[0] * dx - a[1] * dy) / len2));
+    best = Math.min(best, Math.hypot(a[0] + dx * t, a[1] + dy * t));
+  }
+  return best;
 };
 
 /** A crew stop moves with the crew; recompute the trucks carrying its requests when it moves far. */

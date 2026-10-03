@@ -510,3 +510,14 @@ describe("state machine and stock", () => {
     expect(stockOf(t.id, snacks).qty).toBe(0);
   });
 });
+
+describe("offLine (missed turn, Filip 2026-10-03)", () => {
+  test("metres from a point to the route line", async () => {
+    const { offLine } = await import("./dispatch.ts");
+    const line: Array<[number, number]> = [[42.38, -83.11], [42.38, -83.10]];
+    expect(offLine(line, { lat: 42.38, lng: -83.105 })).toBeLessThan(1);
+    const off = offLine(line, { lat: 42.3805, lng: -83.105 });
+    expect(off).toBeGreaterThan(50);
+    expect(off).toBeLessThan(60);
+  });
+});

@@ -44,3 +44,10 @@ export { lotTitle } from "../../lib/format.ts";
 
 /** "just now" under a minute, else "4 min ago". */
 export const since = (at: number, now: number): string => (now - at < 60_000 ? "just now" : ago(at, now));
+
+/**
+ * Request types that take a quantity: mowers and weed whips (and their swaps). Everything else is
+ * not counted (Filip, 2026-10-03), so it goes as one with no stepper.
+ */
+const COUNTED = new Set(["mower", "trimmer", "swap_mower", "swap_trimmer"]);
+export const isCounted = (key: string): boolean => COUNTED.has(key);

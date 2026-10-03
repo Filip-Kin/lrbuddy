@@ -4,6 +4,7 @@ import { Select, TextArea } from "../Field.tsx";
 import { QtyStepper } from "../QtyStepper.tsx";
 import { Sheet } from "../Sheet.tsx";
 import { trpc } from "../../lib/trpc.ts";
+import { isCounted } from "../crew/format.ts";
 import { errorText, useGreenInvalidate, type GreenCrew } from "./hooks.ts";
 
 /**
@@ -61,7 +62,7 @@ export const AddStopSheet = ({
       {
         onSuccess: (rs) => {
           const trucks = [...new Set(rs.map((r) => r.truckName).filter(Boolean))];
-          const n = rs.length === 1 ? "Stop" : `${rs.length} stops`;
+          const n = rs.length === 1 ? "Request" : `${rs.length} requests`;
           onSent(trucks.length > 0 ? `${n} sent, ${trucks.join(", ")}` : `${n} open, no truck`);
           onClose();
         },
@@ -74,7 +75,7 @@ export const AddStopSheet = ({
     <Sheet
       open={pin !== null}
       onClose={onClose}
-      title="Add stop"
+      title="Add request"
       footer={
         <>
           {err && (
@@ -118,10 +119,10 @@ export const AddStopSheet = ({
             </div>
           )}
         </fieldset>
-        {picked.size > 0 && (
+        {types.some((t) => picked.has(t.id) && isCounted(t.key)) && (
           <ul className="space-y-2" data-stop-items>
             {types
-              .filter((t) => picked.has(t.id))
+              .filter((t) => picked.has(t.id) && isCounted(t.key))
               .map((t) => (
                 <li key={t.id} className="flex items-center justify-between gap-4">
                   <span className="text-sm font-semibold">{t.label}</span>

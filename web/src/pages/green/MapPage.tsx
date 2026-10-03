@@ -335,7 +335,7 @@ export const MapPage = () => {
             </Button>
             <Button size="lg" className="pointer-events-auto shadow-lg" onClick={() => setPlacing(true)} disabled={!d}>
               <PinIcon />
-              Add stop
+              Add request
             </Button>
           </div>
         )}

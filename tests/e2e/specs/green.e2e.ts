@@ -1,6 +1,6 @@
 /**
  * Green shirt at the lane's CC (SPEC 5 green, 7): the requests board sees a crew's request arrive
- * live, Assign and Cancel from its card, Add stop on the map dispatched to a truck, Broadcast
+ * live, Assign and Cancel from its card, Add request on the map dispatched to a truck, Broadcast
  * reaching a crew and a driver live, and the Crews, Trucks, Stats and Photos screens. Requests are
  * cancelled at the end; broadcasts stay in the CC's history (there is no delete).
  */
@@ -68,16 +68,16 @@ test("requests board: a crew's request arrives live, Assign and Cancel from its 
   }
 });
 
-test("Add stop: two items at one pin become two crewless stops in a truck queue", async ({ as, L }) => {
+test("Add request: two items at one pin become two crewless stops in a truck queue", async ({ as, L }) => {
   const green = await as(L.green);
   const page = green.page;
   const before = new Set((await green.api.query<GreenRequest[]>("green.requests")).map((r) => r.id));
   await visit(page, "/");
-  await page.getByRole("button", { name: "Add stop", exact: true }).click();
+  await page.getByRole("button", { name: "Add request", exact: true }).click();
   await expect(page.getByText("Drop pin")).toBeVisible();
   const box = (await page.locator(".leaflet-container").first().boundingBox())!;
   await page.mouse.click(box.x + box.width * 0.55, box.y + box.height * 0.45);
-  const sheet = page.getByRole("dialog", { name: "Add stop" });
+  const sheet = page.getByRole("dialog", { name: "Add request" });
   await expect(sheet).toBeVisible();
   await expect(sheet.getByLabel("Label")).toHaveCount(0);
   await expect(sheet.getByRole("button", { name: "Send" })).toBeDisabled();
@@ -85,11 +85,15 @@ test("Add stop: two items at one pin become two crewless stops in a truck queue"
     await sheet.getByRole("button", { name: item, exact: true }).click();
     await expect(sheet.getByRole("button", { name: item, exact: true })).toHaveAttribute("aria-pressed", "true");
   }
-  await expect(sheet.locator("[data-stop-items] li")).toHaveCount(2);
+  // Water and Snacks are not counted: no quantity rows. A mower is.
+  await expect(sheet.locator("[data-stop-items] li")).toHaveCount(0);
+  await sheet.getByRole("button", { name: "Mower", exact: true }).click();
+  await expect(sheet.locator("[data-stop-items] li")).toHaveCount(1);
+  await sheet.getByRole("button", { name: "Mower", exact: true }).click();
   await sheet.getByLabel("Crew").selectOption("");
   await expectNoOverflow(page, "add stop sheet");
   await sheet.getByRole("button", { name: "Send" }).click();
-  const toast = page.getByText(/^2 stops (sent|open)/).first();
+  const toast = page.getByText(/^2 requests (sent|open)/).first();
   await expect(toast).toBeVisible();
   const text = (await toast.innerText()).trim();
   const made = await until(async () => {
@@ -97,8 +101,8 @@ test("Add stop: two items at one pin become two crewless stops in a truck queue"
     return fresh.length === 2 ? fresh : undefined;
   }, "the two new crewless requests");
   try {
-    expect(text, "dispatched to a truck").toMatch(/^2 stops sent, Truck \d/);
-    const truckName = text.replace(/^2 stops sent, /, "");
+    expect(text, "dispatched to a truck").toMatch(/^2 requests sent, Truck \d/);
+    const truckName = text.replace(/^2 requests sent, /, "");
     const driver = await as(L.trucks[truckName]!);
     await until(
       // Crewless requests are a stop each (a crew's requests share one stop).

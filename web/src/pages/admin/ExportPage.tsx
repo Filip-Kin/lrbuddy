@@ -11,7 +11,7 @@ import { SkeletonList } from "../../components/Skeleton.tsx";
 import { useMe } from "../../lib/session.ts";
 import { trpc } from "../../lib/trpc.ts";
 
-type Key = "requests" | "lots" | "positions" | "stockMoves" | "photos";
+type Key = "requests" | "lots" | "positions" | "stockMoves" | "photos" | "tirePiles";
 
 const ROWS: ReadonlyArray<{ key: Key; label: string; file: string }> = [
   { key: "requests", label: "Requests", file: "requests" },
@@ -19,6 +19,7 @@ const ROWS: ReadonlyArray<{ key: Key; label: string; file: string }> = [
   { key: "positions", label: "Positions", file: "positions" },
   { key: "stockMoves", label: "Stock moves", file: "stock-moves" },
   { key: "photos", label: "Photos", file: "photos" },
+  { key: "tirePiles", label: "Tire piles", file: "tire-piles" },
 ];
 
 export const ExportPage = () => {

@@ -23,6 +23,7 @@ import {
   requestTypes,
   sessions,
   stockMoves,
+  tirePiles,
   trucks,
   truckStock,
   LOT_STATUSES,
@@ -887,7 +888,7 @@ const exportRouter = router({
         .get(),
     );
     if (dayIds.length === 0) {
-      return { requests: 0, lots: n(db.select({ n: sql<number>`count(*)` }).from(lots).where(eq(lots.eventId, eventId)).get()), positions: 0, stockMoves: 0, photos };
+      return { requests: 0, lots: n(db.select({ n: sql<number>`count(*)` }).from(lots).where(eq(lots.eventId, eventId)).get()), positions: 0, stockMoves: 0, photos, tirePiles: 0 };
     }
     const crewIds = db.select({ id: crews.id }).from(crews).where(inArray(crews.dayId, dayIds)).all().map((c) => c.id);
     const truckIds = db.select({ id: trucks.id }).from(trucks).where(inArray(trucks.dayId, dayIds)).all().map((t) => t.id);
@@ -899,6 +900,7 @@ const exportRouter = router({
       positions: posCount("crew", crewIds) + posCount("truck", truckIds),
       stockMoves: truckIds.length ? n(db.select({ n: sql<number>`count(*)` }).from(stockMoves).where(inArray(stockMoves.truckId, truckIds)).get()) : 0,
       photos,
+      tirePiles: n(db.select({ n: sql<number>`count(*)` }).from(tirePiles).where(eq(tirePiles.eventId, eventId)).get()),
     };
   }),
   requests: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
@@ -1034,6 +1036,33 @@ const exportRouter = router({
         reason: m.reason,
         request_id: m.requestId,
         at: iso(m.at),
+      })),
+    );
+  }),
+  /** One row per tire pile (SPEC 29): where, which side, how many tires, who, when, and its photo. */
+  tirePiles: adminProcedure.input(z.object({ eventId: id.nullish() }).optional()).query(({ input }) => {
+    const eventId = eventOrActive(input?.eventId);
+    const names = eventNames(eventId);
+    const fields = ["id", "day", "cc", "lat", "lng", "map", "side", "tires", "made_by", "role", "made_at", "moved_at", "photo", "photo_at", "photo_by"] as const;
+    const rows = db.select().from(tirePiles).where(eq(tirePiles.eventId, eventId)).orderBy(tirePiles.dayId, tirePiles.createdAt).all();
+    return toCsv(
+      fields,
+      rows.map((p) => ({
+        id: p.id,
+        day: names.day.get(p.dayId) ?? "",
+        cc: names.cc.get(p.ccId) ?? "",
+        lat: p.lat,
+        lng: p.lng,
+        map: `https://www.google.com/maps?q=${p.lat.toFixed(6)},${p.lng.toFixed(6)}`,
+        side: p.side ?? "",
+        tires: p.count ?? "",
+        made_by: p.madeBy ?? "",
+        role: p.role,
+        made_at: iso(p.createdAt),
+        moved_at: p.movedAt !== null ? iso(p.movedAt) : "",
+        photo: p.photoAt !== null ? `${config.publicUrl}/tire-photos/${p.id}` : "",
+        photo_at: p.photoAt !== null ? iso(p.photoAt) : "",
+        photo_by: p.photoBy ?? "",
       })),
     );
   }),

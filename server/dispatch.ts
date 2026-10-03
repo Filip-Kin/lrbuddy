@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull } from "drizzle-orm";
 import { bus } from "./bus.ts";
 import { config } from "./config.ts";
 import { db } from "./db/index.ts";
@@ -126,6 +126,14 @@ export interface Stop {
 export const stopKeyOf = (r: Pick<Request, "id" | "crewId">): string =>
   r.crewId !== null ? `crew:${r.crewId}` : `req:${r.id}`;
 
+/**
+ * Crewless requests at one spot are one stop (Filip, 2026-10-03: several items asked for together
+ * showed as several stops). Same spot: within 5 m. The stop keeps the key of its oldest request.
+ */
+export const SAME_SPOT_M = 5;
+const sameSpot = (a: { lat: number | null; lng: number | null }, b: LatLng): boolean =>
+  a.lat !== null && a.lng !== null && haversine({ lat: a.lat, lng: a.lng }, b) <= SAME_SPOT_M;
+
 /** Assigned and en route requests of a truck, grouped into stops. Unordered. */
 export const stopsForTruck = (truckId: number, now: number): Stop[] => {
   const truck = getTruck(truckId);
@@ -139,7 +147,11 @@ export const stopsForTruck = (truckId: number, now: number): Stop[] => {
     .all();
   const byKey = new Map<string, Stop>();
   for (const { r, priority } of rows) {
-    const key = stopKeyOf(r);
+    let key = stopKeyOf(r);
+    if (r.crewId === null && r.lat !== null && r.lng !== null) {
+      const here = [...byKey.values()].find((s) => s.crewId === null && sameSpot(r, s));
+      if (here) key = here.key;
+    }
     let stop = byKey.get(key);
     if (!stop) {
       const pos =
@@ -235,7 +247,8 @@ export const chooseTruck = (req: Request, now: number): { truck: Truck; cost: nu
   for (const t of cands) {
     const stops = orderedStops(t.id, now);
     // Joining a stop the truck already has costs nothing.
-    const cost = stops.some((s) => s.key === key) ? 0 : insertionCost(truckOrigin(t, cc), stops, point);
+    const joins = stops.some((s) => s.key === key || (req.crewId === null && s.crewId === null && sameSpot(req, s)));
+    const cost = joins ? 0 : insertionCost(truckOrigin(t, cc), stops, point);
     if (!best || cost < best.cost || (cost === best.cost && stops.length < best.stops)) {
       best = { truck: t, cost, stops: stops.length };
     }
@@ -391,11 +404,18 @@ const requestsOfStop = (truckId: number, stopKey: string): Request[] => {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown stop" });
   }
   const base = and(eq(requests.truckId, truckId), inArray(requests.status, [...ACTIVE_STATUSES]));
+  if (kind === "crew") return db.select().from(requests).where(and(base, eq(requests.crewId, id))).all();
+  // A crewless stop is every crewless request at the same spot (stopsForTruck).
+  const first = db.select().from(requests).where(and(base, eq(requests.id, id))).get();
+  if (!first) return [];
+  if (first.lat === null || first.lng === null) return [first];
+  const at = { lat: first.lat, lng: first.lng };
   return db
     .select()
     .from(requests)
-    .where(and(base, kind === "crew" ? eq(requests.crewId, id) : eq(requests.id, id)))
-    .all();
+    .where(and(base, isNull(requests.crewId)))
+    .all()
+    .filter((r) => r.id === first.id || sameSpot(r, at));
 };
 
 /** Driver En route: every request of the stop becomes en_route and the crew hears about it. */

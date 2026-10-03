@@ -323,3 +323,13 @@ if (sweptTires > 0) console.log(`[lrbuddy] removed ${sweptTires} tire photo file
 
 if (!existsSync(join(DIST, "index.html"))) console.warn(`[lrbuddy] web build missing at ${DIST}; run: bun run build`);
 console.log(`[lrbuddy] ${config.version} listening on :${server.port}, data in ${config.dataDir}`);
+
+// Docker stops the old container with SIGTERM during a rolling deploy; exit at once instead of
+// waiting out the 30 s kill timeout. Open SSE streams reconnect to the new container.
+for (const sig of ["SIGTERM", "SIGINT"] as const) {
+  process.on(sig, () => {
+    console.log(`[lrbuddy] ${sig}, shutting down`);
+    void server.stop(true);
+    process.exit(0);
+  });
+}

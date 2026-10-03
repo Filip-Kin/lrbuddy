@@ -45,12 +45,12 @@ export const currentIdToken = async (): Promise<string | null> => {
 };
 
 /**
- * Installed apps and phones cannot run the popup flow: Android opens the popup
- * as a Custom Tab that never reports back. Those get the redirect flow, which
- * needs the auth handler on our own domain (server proxies /__/auth/*).
+ * The installed app cannot run the popup flow: Android opens the popup as a Custom Tab that never
+ * reports back. It gets the redirect flow, which needs the auth handler on our own domain (server
+ * proxies /__/auth/*). A phone's browser runs the popup like a laptop does, as FTA-Buddy does
+ * (Filip, 2026-10-03: Google refused on his phone's browser).
  */
-const useRedirect = (): boolean =>
-  mediaMatches("(display-mode: standalone)") || mediaMatches("(display-mode: fullscreen)") || mediaMatches("(pointer: coarse)");
+const useRedirect = (): boolean => mediaMatches("(display-mode: standalone)") || mediaMatches("(display-mode: fullscreen)");
 
 let verifier: RecaptchaVerifier | null = null;
 

@@ -232,7 +232,7 @@ all its requests and decrements stock by each qty (floor at 0).
 
 | Route | Contents |
 |---|---|
-| `/` Map | Every crew, truck, lot and open request at this CC. Filters: Company, Crew, Requests, Lots, Trucks. Tap anything for a card. **Add stop** button: tap the map to drop a pin, then a sheet with request type, quantity, optional crew (defaults to none), optional label and note, **Send**. Creates a request with `created_by: 'green'` at that point; it is dispatched like any other. |
+| `/` Map | Every crew, truck, lot, area, alley and open request at this CC, always shown (no layer buttons, Filip 2026-10-03). Filters: Company, Crew. Tap anything for a card. **Add stop** button: tap the map to drop a pin, then a sheet: items (several can be picked, each with its own quantity), crew (starts as the crew of the area holding the pin, `green.stopCrew`; No crew or another crew overrides), note, **Send**. No label (Filip 2026-10-03). One request per item with `created_by: 'green'` at that point, each dispatched like any other; a crew's requests share a stop, crewless ones are a stop each. |
 | `/requests` Requests | Board grouped by status. Each card: crew, company, item, qty, age, truck. Actions: **Assign** (pick truck), **Cancel**, **Delivered**. Filter by company. Sound off by default, **Sound** toggle for new-request chime. |
 | `/lots` Lots | Table of lots at this CC with status and crew. Bulk **Assign** to a crew by drawing a rectangle on the map or selecting rows. Counts by status per crew. |
 | `/crews` Crews | Every crew at this CC: lead, company, headcount, last seen, open requests, lots done. **Call** / **Text** the lead. |
@@ -1073,7 +1073,7 @@ admin draws the shape and it becomes a lot like any other.
   sheet; a lot with photos or history cannot be deleted, only set Not todo.
 - The OpenStreetMap alley layer (section 20) is a thin dashed centreline only (no 3 m polygon, no
   status, no sheet), there as a hint for where to draw. It was a toggle **OSM alleys**, off by default;
-  since 2026-10-03 it is always on, the Flag strip and its Paint map included. On the Flag screen the
+  since 2026-10-03 it is always on, the Flag and Wrap up maps included. On the Flag screen the
   cached alleys are also cut into halves that are flagged by pointing the phone down them, each
   becoming a drawn lot with an `alley_key` (section 22, Flag screen: alleys). The `alleys` table and its status sheet are removed; existing rows are dropped by the
   migration (none were marked in the field yet).

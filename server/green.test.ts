@@ -83,31 +83,30 @@ describe("green router", () => {
     const near = w.truck(w.east.id, "Near", north(0.2));
     w.truck(w.east.id, "Far", north(3));
     const pin = north(0.4);
-    const r = await w.green.createStop({ typeId: w.typeId("water"), qty: 2, ...pin, label: "Corner of Harding and Warren" });
+    const r = (await w.green.createStop({ items: [{ typeId: w.typeId("water"), qty: 2 }], ...pin }))[0]!;
     expect(r.status).toBe("assigned");
     expect(r.truckId).toBe(near.id);
     expect(r.crewId).toBeNull();
     expect(r.createdBy).toBe("green");
-    expect(r.label).toBe("Corner of Harding and Warren");
     expect(r.lat).toBeCloseTo(pin.lat, 6);
   });
 
   test("a stop with no truck in range stays open", async () => {
-    const r = await w.green.createStop({ typeId: w.typeId("snacks"), qty: 1, ...north(0.3) });
+    const r = (await w.green.createStop({ items: [{ typeId: w.typeId("snacks"), qty: 1 }], ...north(0.3) }))[0]!;
     expect(r.status).toBe("open");
     expect(r.truckId).toBeNull();
   });
 
   test("a stop names a crew only from this CC", async () => {
     const other = setup.createCrew({ dayId: w.day.id, ccId: w.west.id, companyId: null });
-    await expect(w.green.createStop({ typeId: w.typeId("water"), qty: 1, ...north(0.3), crewId: other.id })).rejects.toThrow("Crew not at this command center");
+    await expect(w.green.createStop({ items: [{ typeId: w.typeId("water"), qty: 1 }], ...north(0.3), crewId: other.id })).rejects.toThrow("Crew not at this command center");
   });
 
   test("assign moves a request to another truck at the CC, never to another CC", async () => {
     const a = w.truck(w.east.id, "A", north(0.1));
     const b = w.truck(w.east.id, "B", north(2));
     const westTruck = w.truck(w.west.id, "W", CC_WEST);
-    const r = await w.green.createStop({ typeId: w.typeId("water"), qty: 1, ...north(0.2) });
+    const r = (await w.green.createStop({ items: [{ typeId: w.typeId("water"), qty: 1 }], ...north(0.2) }))[0]!;
     expect(r.truckId).toBe(a.id);
     const moved = await w.green.assign({ requestId: r.id, truckId: b.id });
     expect(moved.truckId).toBe(b.id);
@@ -118,7 +117,7 @@ describe("green router", () => {
 
   test("a request at another CC is out of scope", async () => {
     const westGreen = callerFor(session("green", w.west.id));
-    const r = await westGreen.createStop({ typeId: w.typeId("water"), qty: 1, ...CC_WEST });
+    const r = (await westGreen.createStop({ items: [{ typeId: w.typeId("water"), qty: 1 }], ...CC_WEST }))[0]!;
     await expect(w.green.cancel({ requestId: r.id })).rejects.toThrow("Not at this command center");
     const mine = await w.green.requests();
     expect(mine.some((x) => x.id === r.id)).toBe(false);
@@ -126,7 +125,7 @@ describe("green router", () => {
 
   test("cancel closes the request once", async () => {
     w.truck(w.east.id, "A", north(0.1));
-    const r = await w.green.createStop({ typeId: w.typeId("water"), qty: 1, ...north(0.2) });
+    const r = (await w.green.createStop({ items: [{ typeId: w.typeId("water"), qty: 1 }], ...north(0.2) }))[0]!;
     const c = await w.green.cancel({ requestId: r.id });
     expect(c.status).toBe("cancelled");
     expect(c.cancelledBy).toBe("green");
@@ -137,7 +136,7 @@ describe("green router", () => {
     const t = w.truck(w.east.id, "A", north(0.1));
     const water = w.typeId("water");
     const before = stockOf(t.id, water).qty;
-    const r = await w.green.createStop({ typeId: water, qty: 3, ...north(0.2) });
+    const r = (await w.green.createStop({ items: [{ typeId: water, qty: 3 }], ...north(0.2) }))[0]!;
     const done = await w.green.deliver({ requestId: r.id });
     expect(done.status).toBe("delivered");
     expect(stockOf(t.id, water).qty).toBe(Math.max(0, before - 3));
@@ -190,9 +189,9 @@ describe("green router", () => {
 
   test("stats count by type and time to deliver", async () => {
     w.truck(w.east.id, "A", north(0.1));
-    const a = await w.green.createStop({ typeId: w.typeId("water"), qty: 2, ...north(0.2) });
-    await w.green.createStop({ typeId: w.typeId("water"), qty: 1, ...north(0.3) });
-    const c = await w.green.createStop({ typeId: w.typeId("snacks"), qty: 1, ...north(0.3) });
+    const a = (await w.green.createStop({ items: [{ typeId: w.typeId("water"), qty: 2 }], ...north(0.2) }))[0]!;
+    (await w.green.createStop({ items: [{ typeId: w.typeId("water"), qty: 1 }], ...north(0.3) }))[0]!;
+    const c = (await w.green.createStop({ items: [{ typeId: w.typeId("snacks"), qty: 1 }], ...north(0.3) }))[0]!;
     await w.green.deliver({ requestId: a.id });
     await w.green.cancel({ requestId: c.id });
     const st = await w.green.stats();

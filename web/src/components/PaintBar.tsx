@@ -177,8 +177,8 @@ export type PaintState = ReturnType<typeof usePaint>;
 // #region UI
 export const PaintIcon = () => (
   <svg viewBox="0 0 24 24" width={22} height={22} aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M18 3l3 3-9 9-4 1 1-4z" />
-    <path d="M7 17c-2 0-3 1.5-3 4 2.5 0 4-1 4-3" />
+    <path d="M20.5 3.5a1.6 1.6 0 0 0-2.3 0l-8.4 8.4 2.3 2.3 8.4-8.4a1.6 1.6 0 0 0 0-2.3z" />
+    <path d="M9.4 12.6c-1.9 0-3.4 1.5-3.4 3.4 0 1.3-.8 2.4-2.5 3 1.2 1 2.6 1.5 4.1 1.5 2.6 0 4.6-2 4.6-4.6z" />
   </svg>
 );
 

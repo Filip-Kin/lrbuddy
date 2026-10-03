@@ -3,9 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { AddStopSheet } from "../../components/green/AddStopSheet.tsx";
-import { AreaSheet, AssignAreaSheet } from "../../components/green/DayOfSheets.tsx";
+import { AreaSheet } from "../../components/green/DayOfSheets.tsx";
 import { PaintBar, PaintFrame, PaintIcon, usePaint } from "../../components/PaintBar.tsx";
-import { DrawLotBar, DrawLotIcon, DrawLotSheet, useDrawLot } from "../../components/DrawLot.tsx";
+import { DrawLotBar, DrawLotSheet, useDrawLot } from "../../components/DrawLot.tsx";
 import { useOsmAlleys } from "../../lib/map/alleyLayer.ts";
 import type { PaintTarget } from "../../lib/map/paintHit.ts";
 import { useDayOfLayer } from "../../components/green/dayOfLayer.ts";
@@ -13,7 +13,7 @@ import { isUrgent, useNow, type GreenRequest } from "../../components/green/hook
 import { CrewSheet, LotSheet, StopSheet, TruckSheet, type GreenParcel } from "../../components/green/MapSheets.tsx";
 import { MapLegend } from "../../components/MapLegend.tsx";
 import { useSetLot } from "../../components/LotStatusControl.tsx";
-import { insideRect, rectFromRing, rectPolygon, STEP_LABEL, useOrientedRect, type OrientedRect } from "../../lib/map/orientedRect.ts";
+import { rectFromRing, rectPolygon, useOrientedRect } from "../../lib/map/orientedRect.ts";
 import { useParcelLayer } from "../../lib/map/parcelLayer.ts";
 import { FilterSelect, PinIcon, useFlash } from "../../components/green/ui.tsx";
 import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
@@ -74,9 +74,8 @@ export const MapPage = () => {
   const [flash, showFlash] = useFlash();
   const parcels = trpc.green.parcels.useQuery(undefined, { refetchInterval: 120_000 });
   const lotWrites = useSetLot("green");
-  // Draw area (SPEC 21): draw a rectangle, then the Assign sheet; Edit corners moves a rectangle's outline.
-  const [drawing, setDrawing] = useState(false);
-  const [draft, setDraft] = useState<OrientedRect | null>(null);
+  // Edit corners moves a rectangle's outline (SPEC 21). New areas are drawn in the planning portal.
+  const drawing = false;
   const [editAreaId, setEditAreaId] = useState<number | null>(null);
   const moveArea = trpc.green.moveArea.useMutation();
   // Paint mode (SPEC 23): every lot and bare parcel at the CC is a target, whatever the filters show.
@@ -180,22 +179,16 @@ export const MapPage = () => {
 
   const editArea = editAreaId !== null ? (plan.data?.areas.find((a) => a.id === editAreaId) ?? null) : null;
   const editRect = useMemo(() => (editArea ? rectFromRing(editArea.ring) : null), [editArea]);
-  const tool = useOrientedRect(map, {
-    drawing,
-    value: drawing ? null : (draft ?? editRect),
-    editable: !drawing,
+  useOrientedRect(map, {
+    drawing: false,
+    value: editRect,
+    editable: true,
     onChange: (r) => {
-      if (editAreaId !== null && !drawing) {
-        moveArea.mutate({ areaId: editAreaId, polygon: rectPolygon(r) }, { onSuccess: () => void plan.refetch(), onError: () => showFlash("Not saved") });
-        return;
-      }
-      setDraft(r);
-      setDrawing(false);
+      if (editAreaId === null) return;
+      moveArea.mutate({ areaId: editAreaId, polygon: rectPolygon(r) }, { onSuccess: () => void plan.refetch(), onError: () => showFlash("Not saved") });
     },
-    onCancel: () => setDrawing(false),
+    onCancel: () => undefined,
   });
-  const draftPolygon = useMemo(() => (draft ? rectPolygon(draft) : null), [draft]);
-  const todoInside = useMemo(() => (draft && d ? insideRect(d.lots.filter((l) => l.status === "open"), draft).length : 0), [draft, d]);
   useOnewayLayer(map);
 
   const companyCrews = company === null ? crews : crews.filter((c) => c.companyId === company);
@@ -295,16 +288,9 @@ export const MapPage = () => {
           <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex justify-center px-3">
             <div data-draw-bar className="pointer-events-auto flex items-center gap-2 rounded-full bg-ink py-1 pr-1 pl-4 text-surface shadow-lg">
               <DrawIcon />
-              <span className="font-semibold">{drawing ? (tool.step ? STEP_LABEL[tool.step] : "Draw area") : `Edit corners, ${editArea?.label ?? ""}`}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setDrawing(false);
-                  setEditAreaId(null);
-                }}
-                className="min-h-10 rounded-full bg-surface px-4 text-sm font-semibold text-ink"
-              >
-                {drawing ? "Cancel" : "Done"}
+              <span className="font-semibold">{`Edit corners, ${editArea?.label ?? ""}`}</span>
+              <button type="button" onClick={() => setEditAreaId(null)} className="min-h-10 rounded-full bg-surface px-4 text-sm font-semibold text-ink">
+                Done
               </button>
             </div>
           </div>
@@ -321,7 +307,8 @@ export const MapPage = () => {
                 size="lg"
                 variant="secondary"
                 data-recenter
-                className="pointer-events-auto shadow-lg"
+                aria-label="Recenter"
+                className="pointer-events-auto size-14 rounded-full !p-0 shadow-lg"
                 onClick={() => {
                   if (!map) return;
                   map.setView([me.lat, me.lng], Math.max(map.getZoom(), 17), { animate: true });
@@ -330,14 +317,14 @@ export const MapPage = () => {
                 }}
               >
                 <RecenterIcon />
-                Recenter
               </Button>
             )}
             <Button
               size="lg"
               variant="secondary"
               data-paint
-              className="pointer-events-auto shadow-lg"
+              aria-label="Paint"
+              className="pointer-events-auto size-14 rounded-full !p-0 shadow-lg"
               onClick={() => {
                 setSelected(null);
                 paint.open();
@@ -345,36 +332,6 @@ export const MapPage = () => {
               disabled={!d || !map}
             >
               <PaintIcon />
-              Paint
-            </Button>
-            <Button
-              size="lg"
-              variant="secondary"
-              data-draw-area
-              className="pointer-events-auto shadow-lg"
-              onClick={() => {
-                setSelected(null);
-                setDraft(null);
-                setDrawing(true);
-              }}
-              disabled={!d || !map}
-            >
-              <DrawIcon />
-              Draw area
-            </Button>
-            <Button
-              size="lg"
-              variant="secondary"
-              data-draw-lot
-              className="pointer-events-auto shadow-lg"
-              onClick={() => {
-                setSelected(null);
-                drawLot.start();
-              }}
-              disabled={!d || !map}
-            >
-              <DrawLotIcon />
-              Draw lot
             </Button>
             <Button size="lg" className="pointer-events-auto shadow-lg" onClick={() => setPlacing(true)} disabled={!d}>
               <PinIcon />
@@ -413,18 +370,8 @@ export const MapPage = () => {
         onDone={showFlash}
         onEditCorners={(id) => {
           setSelected(null);
-          setDraft(null);
           setEditAreaId(id);
         }}
-      />
-      <AssignAreaSheet
-        open={draft !== null && !drawing}
-        polygon={draftPolygon}
-        todoInside={todoInside}
-        companies={plan.data?.companies ?? []}
-        buildable={plan.data?.buildable ?? []}
-        onClose={() => setDraft(null)}
-        onDone={showFlash}
       />
       <StopSheet request={selStop} trucks={trucks} now={now} onClose={close} onDone={showFlash} />
     </div>

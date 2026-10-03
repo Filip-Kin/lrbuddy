@@ -21,7 +21,7 @@ import { assignDrawnArea, dayOfMap, deleteArea, markArea, moveArea, reassignArea
 import { paint, paintDepth, paintInput, undoPaint } from "../paint.ts";
 import { createDrawnLot, deleteDrawnLot, drawnPolygon, editDrawnShape, suggestDrawn } from "../drawn.ts";
 import { alleyHalvesFor, flagAlley } from "../alley-lots.ts";
-import { bareParcelsFor, setLot, type Actor } from "../parcel-status.ts";
+import { bareParcelsFor, crewForPoint, setLot, type Actor } from "../parcel-status.ts";
 import { buildCrewsFor } from "./plan/assignments.ts";
 import { areaInput } from "./plan/common.ts";
 import { emitLot } from "../lots-import.ts";
@@ -157,39 +157,48 @@ export const greenRouter = router({
     return requestViews(done)[0]!;
   }),
 
+  /**
+   * Green-entered stops at a dropped pin, one request per item. `crewId` undefined means the crew
+   * of the area holding the pin (crewForPoint); null means no crew.
+   */
   createStop: greenProcedure
     .input(
       z.object({
-        typeId: z.number().int(),
-        qty: z.number().int().min(1).max(99),
+        items: z.array(z.object({ typeId: z.number().int(), qty: z.number().int().min(1).max(99) })).min(1).max(20),
         lat: z.number().min(-90).max(90),
         lng: z.number().min(-180).max(180),
         crewId: z.number().int().nullish(),
-        label: z.string().max(120).nullish(),
         note: z.string().max(500).nullish(),
       }),
     )
     .mutation(({ ctx, input }) => {
-      const type = getType(input.typeId);
-      if (type.eventId !== ctx.event.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Item not available" });
+      for (const it of input.items) if (getType(it.typeId).eventId !== ctx.event.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Item not available" });
       if (input.crewId) {
         const crew = db.select().from(crews).where(eq(crews.id, input.crewId)).get();
         if (!crew || crew.ccId !== ctx.cc.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Crew not at this command center" });
       }
-      const r = createRequest({
-        crewId: input.crewId ?? null,
-        ccId: ctx.cc.id,
-        dayId: ctx.day.id,
-        typeId: input.typeId,
-        qty: input.qty,
-        note: input.note ?? null,
-        label: input.label ?? null,
-        createdBy: "green",
-        lat: input.lat,
-        lng: input.lng,
-      });
-      return requestViews([r])[0]!;
+      const crewId = input.crewId === undefined ? crewForPoint(ctx.cc, ctx.day, { lat: input.lat, lng: input.lng }, null) : input.crewId;
+      const made = input.items.map((it) =>
+        createRequest({
+          crewId,
+          ccId: ctx.cc.id,
+          dayId: ctx.day.id,
+          typeId: it.typeId,
+          qty: it.qty,
+          note: input.note ?? null,
+          label: null,
+          createdBy: "green",
+          lat: input.lat,
+          lng: input.lng,
+        }),
+      );
+      return requestViews(made);
     }),
+
+  /** The crew a stop at this point goes to by default: the crew of the area holding it. */
+  stopCrew: greenProcedure
+    .input(z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }))
+    .query(({ ctx, input }) => crewForPoint(ctx.cc, ctx.day, input, null)),
 
   catalog: greenProcedure.query(({ ctx }) => catalogFor(ctx.event.id)),
 

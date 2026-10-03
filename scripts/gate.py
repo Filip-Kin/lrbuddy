@@ -1656,7 +1656,7 @@ def switch_checks() -> None:
 
 # endregion
 
-CHECKS = [static_checks, bundle_checks, crash_checks, dynamic_checks, stock_expected_checks, parcel_status_checks, flag_checks, paint_checks, flag_paint_checks, draw_lot_checks, switch_checks]
+CHECKS = [static_checks, bundle_checks, crash_checks, dynamic_checks, stock_expected_checks, parcel_status_checks, flag_checks, paint_checks, flag_paint_checks, switch_checks]
 # GATE_ONLY=paint_checks,flag_checks runs just those groups while working on one screen; the release gate runs all.
 _only = {c for c in os.environ.get("GATE_ONLY", "").split(",") if c}
 for check in CHECKS:

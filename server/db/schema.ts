@@ -799,3 +799,33 @@ export type OsmAlley = typeof osmAlleys.$inferSelect;
 export type ClientError = typeof clientErrors.$inferSelect;
 export type TirePile = typeof tirePiles.$inferSelect;
 // #endregion
+
+/**
+ * Equipment inventory (SPEC 30): a count sheet, kept across events and years. Not tied to trucks,
+ * requests or deliveries; someone counts at the end of a day or a year and saves.
+ */
+export const inventoryItems = sqliteTable(
+  "inventory_items",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [uniqueIndex("inventory_items_name_idx").on(t.name)],
+);
+
+/** One saved count of one item. A Save writes every changed item with one `countedAt`. */
+export const inventoryCounts = sqliteTable(
+  "inventory_counts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    itemId: integer("item_id")
+      .notNull()
+      .references(() => inventoryItems.id, { onDelete: "cascade" }),
+    count: integer("count").notNull(),
+    countedAt: integer("counted_at").notNull(),
+    countedBy: text("counted_by"),
+  },
+  (t) => [index("inventory_counts_item_idx").on(t.itemId, t.countedAt)],
+);

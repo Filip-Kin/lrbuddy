@@ -1321,3 +1321,15 @@ Gate: `server/tires.test.ts` (scoping per role, delete rules, live events, photo
 `tests/e2e/specs/tires.e2e.ts` (crew drops, another crew sees it live, green adds, driver adds and
 crew and green see it,
 photo in Wrap up and on the green map's sheet, crew deletes its own).
+
+## 30. Inventory count sheet (Filip, 2026-10-03)
+
+"This is more like an end of day / end of the year count thing": not tracked through trucks,
+requests or deliveries. `/plan/inventory` (planning portal, admin), nav **Inventory**.
+- `inventory_items` (name, active) and `inventory_counts` (item, count, counted_at, counted_by),
+  across events and years.
+- Each row: name, last count and its date, the change from the count before, a number field.
+  **Save** writes every typed number with one timestamp. **Add item** for anything not listed;
+  **×** takes an item off the list (its counts stay in the CSV).
+- **CSV**: every saved count, oldest first: item, count, counted_at, counted_by.
+- e2e: `tests/e2e/specs/inventory.e2e.ts`.

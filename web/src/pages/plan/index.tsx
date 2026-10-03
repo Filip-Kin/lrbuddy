@@ -2,6 +2,7 @@ import { Redirect, Route, Switch } from "wouter";
 import { AssignmentsPage } from "./AssignmentsPage.tsx";
 import { BlocksPage } from "./BlocksPage.tsx";
 import { DrivePage } from "./DrivePage.tsx";
+import { InventoryPage } from "./InventoryPage.tsx";
 import { PrintPage } from "./PrintPage.tsx";
 import { SurveyPage } from "./SurveyPage.tsx";
 
@@ -13,6 +14,7 @@ export const PlanRoutes = () => (
     <Route path="/plan/blocks" component={BlocksPage} />
     <Route path="/plan/assignments" component={AssignmentsPage} />
     <Route path="/plan/print" component={PrintPage} />
+    <Route path="/plan/inventory" component={InventoryPage} />
     <Route>
       <Redirect to="/plan/survey" />
     </Route>

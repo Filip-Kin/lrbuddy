@@ -10,6 +10,7 @@ export const planLinks: NavLink[] = [
   { href: "/plan/blocks", label: "Blocks" },
   { href: "/plan/assignments", label: "Assignments" },
   { href: "/plan/print", label: "Print" },
+  { href: "/plan/inventory", label: "Inventory" },
 ];
 
 /** Back to the field app's admin pages; last in the rail and the phone drawer. */

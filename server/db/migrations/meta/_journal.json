@@ -148,6 +148,13 @@
       "when": 1791053718858,
       "tag": "0020_sharp_lady_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1791064730499,
+      "tag": "0021_sour_dagger",
+      "breakpoints": true
     }
   ]
 }

@@ -15,9 +15,11 @@ test("FOUND-1: leaving the green map while it zooms throws no error and reports 
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   const adm = await as(admin);
-  // Only green reports: the admin crash test files its own report on the same server at the same time.
+  // Only green reports from the two pages this test visits: on the same server at the same time the
+  // admin crash test files its own report, and green.e2e's lost-chunk test files one from /wrap.
+  const visited = (url: string | null): boolean => ["/", "/crews"].includes(url ? new URL(url, "http://x").pathname : "");
   const greenReports = async (): Promise<number> =>
-    (await adm.api.query<Array<{ role: string | null }>>("admin.clientErrors")).filter((r) => r.role === "green").length;
+    (await adm.api.query<Array<{ role: string | null; url: string | null }>>("admin.clientErrors")).filter((r) => r.role === "green" && visited(r.url)).length;
   const reportsBefore = await greenReports();
   for (const wait of [0, 100, 200]) {
     await visit(page, "/");

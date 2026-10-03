@@ -232,7 +232,7 @@ all its requests and decrements stock by each qty (floor at 0).
 
 | Route | Contents |
 |---|---|
-| `/` Map | Every crew, truck, lot, area, alley and open request at this CC, always shown (no layer buttons, Filip 2026-10-03). Filters: Company, Crew. Tap anything for a card. **Add stop** button: tap the map to drop a pin, then a sheet: items (several can be picked, each with its own quantity), crew (starts as the crew of the area holding the pin, `green.stopCrew`; No crew or another crew overrides), note, **Send**. No label (Filip 2026-10-03). One request per item with `created_by: 'green'` at that point, each dispatched like any other; a crew's requests share a stop, crewless ones are a stop each. |
+| `/` Map | Every crew, truck, lot, area, alley and open request at this CC, always shown (no layer buttons, Filip 2026-10-03). Filters: Company, Crew. Tap anything for a card. **Add request** button (was Add stop): tap the map to drop a pin, then a sheet: items (several can be picked; only mowers, weed whips and their swaps take a quantity, everything else goes as one, Filip 2026-10-03; the crew Request sheet follows the same rule), crew (starts as the crew of the area holding the pin, `green.stopCrew`; No crew or another crew overrides), note, **Send**. No label (Filip 2026-10-03). One request per item with `created_by: 'green'` at that point, each dispatched like any other; a crew's requests share a stop, crewless ones are a stop each. |
 | `/requests` Requests | Board grouped by status. Each card: crew, company, item, qty, age, truck. Actions: **Assign** (pick truck), **Cancel**, **Delivered**. Filter by company. Sound off by default, **Sound** toggle for new-request chime. |
 | `/lots` Lots | Table of lots at this CC with status and crew. Bulk **Assign** to a crew by drawing a rectangle on the map or selecting rows. Counts by status per crew. |
 | `/crews` Crews | Every crew at this CC: lead, company, headcount, last seen, open requests, lots done. **Call** / **Text** the lead. |
@@ -929,7 +929,7 @@ Status, one set of words everywhere, for every parcel in a CC's day area:
   crew map draws bare parcels inside the rectangle too). Drivers and greens anywhere at the CC.
   Do not touch: greens and admin only.
 - Green map, on-the-fly assignment: the oriented rectangle tool from Assignments lives here too.
-  **Draw area** button next to Add stop: draw, then a sheet to pick one or several crews at this CC
+  **Draw area** button next to Add request (removed from the green map 2026-10-03; areas are drawn in planning): draw, then a sheet to pick one or several crews at this CC
   (or Build crews for a company from its headcount) and **Assign**; the parcels inside that are Todo
   move to those crews. Rectangle label sheet gains **Edit corners** (drag handles) and **Delete area**
   (lots stay, unassigned). Everything emits lot.changed and the portal Assignments page follows live.

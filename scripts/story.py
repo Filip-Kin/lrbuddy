@@ -216,17 +216,17 @@ with sync_playwright() as pw:
     # #region 6. green adds a crewless stop
     go(green, "/")
     crewless_before = {r["id"] for r in api(green_ctx, "green.requests") if r["crewId"] is None}
-    green.get_by_role("button", name="Add stop").click()
+    green.get_by_role("button", name="Add request").click()
     box = green.locator(".leaflet-container").bounding_box()
     green.mouse.click(box["x"] + box["width"] * 0.55, box["y"] + box["height"] * 0.45)
     add = green.get_by_role("dialog")
     add.get_by_role("button", name="Water", exact=True).click()
     add.get_by_label("Crew").select_option("")
     add.get_by_role("button", name="Send").click()
-    toast = green.get_by_text("Stop sent").or_(green.get_by_text("Stop open"))
+    toast = green.get_by_text("Request sent").or_(green.get_by_text("Request open"))
     toast.first.wait_for(timeout=10_000)
     text = toast.first.inner_text()
-    check(text.startswith("Stop sent"), f"green stop: {text}")
+    check(text.startswith("Request sent"), f"green stop: {text}")
     shot(green, "6-green-stop")
     stop_truck = text.split(", ", 1)[1] if ", " in text else None
     truck = stop_truck if stop_truck in ("Truck 1", "Truck 2") else "Truck 1"

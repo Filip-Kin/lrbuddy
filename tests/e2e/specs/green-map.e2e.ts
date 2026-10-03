@@ -97,7 +97,7 @@ test("the CC map draws lots, crew rectangles, the CC and the legend", async ({ a
       return false;
     }, { message: "a rectangle name's tap target on the map at zoom 16" })
     .toBe(true);
-  for (const b of ["Paint", "Add stop"]) await expect(page.getByRole("button", { name: b, exact: true })).toBeVisible();
+  for (const b of ["Paint", "Add request"]) await expect(page.getByRole("button", { name: b, exact: true })).toBeVisible();
   // Draw area and Draw lot belong to planning, not the day (Filip, 2026-10-03).
   for (const b of ["Draw area", "Draw lot"]) await expect(page.getByRole("button", { name: b, exact: true })).toHaveCount(0);
 });

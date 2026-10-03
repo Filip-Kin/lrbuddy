@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { Button } from "../../components/Button.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { TextArea } from "../../components/Field.tsx";
-import { isActive, qtyText, unitLabel, type CrewRequest } from "../../components/crew/format.ts";
+import { isActive, qtyText, unitLabel, type CrewRequest, isCounted } from "../../components/crew/format.ts";
 import { TypeIcon } from "../../components/crew/Icons.tsx";
 import { Skeleton } from "../../components/Skeleton.tsx";
 import { Page } from "../../components/Page.tsx";
@@ -81,7 +81,7 @@ const RequestSheet = ({ t, active, onClose }: { t: RequestType | null; active: C
             disabled={!ready}
             onClick={() =>
               t &&
-              send.mutate({ typeId: t.id, qty, note: note.trim() || null, lat: fix?.lat ?? null, lng: fix?.lng ?? null })
+              send.mutate({ typeId: t.id, qty: isCounted(t.key) ? qty : 1, note: note.trim() || null, lat: fix?.lat ?? null, lng: fix?.lng ?? null })
             }
           >
             {send.isPending ? "Sending" : "Send"}
@@ -98,10 +98,12 @@ const RequestSheet = ({ t, active, onClose }: { t: RequestType | null; active: C
               <StatusPill status={active.status} />
             </div>
           )}
-          <div className="flex flex-col items-center gap-2">
-            <span className="text-sm font-semibold">{unitLabel(t.unit)}</span>
-            <QtyStepper value={qty} onChange={setQty} label={unitLabel(t.unit)} />
-          </div>
+          {isCounted(t.key) && (
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-sm font-semibold">{unitLabel(t.unit)}</span>
+              <QtyStepper value={qty} onChange={setQty} label={unitLabel(t.unit)} />
+            </div>
+          )}
           <TextArea
             label={isOther ? "Item" : "Note"}
             value={note}

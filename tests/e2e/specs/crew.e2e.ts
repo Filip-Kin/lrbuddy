@@ -58,12 +58,13 @@ test("request water, see the truck it went to, cancel it", async ({ as, L }) => 
   const sheet = page.getByRole("dialog");
   await expect(sheet).toBeVisible();
   await expectNoOverflow(page, "request sheet");
-  await sheet.getByRole("button", { name: "More" }).click();
+  // Water is not counted (only mowers and weed whips are): no stepper, it goes as one.
+  await expect(sheet.getByRole("button", { name: "More" })).toHaveCount(0);
   await sheet.getByRole("button", { name: "Send" }).click();
   await page.waitForURL("**/requests");
 
   const mine = await until(async () => (await crew.api.query<CrewRequest[]>("crew.myRequests")).find((r) => !before.has(r.id) && r.typeKey === "water"), "the new request");
-  expect(mine.qty).toBe(2);
+  expect(mine.qty).toBe(1);
   const assigned = await until(
     async () => (await crew.api.query<CrewRequest[]>("crew.myRequests")).find((r) => r.id === mine.id && r.status === "assigned" && r.truckName),
     "a truck for the request",

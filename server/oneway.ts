@@ -220,6 +220,22 @@ export const scheduleOneway = (ccId: number): void => {
   );
 };
 
+const lastTry = new Map<number, number>();
+const RETRY_MS = 10 * 60_000;
+
+/**
+ * Called by the map queries: a CC whose bbox has no one-way rows yet (a day loaded by hand, a
+ * fetch that failed) schedules the fetch, at most once per 10 minutes per CC. Filip, 2026-10-03:
+ * Day 6 had no arrows east of Webb's old box because nothing ever fetched it.
+ */
+export const ensureOneway = (cc: CommandCenter, day: Day, now = Date.now()): void => {
+  if (now - (lastTry.get(cc.id) ?? 0) < RETRY_MS) return;
+  const key = bboxKey(ccOnewayBBox(cc, day));
+  if (db.select({ id: onewayWays.id }).from(onewayWays).where(eq(onewayWays.bboxKey, key)).limit(1).get()) return;
+  lastTry.set(cc.id, now);
+  scheduleOneway(cc.id);
+};
+
 /** Every CC of a day, after its crew areas changed. */
 export const scheduleOnewayForDay = (dayId: number): void => {
   for (const cc of db.select({ id: commandCenters.id }).from(commandCenters).where(eq(commandCenters.dayId, dayId)).all()) scheduleOneway(cc.id);

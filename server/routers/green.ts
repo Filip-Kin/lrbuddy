@@ -27,6 +27,7 @@ import { areaInput } from "./plan/common.ts";
 import { emitLot } from "../lots-import.ts";
 import { beforeSpots, filterPairs, pairState, pairsZip, photoCounts, photoPairs, photoSummary, sitePhotos, withPhotoState } from "../photos.ts";
 import { pushToCc } from "../push.ts";
+import { ensureOneway } from "../oneway.ts";
 import { catalogFor, latestPositions, lotsAt, requestsWhere, requestViews, siteCcIds } from "../queries.ts";
 import { greenProcedure, router } from "../trpc.ts";
 
@@ -119,6 +120,7 @@ const median = (xs: number[]): number | null => {
 
 export const greenRouter = router({
   overview: greenProcedure.query(({ ctx }) => {
+    ensureOneway(ctx.cc, ctx.day);
     const crewList = crewsAt(ctx.cc.id, ctx.day.id);
     const here = [...new Set(crewList.map((c) => c.companyId).filter((x): x is number => x !== null))];
     return {

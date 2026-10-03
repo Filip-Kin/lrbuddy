@@ -24,6 +24,7 @@ import {
 } from "../dispatch.ts";
 import { bboxAround, directionsUrl, haversine, type LatLng } from "../geo.ts";
 import { dayOfAreas } from "../dayof.ts";
+import { ensureOneway } from "../oneway.ts";
 import { setLot } from "../parcel-status.ts";
 import { latestPositions, lotsAt, requestViews } from "../queries.ts";
 import { driverProcedure, liveFor, readCcScope, router, sameCc } from "../trpc.ts";
@@ -259,7 +260,9 @@ export const driverRouter = router({
    * Every lot at the truck's CC site with its outline, and the CC's rectangles on the truck's day.
    * Drivers see lots only (SPEC 21): no bare parcels and no Not todo lots.
    */
-  lots: driverProcedure.query(({ ctx }) => ({
+  lots: driverProcedure.query(({ ctx }) => {
+    ensureOneway(ctx.cc, ctx.day);
+    return {
     // A driver who also holds green here sees Not todo lots too, as the green map does (SPEC 27).
     lots: lotsAt(ctx.cc.id, ctx.day.id).filter((l) => l.status !== "not_todo" || holdsGreen(ctx.session.userId, ctx.cc.id)).map((l) => ({
       id: l.id,
@@ -275,7 +278,8 @@ export const driverRouter = router({
       note: l.note,
     })),
     areas: dayOfAreas({ cc: ctx.cc, day: ctx.day }),
-  })),
+    };
+  }),
 
   /** Crews at the truck's CC on its day: dots on the map, names and leads for the rectangle card. */
   crews: driverProcedure.query(({ ctx }) => {

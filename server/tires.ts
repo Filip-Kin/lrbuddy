@@ -70,6 +70,8 @@ export interface TirePileView {
   /** When the current photo was taken; null with no photo. Also the photo URL's version. */
   photoAt: number | null;
   photoBy: string | null;
+  count: number | null;
+  side: "left" | "right" | null;
   /** Made by this crew or this truck. */
   mine: boolean;
   canMove: boolean;
@@ -90,6 +92,8 @@ const view = (a: TireActor, p: TirePile): TirePileView => {
     createdAt: p.createdAt,
     photoAt: p.photoAt,
     photoBy: p.photoBy,
+    count: p.count,
+    side: p.side,
     mine,
     canMove: green,
     canDelete: green || mine,
@@ -120,7 +124,7 @@ export const listPiles = (a: TireActor): TirePileView[] =>
     .map((p) => view(a, p));
 
 /** A crew, a truck or a green shirt drops a pile, filed under the crew or truck when there is one. */
-export const addPile = (a: TireActor, at: { lat: number; lng: number }, now = Date.now()): TirePileView => {
+export const addPile = (a: TireActor, at: { lat: number; lng: number; count?: number | null; side?: "left" | "right" | null }, now = Date.now()): TirePileView => {
   if (!a.crew && !a.truck && !greenAt(a)) throw new TRPCError({ code: "FORBIDDEN", message: "Not allowed" });
   const row = db
     .insert(tirePiles)
@@ -136,6 +140,8 @@ export const addPile = (a: TireActor, at: { lat: number; lng: number }, now = Da
       madeBy: a.crew ? crewLabel(a.crew) : a.truck ? a.truck.name : (a.session.displayName ?? "Green shirt"),
       sessionId: a.session.id,
       createdAt: now,
+      count: at.count ?? null,
+      side: at.side ?? null,
     })
     .returning()
     .get();
@@ -147,6 +153,15 @@ export const movePile = (a: TireActor, id: number, at: { lat: number; lng: numbe
   const p = pileAt(a, id);
   if (!greenAt(a)) throw new TRPCError({ code: "FORBIDDEN", message: "Not allowed" });
   const row = db.update(tirePiles).set({ lat: at.lat, lng: at.lng, movedAt: now }).where(eq(tirePiles.id, p.id)).returning().get();
+  emit(row);
+  return view(a, row);
+};
+
+/** The tire count: the maker or a green shirt. */
+export const setPileCount = (a: TireActor, id: number, count: number | null): TirePileView => {
+  const p = pileAt(a, id);
+  if (!view(a, p).canDelete) throw new TRPCError({ code: "FORBIDDEN", message: "Not allowed" });
+  const row = db.update(tirePiles).set({ count }).where(eq(tirePiles.id, p.id)).returning().get();
   emit(row);
   return view(a, row);
 };

@@ -643,6 +643,10 @@ export const tirePiles = sqliteTable(
     movedAt: integer("moved_at"),
     photoAt: integer("photo_at"),
     photoBy: text("photo_by"),
+    /** Tires in the pile, as counted when it was made or since; null when not counted. */
+    count: integer("count"),
+    /** Side of the road from the maker's direction of travel when it was made. */
+    side: text("side", { enum: ["left", "right"] }),
   },
   (t) => [index("tire_piles_cc_idx").on(t.ccId)],
 );

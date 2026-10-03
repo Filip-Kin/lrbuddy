@@ -6,6 +6,7 @@ import type { MapMarker } from "../lib/map/MapView.tsx";
 import { tirePhotoUrl, type TirePile, type TirePlacing } from "../lib/tires.ts";
 import { trpc } from "../lib/trpc.ts";
 import { Button, ButtonLink } from "./Button.tsx";
+import { QtyStepper } from "./QtyStepper.tsx";
 import { ConfirmSheet } from "./ConfirmSheet.tsx";
 import { PhotoViewer } from "./photos/PhotoViewer.tsx";
 import { Sheet } from "./Sheet.tsx";
@@ -25,7 +26,8 @@ export const useTireWrites = () => {
   const add = trpc.tires.add.useMutation({ onSettled: refresh, onError, onSuccess: () => setError(null) });
   const move = trpc.tires.move.useMutation({ onSettled: refresh, onError, onSuccess: () => setError(null) });
   const remove = trpc.tires.remove.useMutation({ onSettled: refresh, onError, onSuccess: () => setError(null) });
-  return { add, move, remove, error, clearError: () => setError(null) };
+  const setCount = trpc.tires.setCount.useMutation({ onSettled: refresh, onError, onSuccess: () => setError(null) });
+  return { add, move, remove, setCount, error, clearError: () => setError(null) };
 };
 
 /**
@@ -43,7 +45,71 @@ export const tireMarkers = (piles: readonly TirePile[] | undefined, placing: Tir
 };
 // #endregion
 
-/** The bar over the map while a pile is placed: its name, Cancel and Save. */
+/** A point `m` metres to the left or right of `heading` from `at`; `at` itself with no heading. */
+export const besideRoad = (at: { lat: number; lng: number }, heading: number | null, side: "left" | "right", m = 8): { lat: number; lng: number } => {
+  if (heading === null || !Number.isFinite(heading)) return at;
+  const b = ((heading + (side === "left" ? -90 : 90)) * Math.PI) / 180;
+  return { lat: at.lat + (Math.cos(b) * m) / 111_320, lng: at.lng + (Math.sin(b) * m) / (111_320 * Math.cos((at.lat * Math.PI) / 180)) };
+};
+
+/**
+ * Tire pile from where the phone is (Filip, 2026-10-03: no Cancel/Save pin; count and side of the
+ * road): the tire count, then Left or Right saves it 8 m to that side of the direction of travel.
+ */
+export const TireAddSheet = ({
+  open,
+  at,
+  heading,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  at: { lat: number; lng: number } | null;
+  heading: number | null;
+  onClose: () => void;
+  onSaved?: (p: TirePile) => void;
+}) => {
+  const writes = useTireWrites();
+  const [count, setCount] = useState(1);
+  const save = (side: "left" | "right"): void => {
+    if (!at) return;
+    const p = besideRoad(at, heading, side);
+    writes.add.mutate(
+      { lat: p.lat, lng: p.lng, count, side },
+      {
+        onSuccess: (row) => {
+          setCount(1);
+          onSaved?.(row);
+          onClose();
+        },
+      },
+    );
+  };
+  return (
+    <Sheet open={open} onClose={onClose} title="Tire pile">
+      <div className="space-y-5 pb-2" data-tire-add-sheet>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-sm font-semibold">Tires</span>
+          <QtyStepper value={count} onChange={setCount} max={999} label="Tires" />
+        </div>
+        {writes.error && (
+          <p role="alert" className="text-sm font-semibold">
+            {writes.error}
+          </p>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          {(["left", "right"] as const).map((side) => (
+            <Button key={side} size="lg" className="min-h-20 text-xl" disabled={!at} busy={writes.add.isPending} onClick={() => save(side)} data-tire-side={side}>
+              {side === "left" ? "Left" : "Right"}
+            </Button>
+          ))}
+        </div>
+      </div>
+    </Sheet>
+  );
+};
+
+/** The bar over the map while a pile is moved (green): its name, Cancel and Save. */
 export const TirePlaceBar = ({ placing, busy, error, onCancel, onSave }: { placing: TirePlacing | null; busy: boolean; error: string | null; onCancel: () => void; onSave: () => void }) =>
   placing ? (
     <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex flex-col items-center gap-2 px-3" data-tire-place>
@@ -101,7 +167,23 @@ export const TirePileSheet = ({
               </dd>
               <dt className="text-muted">Dropped</dt>
               <dd className="font-semibold tabular-nums">{`${clock(p.createdAt)}, ${ago(p.createdAt, now)}`}</dd>
+              {p.side && (
+                <>
+                  <dt className="text-muted">Side</dt>
+                  <dd className="font-semibold">{p.side === "left" ? "Left" : "Right"}</dd>
+                </>
+              )}
             </dl>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm font-semibold">Tires</span>
+              {p.canDelete ? (
+                <QtyStepper value={p.count ?? 1} onChange={(n) => writes.setCount.mutate({ id: p.id, count: n })} max={999} label="Tires" />
+              ) : (
+                <span className="text-lg font-bold tabular-nums" data-tire-count>
+                  {p.count ?? "–"}
+                </span>
+              )}
+            </div>
             {p.photoAt !== null ? (
               <button
                 type="button"

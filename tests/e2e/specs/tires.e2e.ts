@@ -20,6 +20,8 @@ interface Pile {
   madeBy: string;
   crewId: number | null;
   photoAt: number | null;
+  count: number | null;
+  side: "left" | "right" | null;
   mine: boolean;
   canMove: boolean;
   canDelete: boolean;
@@ -47,9 +49,9 @@ const pilesOf = (role: Role): Promise<Pile[]> => role.api.query<Pile[]>("tires.l
 test("Tire piles: crew drops, other crew sees it live, green adds, driver adds, photo in Wrap up", async ({ as, lane }) => {
   const [nameA, nameB] = CREWS[lane];
   const crewA = await as(webb("crew", nameA), { name: "Sam" });
+  // No GPS for the red shirts: a crew phone that reports a position puts a crew dot on Day 4's maps,
+  // which the other specs at CC Webb do not expect (SPEC 20). With no fix the pile goes at the map's middle.
   const at = await areaCentre(crewA);
-  await crewA.ctx.grantPermissions(["geolocation"]);
-  await crewA.ctx.setGeolocation({ ...at, accuracy: 5 });
   const crewB = await as(webb("crew", nameB), { name: "Robin" });
   const greenName = `Green ${lane}`;
   // The green shirt stands 20 m south of crew A's pile.
@@ -63,20 +65,26 @@ test("Tire piles: crew drops, other crew sees it live, green adds, driver adds, 
     // The live stream opens once the page has settled.
     await crewB.page.waitForTimeout(4000);
 
-    // Crew A: Tire pile drops a pin at the blue dot; Save makes the pile.
+    // Crew A: Tire pile opens the count and Left / Right; Left saves it. No pin, no Save.
     const pa = crewA.page;
     await pa.goto("/");
     await expect(pa.getByRole("region", { name: "Crew map" })).toBeVisible();
-    await expect(pa.locator(".lrb-me")).toBeAttached();
+    await expect(pa.locator("path.lrb-select").first()).toBeAttached();
+    await pa.waitForTimeout(500);
     await pa.locator("[data-tire-add]").click();
-    await expect(pa.locator("[data-tire-place]")).toContainText("Tire pile");
-    await expect(pa.locator("[data-tire-pin]")).toBeVisible();
-    await pa.locator("[data-tire-save]").click();
-    await expect(pa.locator("[data-tire-place]")).toHaveCount(0);
+    const addA = pa.locator("[data-tire-add-sheet]");
+    await expect(addA).toBeVisible();
+    await expect(pa.locator("[data-tire-save]")).toHaveCount(0);
+    await addA.getByRole("button", { name: "More" }).click();
+    await addA.getByRole("button", { name: "More" }).click();
+    await addA.locator('[data-tire-side="left"]').click();
+    await expect(addA).toHaveCount(0);
     const mine = await until(async () => (await pilesOf(crewA)).find((p) => p.mine && !made.includes(p.id)), "crew A's pile");
     made.push(mine.id);
     expect(mine.madeBy).toBe(nameA);
-    expect(mine.lat).toBeCloseTo(at.latitude, 5);
+    expect(mine).toMatchObject({ count: 3, side: "left" });
+    // In the crew's rectangle: within 40 m of its middle.
+    expect(Math.hypot((mine.lat - at.latitude) * 111_320, (mine.lng - at.longitude) * 111_320 * Math.cos((at.latitude * Math.PI) / 180))).toBeLessThan(40);
     expect(mine.photoAt).toBeNull();
     await expect(pa.locator(`[data-tire-pile="${mine.id}"]`)).toBeVisible();
 
@@ -97,7 +105,7 @@ test("Tire piles: crew drops, other crew sees it live, green adds, driver adds, 
     await expect(sheetA.locator("input[type=file]")).toHaveCount(0);
     await pa.keyboard.press("Escape");
 
-    // Green: the pile is on the map; Tire pile, a tap moves the pin, Save.
+    // Green: the pile is on the map; Tire pile, Right, at the green shirt.
     const pg = green.page;
     await pg.goto("/");
     await expect(pg.getByRole("region", { name: "Command center map" })).toBeVisible();
@@ -106,14 +114,13 @@ test("Tire piles: crew drops, other crew sees it live, green adds, driver adds, 
     await pg.locator("[data-recenter]").click();
     await pg.waitForTimeout(800);
     await pg.locator("[data-tire-add]").click();
-    await expect(pg.locator("[data-tire-pin]")).toBeVisible();
-    const box = (await pg.getByRole("region", { name: "Command center map" }).boundingBox())!;
-    await pg.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.45);
-    await pg.locator("[data-tire-save]").click();
+    await pg.locator('[data-tire-add-sheet] [data-tire-side="right"]').click();
+    await expect(pg.locator("[data-tire-add-sheet]")).toHaveCount(0);
     const greens = await until(async () => (await pilesOf(green)).find((p) => p.madeBy === greenName && !made.includes(p.id)), "the green shirt's pile");
     made.push(greens.id);
     expect(greens).toMatchObject({ crewId: null, canMove: true, canDelete: true });
-    expect(Math.abs(greens.lat - stand.latitude) + Math.abs(greens.lng - stand.longitude)).toBeGreaterThan(1e-5);
+    expect(greens).toMatchObject({ count: 1, side: "right" });
+    expect(Math.hypot((greens.lat - stand.latitude) * 111_320, (greens.lng - stand.longitude) * 111_320 * 0.74)).toBeLessThan(12);
     await expect(pg.locator(`[data-tire-pile="${greens.id}"]`)).toBeVisible();
 
     // The truck sees both and drops its own at the truck; the crew and the green shirt see it.
@@ -126,10 +133,8 @@ test("Tire piles: crew drops, other crew sees it live, green adds, driver adds, 
     await expect(pd.locator(`[data-tire-pile="${greens.id}"]`)).toBeAttached();
     expect(await driver.api.refusal("mutate", "tires.remove", { id: mine.id })).toBe("FORBIDDEN");
     await pd.locator("[data-tire-add]").click();
-    await expect(pd.locator("[data-tire-place]")).toContainText("Tire pile");
-    await expect(pd.locator("[data-tire-pin]")).toBeVisible();
-    await pd.locator("[data-tire-save]").click();
-    await expect(pd.locator("[data-tire-place]")).toHaveCount(0);
+    await pd.locator('[data-tire-add-sheet] [data-tire-side="left"]').click();
+    await expect(pd.locator("[data-tire-add-sheet]")).toHaveCount(0);
     const trucks = await until(async () => (await pilesOf(driver)).find((p) => p.mine && !made.includes(p.id)), "the truck's pile");
     made.push(trucks.id);
     expect(trucks).toMatchObject({ madeBy: truckName, canDelete: true, canMove: false });
@@ -184,8 +189,8 @@ test("Tire piles: crew drops, other crew sees it live, green adds, driver adds, 
     await viewer.getByRole("button", { name: "Close" }).click();
     await pg.keyboard.press("Escape");
 
-    // Crew A deletes its own pile from the sheet.
-    await pa.locator(`[data-tire-pile="${mine.id}"]`).click();
+    // Crew A deletes its own pile from the sheet (the click goes to that marker: piles here can overlap).
+    await pa.locator(`[data-tire-pile="${mine.id}"]`).dispatchEvent("click");
     await pa.locator(`[data-tire-sheet="${mine.id}"] [data-tire-delete]`).click();
     await pa.getByRole("button", { name: "Delete", exact: true }).last().click();
     await until(async () => !(await pilesOf(crewA)).some((p) => p.id === mine.id), "crew A's pile gone");

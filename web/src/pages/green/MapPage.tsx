@@ -20,7 +20,7 @@ import { MapView, type MapMarker } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
 import { trpc } from "../../lib/trpc.ts";
 import { useTirePlacing } from "../../lib/tires.ts";
-import { TireGlyph, TirePileSheet, TirePlaceBar, tireMarkers, useTireWrites } from "../../components/TirePile.tsx";
+import { TireAddSheet, TireGlyph, TirePileSheet, TirePlaceBar, tireMarkers, useTireWrites } from "../../components/TirePile.tsx";
 import { RecenterIcon } from "../../components/driver/icons.tsx";
 import { geolocation } from "../../lib/safe.ts";
 
@@ -36,12 +36,12 @@ export const MapPage = () => {
   const now = useNow();
   const overview = trpc.green.overview.useQuery(undefined, { refetchInterval: 30_000 });
   // Own position, shown only on this phone (greens do not report it).
-  const [me, setMe] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
+  const [me, setMe] = useState<{ lat: number; lng: number; accuracy: number; heading: number | null } | null>(null);
   useEffect(() => {
     const geo = geolocation();
     if (!geo) return;
     const id = geo.watchPosition(
-      (p) => setMe({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+      (p) => setMe({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, heading: (p.coords.speed ?? 0) > 1 && p.coords.heading !== null && Number.isFinite(p.coords.heading) ? p.coords.heading : null }),
       () => undefined,
       { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 },
     );
@@ -77,7 +77,7 @@ export const MapPage = () => {
   // Tire piles (SPEC 29): always shown; Tire pile adds one, Move on its sheet moves it.
   const tires = trpc.tires.list.useQuery(undefined, { refetchInterval: 60_000 });
   const tireWrites = useTireWrites();
-  const { placing: tirePlace, startAdd: startTire, startMove: startTireMove, moveTo: moveTire, cancel: cancelTire } = useTirePlacing();
+  const { placing: tirePlace, startMove: startTireMove, moveTo: moveTire, cancel: cancelTire } = useTirePlacing();
   const [tireId, setTireId] = useState<number | null>(null);
   const selTire = tireId !== null ? (tires.data?.find((t) => t.id === tireId) ?? null) : null;
   const tirePlacing = tirePlace !== null;
@@ -179,19 +179,17 @@ export const MapPage = () => {
     return out;
   }, [d, openRequests, visibleCrewIds, showLots, showRequests, showTrucks, pin, now, pending, drawing, painting, lotDrawing, me, tires.data, tirePlace, moveTire, tirePlacing]);
 
+  // Tire pile: count and side of the road from the phone's position (Filip, 2026-10-03); Move keeps the pin.
+  const [tireAdd, setTireAdd] = useState(false);
+  const tireAt = me ?? (map ? { lat: map.getCenter().lat, lng: map.getCenter().lng } : null);
   const addTire = (): void => {
-    const c = map?.getCenter();
-    const at = me ?? (c ? { lat: c.lat, lng: c.lng } : null);
-    if (!at) return;
     setSelected(null);
-    tireWrites.clearError();
-    startTire(at);
+    setTireAdd(true);
   };
   const saveTire = (): void => {
     if (!tirePlace) return;
     const at = { lat: tirePlace.lat, lng: tirePlace.lng };
     if (tirePlace.mode === "move" && tirePlace.id !== null) tireWrites.move.mutate({ id: tirePlace.id, ...at }, { onSuccess: cancelTire });
-    else tireWrites.add.mutate(at, { onSuccess: cancelTire });
   };
 
   const onArea = useCallback((id: number) => setSelected({ kind: "area", id }), []);
@@ -411,6 +409,7 @@ export const MapPage = () => {
           setEditAreaId(id);
         }}
       />
+      <TireAddSheet open={tireAdd} at={tireAt} heading={me?.heading ?? null} onClose={() => setTireAdd(false)} />
       <TirePileSheet
         pile={selTire}
         now={now}

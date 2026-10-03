@@ -7,8 +7,7 @@ import { Sheet } from "../../components/Sheet.tsx";
 import { StatusPill } from "../../components/StatusPill.tsx";
 import { CancelSheet } from "../../components/driver/CancelSheet.tsx";
 import { DriverMap, type DriverMapCrew, type DriverMapLot, type DriverMapStop, type DriverMapTire } from "../../components/driver/DriverMap.tsx";
-import { TireGlyph, TirePileSheet, TirePlaceBar, useTireWrites } from "../../components/TirePile.tsx";
-import { useTirePlacing } from "../../lib/tires.ts";
+import { TireAddSheet, TireGlyph, TirePileSheet } from "../../components/TirePile.tsx";
 import { etaText, itemsSummary } from "../../components/driver/format.ts";
 import { compass, manoeuvreAngle, manoeuvreLabel, nextManoeuvre, straightLine, type Manoeuvre } from "../../components/driver/guidance.ts";
 import { useDistanceFrom, useDriverActions, useNewStopBuzz, useNow, useWakeLock, type DriverActions, type DriverQueue, type QueueStop } from "../../components/driver/hooks.ts";
@@ -286,11 +285,10 @@ export const MapPage = () => {
   const crewList = trpc.driver.crews.useQuery(undefined, { refetchInterval: 30_000 });
   // Tire piles (SPEC 29): every pile at the CC; Tire pile drops one at the truck, a tap or a drag moves it.
   const tires = trpc.tires.list.useQuery(undefined, { refetchInterval: 60_000 });
-  const tireWrites = useTireWrites();
-  const { placing: tirePlace, startAdd: startTire, moveTo: moveTire, cancel: cancelTire } = useTirePlacing();
-  const [tireId, setTireId] = useState<number | null>(null);
+  // Tire pile: count and side of the road from the truck's position and heading (Filip, 2026-10-03).
+  const [tireAdd, setTireAdd] = useState(false);
+    const [tireId, setTireId] = useState<number | null>(null);
   const mapTires = useMemo<DriverMapTire[]>(() => (tires.data ?? []).map((t) => ({ id: t.id, lat: t.lat, lng: t.lng })), [tires.data]);
-  const tirePin = useMemo(() => (tirePlace ? { lat: tirePlace.lat, lng: tirePlace.lng } : null), [tirePlace]);
   const selTire = tireId !== null ? (tires.data?.find((t) => t.id === tireId) ?? null) : null;
   // Lots always shown (Filip, 2026-10-03: no layer buttons on the maps).
   const showLots = true;
@@ -386,23 +384,14 @@ export const MapPage = () => {
         painting={painting}
         onMap={setLeaflet}
         tires={painting ? [] : mapTires}
-        onTire={tirePlace ? undefined : setTireId}
-        pin={tirePin}
-        onPinMove={moveTire}
-      />
-      <TirePlaceBar
-        placing={tirePlace}
-        busy={tireWrites.add.isPending}
-        error={tireWrites.error}
-        onCancel={cancelTire}
-        onSave={() => {
-          if (tirePlace) tireWrites.add.mutate({ lat: tirePlace.lat, lng: tirePlace.lng }, { onSuccess: cancelTire });
-        }}
+        onTire={setTireId}
+        pin={null}
+        onPinMove={() => undefined}
       />
       <PaintFrame paint={paint} />
       <PaintBar paint={paint} />
 
-      {!tirePlace && (
+      {(
       <div className="pointer-events-none absolute inset-x-2 top-2 z-[1000] mx-auto max-w-lg space-y-2">
         {q &&
           (next ? (
@@ -434,7 +423,7 @@ export const MapPage = () => {
       </div>
       )}
 
-      {!painting && !tirePlace && (
+      {!painting && (
       <div className="pointer-events-none absolute bottom-[max(2.25rem,env(safe-area-inset-bottom))] left-3 z-[1000] flex flex-col items-start gap-2">
         <Button
           data-tire-add
@@ -443,15 +432,9 @@ export const MapPage = () => {
           className="pointer-events-auto min-h-14 bg-surface! px-4 shadow-lg"
           disabled={!leaflet || !q}
           onClick={() => {
-            const c = leaflet?.getCenter();
-            const p = at ?? (c ? { lat: c.lat, lng: c.lng } : null);
-            if (!p) return;
             setSel(null);
             setTireId(null);
-            // North up and free to pan, as a touch on the map does, so a tap can move the pin.
-            setFollow(false);
-            tireWrites.clearError();
-            startTire(p);
+            setTireAdd(true);
           }}
         >
           <TireGlyph size={24} />
@@ -483,7 +466,7 @@ export const MapPage = () => {
 
       )}
 
-      {!painting && !tirePlace && (
+      {!painting && (
       <div className="pointer-events-none absolute right-4 bottom-[max(2.25rem,env(safe-area-inset-bottom))] z-[1000]">
         <Button data-queue-button size="lg" className="pointer-events-auto min-h-16 min-w-16 px-6 text-xl shadow-lg" onClick={() => setQueueOpen(true)} aria-label={`Queue, ${stops.length} ${stops.length === 1 ? "stop" : "stops"}`}>
           <ListIcon size={24} />
@@ -516,6 +499,7 @@ export const MapPage = () => {
       </Sheet>
       <DriverLotSheet parcel={sheetParcel} crew={crewsAll.find((c) => c.id === selLot?.crewId) ?? null} lots={lotWrites} canDnt={greenHere} onClose={() => setSel(null)} />
       <TirePileSheet pile={selTire} now={now} onClose={() => setTireId(null)} directions />
+      <TireAddSheet open={tireAdd} at={at} heading={heading} onClose={() => setTireAdd(false)} />
       <AreaCard area={selArea} crews={crewsAll} onClose={() => setAreaId(null)} />
       <CancelSheet stop={cancelStop} actions={actions} onClose={() => setCancelKey(null)} />
     </div>

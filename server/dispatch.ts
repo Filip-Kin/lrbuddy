@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { bus } from "./bus.ts";
 import { config } from "./config.ts";
 import { db } from "./db/index.ts";
@@ -650,7 +650,7 @@ export const computeRouteNow = async (truckId: number, now = Date.now()): Promis
   let from = origin;
   for (let g = 0; g < groups.length; g++) {
     const group = groups[g]!;
-    const result = await trip(from, group.map(toPoint), g === groups.length - 1 ? destination : null, opts);
+    const result = await trip(from, group.map(toPoint), g === groups.length - 1 ? destination : null, g === 0 ? { ...opts, originBearing: travelBearing(truckId, now) } : opts);
     segments.push({ stops: group, result });
     const last = result.order[result.order.length - 1];
     if (last !== undefined) from = toPoint(group[last]!);
@@ -792,6 +792,34 @@ const dropStalePin = (truckId: number): void => {
   if (activePin(t, stopsForTruck(truckId, Date.now())) === null) {
     db.update(trucks).set({ pinnedStopKey: null }).where(eq(trucks.id, truckId)).run();
   }
+};
+
+/**
+ * The direction the truck is driving, from its fixes of the last 30 s: the newest fix's heading
+ * when it reports moving (2 m/s or more), else the bearing between the newest fix and one at
+ * least 10 m back. Null when standing still, so a parked truck may leave either way.
+ */
+export const travelBearing = (truckId: number, now = Date.now()): number | null => {
+  const fixes = db
+    .select()
+    .from(positions)
+    .where(and(eq(positions.kind, "truck"), eq(positions.refId, truckId), gte(positions.at, now - 30_000)))
+    .orderBy(desc(positions.at))
+    .limit(15)
+    .all();
+  const head = fixes[0];
+  if (!head) return null;
+  if ((head.speed ?? 0) >= 2 && head.heading !== null && Number.isFinite(head.heading)) return head.heading;
+  for (const f of fixes.slice(1)) {
+    if (haversine(f, head) >= 10) {
+      const y = Math.sin(((head.lng - f.lng) * Math.PI) / 180) * Math.cos((head.lat * Math.PI) / 180);
+      const x =
+        Math.cos((f.lat * Math.PI) / 180) * Math.sin((head.lat * Math.PI) / 180) -
+        Math.sin((f.lat * Math.PI) / 180) * Math.cos((head.lat * Math.PI) / 180) * Math.cos(((head.lng - f.lng) * Math.PI) / 180);
+      return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+    }
+  }
+  return null;
 };
 
 /** Debounced route computation, 3 s per truck. Any change to a truck's stops comes through here. */

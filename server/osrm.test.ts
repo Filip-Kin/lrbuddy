@@ -74,3 +74,18 @@ describe("osrm steps", () => {
     expect(r.legs.every((l) => l.steps.length === 0)).toBe(true);
   });
 });
+
+describe("origin bearing (Filip 2026-10-03: driving away from the stop)", () => {
+  test("sends a bearing for the origin only, and retries without it when OSRM refuses", async () => {
+    const urls: string[] = [];
+    const fetchImpl = (async (u: string) => {
+      urls.push(String(u));
+      return new Response(JSON.stringify({ code: urls.length === 1 ? "NoSegment" : "NoRoute" }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const { trip } = await import("./osrm.ts");
+    await trip({ lat: 42.38, lng: -83.1 }, [{ lat: 42.381, lng: -83.101 }, { lat: 42.382, lng: -83.102 }], null, { osrmUrl: "http://osrm.test", fetchImpl, originBearing: 271.6 });
+    expect(urls).toHaveLength(2);
+    expect(new URL(urls[0]!).searchParams.get("bearings")).toBe("272,60;;");
+    expect(new URL(urls[1]!).searchParams.get("bearings")).toBeNull();
+  });
+});

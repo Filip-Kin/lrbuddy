@@ -8,6 +8,7 @@ import { ccBody, escapeHtml, lotIcon, lotShape, routeLine, type LotStatus } from
 import { attachLabelDeclutter } from "../../lib/map/declutter.ts";
 import { usePrefersDark } from "../../lib/map/MapView.tsx";
 import { useOnewayLayer } from "../../lib/map/onewayLayer.ts";
+import { useOsmAlleys } from "../../lib/map/alleyLayer.ts";
 import { useParcelLayer, type BareParcel } from "../../lib/map/parcelLayer.ts";
 import { ahead, metresPerPixel, turn, type LatLng } from "../../pages/plan/survey/geo.ts";
 import { useDayOfLayer, type DayOfArea } from "../green/dayOfLayer.ts";
@@ -163,6 +164,8 @@ export const DriverMap = ({
   const tookAt = useRef(0);
   const [leaflet, setLeaflet] = useState<L.Map | null>(null);
   useOnewayLayer(leaflet);
+  // OSM alleys as dashed centrelines, always on, as on the green map.
+  useOsmAlleys(leaflet, true);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const rot = useRef(0);
   // The square's turn as state, so the rectangle names re-lay upright when it changes.

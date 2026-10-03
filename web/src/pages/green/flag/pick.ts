@@ -113,8 +113,8 @@ export interface AlleyCandidate {
 }
 
 /** Nearest point of a polyline (local metres) to the origin: distance, arc position, length, and the direction there. */
-const nearestOnLine = (xy: ReadonlyArray<readonly [number, number]>): { d: number; s: number; length: number; u: [number, number] } => {
-  let best = { d: Infinity, s: 0, u: [0, 0] as [number, number] };
+const nearestOnLine = (xy: ReadonlyArray<readonly [number, number]>): { d: number; s: number; length: number; u: [number, number]; p: [number, number] } => {
+  let best = { d: Infinity, s: 0, u: [0, 0] as [number, number], p: [0, 0] as [number, number] };
   let acc = 0;
   for (let i = 1; i < xy.length; i++) {
     const a = xy[i - 1]!;
@@ -125,7 +125,7 @@ const nearestOnLine = (xy: ReadonlyArray<readonly [number, number]>): { d: numbe
     if (len === 0) continue;
     const t = Math.max(0, Math.min(1, (-a[0] * dx - a[1] * dy) / (len * len)));
     const d = Math.hypot(a[0] + dx * t, a[1] + dy * t);
-    if (d < best.d) best = { d, s: acc + t * len, u: [dx / len, dy / len] };
+    if (d < best.d) best = { d, s: acc + t * len, u: [dx / len, dy / len], p: [a[0] + dx * t, a[1] + dy * t] };
     acc += len;
   }
   return { ...best, length: acc };
@@ -133,28 +133,30 @@ const nearestOnLine = (xy: ReadonlyArray<readonly [number, number]>): { d: numbe
 
 /**
  * The alley half the phone points into, or null. A half qualifies when the
- * phone is within 15 m of it and the bearing runs along it within 25 degrees,
- * either way; and the half is the one the phone stands in, or starts at the
- * phone's end and runs away from it along the bearing. The nearest wins: the
- * half the phone stands in before the one it looks into.
+ * phone is within 15 m of it (or its end lies up to 30 m straight ahead, across
+ * the cross street), the bearing runs along it within 25 degrees, and
+ * the part of it ahead of the phone along the bearing is at least 10 m (or half
+ * its length if shorter). The nearest such half wins. Standing a few metres
+ * inside the end of the alley behind the phone (GPS on the cross street at the
+ * mouth) therefore never picks that alley (Filip, 2026-10-03, at 14th St).
  */
+export const ALLEY_AHEAD_M = 10;
+export const ALLEY_ACROSS_M = 30;
 export const pickAlley = <T extends AlleyCandidate>(at: LatLng, heading: number, halves: readonly T[]): T | null => {
   const h: [number, number] = [Math.sin(heading * RAD), Math.cos(heading * RAD)];
   const cosMax = Math.cos(ALLEY_ALONG_DEG * RAD);
-  const END_M = 0.5;
-  let best: { c: T; score: number } | null = null;
+  let best: { c: T; d: number } | null = null;
   for (const c of halves) {
     if (c.line.length < 2) continue;
     const near = nearestOnLine(c.line.map(([lat, lng]) => xyOf(at, lng, lat)));
-    if (near.d > ALLEY_NEAR_M) continue;
+    // Within 15 m, or an end up to 30 m away straight ahead (across the cross street from the mouth).
+    const aheadOfPhone = near.d > 0 ? (h[0] * near.p[0] + h[1] * near.p[1]) / near.d : 1;
+    if (near.d > ALLEY_NEAR_M && !(near.d <= ALLEY_ACROSS_M && aheadOfPhone >= Math.cos(15 * RAD))) continue;
     const along = h[0] * near.u[0] + h[1] * near.u[1];
     if (Math.abs(along) < cosMax) continue;
-    const forward = along > 0;
-    const inside = near.s > END_M && near.s < near.length - END_M;
-    // At an end, the half must run away from the phone along the bearing.
-    if (!inside && (near.s <= END_M ? !forward : forward)) continue;
-    const score = inside ? near.d / 1000 : near.d;
-    if (!best || score < best.score) best = { c, score };
+    const ahead = along > 0 ? near.length - near.s : near.s;
+    if (ahead < Math.min(ALLEY_AHEAD_M, near.length / 2)) continue;
+    if (!best || near.d < best.d) best = { c, d: near.d };
   }
   return best?.c ?? null;
 };
